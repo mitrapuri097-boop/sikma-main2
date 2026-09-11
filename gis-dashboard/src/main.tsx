@@ -62,7 +62,7 @@ import LokasiSaya from "./views/gis/LokasiSaya";
 // ======================================================
 
 import Kerawanan from "./Kerawanan";
-import Kebencanaan from "./kejadian";
+import Kebencanaan from "./Kejadian";
 import DetailKejadian from "./detailKejadian";
 
 // ======================================================
