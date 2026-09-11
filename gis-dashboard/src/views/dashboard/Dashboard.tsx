@@ -1,4 +1,4 @@
-import TentangKami from '../../tentangkami'
+import TentangKami from '../../TentangKami'
 
 const Dashboard = () => {
   return <TentangKami />
