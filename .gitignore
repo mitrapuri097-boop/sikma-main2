@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment / secrets
+.env
+.env.*
+**/.env-*
+!.env.example
+!**/.env.example
+
+# Build output
+dist/
+**/dist/
+build/
+.next/
+.vite/
+**/dist-*/
+
+# Archives
+*.zip
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Runtime uploads
+uploads/
+**/uploads/

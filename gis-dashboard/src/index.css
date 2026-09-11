@@ -1,0 +1,234 @@
+@import "tailwindcss";
+@tailwind utilities;
+
+.mockup-container {
+  @apply flex flex-col h-screen;
+}
+
+.mockup-grid {
+  @apply grid flex-shrink-0;
+  grid-template-rows: 5fr 3fr;
+  grid-template-columns: 4fr 1fr;
+  gap: 0;
+  height: calc(100vh - 15px);
+}
+
+.mockup-cell {
+  position: relative;
+  overflow: visible;
+}
+
+.mockup-grid > .mockup-cell:nth-child(3),
+.mockup-grid > .mockup-cell:nth-child(4) {
+  @apply border-b-5 border-blue-900;
+}
+
+.leaflet-control-attribution {
+  display: none !important;
+}
+
+.mockup-grid > .mockup-cell:nth-child(4) {
+  @apply p-2 flex items-center justify-center;
+}
+
+.mockup-grid > .mockup-cell:nth-child(4) > * {
+  @apply max-w-sm overflow-auto;
+}
+
+.table-data-section {
+  @apply flex-grow overflow-auto bg-gray-50;
+  min-height: calc(100vh - 15px);
+}
+
+/* ===== KRITICAL FIX: Z-INDEX LEAFLET PROBLEMS ===== */
+/* ONLY remove problematic z-index overrides for Leaflet internals */
+
+/* KEEP: Status overlays dengan z-index tinggi (UI overlays) */
+.mockup-cell > .absolute {
+  z-index: 1001 !important; /* Higher than leaflet default (400-600) */
+  pointer-events: none !important; /* CRITICAL: Don't block map interactions */
+}
+
+/* KEEP: Allow interactions on UI elements */
+.mockup-cell > .absolute button,
+.mockup-cell > .absolute input,
+.mockup-cell > .absolute select {
+  pointer-events: auto !important;
+}
+
+/* CRITICAL FIX: Remove z-index override on leaflet-container */
+.mockup-cell .leaflet-container {
+  position: relative !important;
+  /* REMOVED: z-index: 1 !important; - This was interfering with marker visibility */
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* CRITICAL FIX: Remove ALL Leaflet internal z-index overrides */
+/* These rules were forcing Leaflet layers below marker layer */
+/* .mockup-cell .leaflet-map-pane,
+.mockup-cell .leaflet-objects-pane,
+.mockup-cell .leaflet-overlay-pane,
+.mockup-cell .leaflet-shadow-pane,
+.mockup-cell .leaflet-marker-pane,
+.mockup-cell .leaflet-tooltip-pane,
+.mockup-cell .leaflet-popup-pane {
+  z-index: auto !important;
+} */
+/* COMMENTED OUT - Let Leaflet manage its own z-index hierarchy */
+
+/* KEEP: Ensure GeoJSON layers are interactive */
+.mockup-cell .leaflet-interactive {
+  pointer-events: auto !important;
+  cursor: inherit !important;
+}
+
+/* KEEP: Risk analysis layers cursor */
+.mockup-cell .leaflet-interactive[style*="cursor: pointer"] {
+  cursor: pointer !important;
+}
+
+/* KEEP: Legend positioning - this doesn't interfere with map layers */
+.legend-popup-bottom-left-fallback {
+  position: absolute !important;
+  bottom: 12px !important;
+  left: 12px !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+  border: 1px solid #d1d5db !important;
+  border-radius: 6px !important;
+  padding: 12px !important;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15) !important;
+  z-index: 1001 !important;
+  font-size: 12px !important;
+  max-width: 200px !important;
+  min-width: 150px !important;
+  width: fit-content !important;
+  box-sizing: border-box !important;
+  pointer-events: none !important; /* CRITICAL: Don't block map interactions */
+}
+
+/* KEEP: Legend item styling */
+.legend-title {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.legend-color {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+}
+
+.legend-color.red {
+  background-color: red;
+}
+
+.legend-color.yellow {
+  background-color: yellow;
+}
+
+.legend-color.green {
+  background-color: green;
+}
+
+/* KEEP: Map cell isolation for clean stacking context */
+.mockup-cell:first-child {
+  /* This is the map cell - create clean stacking context without z-index interference */
+  isolation: isolate;
+}
+
+/* KEEP: Custom tooltip styles */
+.leaflet-tooltip.risk-tooltip {
+  background: rgba(0, 0, 0, 0.9) !important;
+  color: white !important;
+  border: none !important;
+  border-radius: 4px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  padding: 8px !important;
+}
+
+.leaflet-tooltip.risk-tooltip::before {
+  border-top-color: rgba(0, 0, 0, 0.9) !important;
+}
+
+/* KEEP: Custom popup styles */
+.leaflet-popup.custom-popup .leaflet-popup-content-wrapper {
+  border-radius: 6px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+.leaflet-popup.custom-popup .leaflet-popup-content {
+  margin: 12px !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+}
+
+/* KEEP: Enhanced incident popup styles */
+.leaflet-popup.incident-popup.enhanced .leaflet-popup-content-wrapper {
+  border-radius: 8px !important;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2) !important;
+  border: 2px solid #e5e7eb !important;
+}
+
+.leaflet-popup.incident-popup.enhanced .leaflet-popup-content {
+  margin: 0 !important;
+  padding: 0 !important;
+  max-width: none !important;
+}
+
+/* KEEP: Layer interaction enhancements */
+.mockup-cell .leaflet-overlay-pane svg {
+  pointer-events: auto !important;
+}
+
+.mockup-cell .leaflet-overlay-pane path {
+  pointer-events: auto !important;
+}
+
+/* KEEP: Zoom animation timing */
+.mockup-cell .leaflet-zoom-anim .leaflet-zoom-animated {
+  transition-duration: 0.25s !important;
+}
+
+/* CRITICAL FIX: Remove z-index override on markers */
+/* .mockup-cell .leaflet-marker-pane .custom-incident-marker {
+  z-index: auto !important;
+  pointer-events: auto !important;
+} */
+/* COMMENTED OUT - Let markers use their natural z-index from Leaflet */
+
+/* KEEP: Marker interaction capability */
+.mockup-cell .custom-incident-marker {
+  pointer-events: auto !important;
+}
+
+.mockup-cell .custom-incident-marker.enhanced {
+  display: block !important;
+  visibility: visible !important;
+}
+
+/* KEEP: Debug hover for development (commented out for production) */
+.mockup-cell .leaflet-interactive:hover {
+  /* Visual feedback for debugging - remove in production */
+  /* filter: brightness(1.1) !important; */
+}
+
+/* CRITICAL FIX: Remove problematic z-index resets */
+/* .mockup-container * {
+  z-index: initial;
+} */
+/* COMMENTED OUT - This was interfering with Leaflet's z-index management */
+
+/* KEEP: Only UI overlays get controlled z-index */
+.mockup-container .absolute {
+  z-index: 1001;
+}

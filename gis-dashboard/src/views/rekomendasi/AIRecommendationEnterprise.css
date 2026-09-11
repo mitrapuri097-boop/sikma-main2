@@ -1,0 +1,1675 @@
+:root {
+  --simiti-green: #008f43;
+  --simiti-green-dark: #08743b;
+  --simiti-orange: #f26a00;
+  --simiti-text: #163322;
+  --simiti-muted: #66756b;
+  --simiti-border: #d9e1dc;
+  --simiti-white: #fff;
+
+  /*
+   * Lebar referensi Sidebar.
+   * Tidak digunakan untuk memaksa margin.
+   * EnterpriseLayout tetap menjadi pemilik layout Sidebar.
+   */
+  --simiti-sidebar-width: 270px;
+  --simiti-sidebar-collapsed: 72px;
+}
+
+/* =========================================================
+   ENTERPRISE GIS WORKSPACE
+   ========================================================= */
+
+.simiti-map-page {
+  position: absolute;
+  inset: 0;
+
+  width: 100%;
+  height: 100%;
+
+  min-width: 0;
+  min-height: 0;
+
+  overflow: hidden;
+
+  background: #e7f2f3;
+  color: var(--simiti-text);
+
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+
+  /*
+   * Mencegah z-index Leaflet/UI GIS
+   * keluar dari area LayerOverlay.
+   */
+  isolation: isolate;
+}
+
+.simiti-map-page,
+.simiti-map-page *,
+.simiti-map-page *::before,
+.simiti-map-page *::after {
+  box-sizing: border-box;
+}
+
+/* =========================================================
+   HEADER
+   ========================================================= */
+
+.simiti-map-header {
+  position: absolute;
+  z-index: 1200;
+
+  top: 0;
+  left: 0;
+  right: 0;
+
+  height: 64px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 0 18px;
+
+  background: rgba(255, 255, 255, 0.985);
+
+  border-top: 3px solid #2f302f;
+  border-bottom: 1px solid #d8ddd9;
+
+  box-shadow:
+    0 1px 0 rgba(255,255,255,.8),
+    0 4px 14px rgba(15,35,25,.08);
+}
+
+.simiti-map-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  min-width: 285px;
+}
+
+.simiti-brand-logo {
+  width: 38px;
+  height: 38px;
+
+  display: grid;
+  place-items: center;
+
+  flex: 0 0 auto;
+
+  border-radius: 50% 45% 55% 50%;
+
+  background: #f3f8f2;
+  color: var(--simiti-green);
+
+  border: 1px solid #d6e5d5;
+}
+
+.simiti-map-brand strong {
+  display: block;
+
+  color: #39753e;
+
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 12px;
+  line-height: 1.15;
+  font-style: italic;
+}
+
+.simiti-map-brand span {
+  display: block;
+
+  color: #39753e;
+
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 11px;
+  line-height: 1.15;
+  font-style: italic;
+}
+
+.simiti-map-nav {
+  height: 100%;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 4px;
+}
+
+.simiti-map-nav button {
+  min-width: 118px;
+  height: 38px;
+
+  padding: 0 16px;
+
+  border: 0;
+  border-radius: 5px;
+
+  background: transparent;
+
+  color: #18251d;
+
+  font-size: 13px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  transition:
+    background .16s ease,
+    color .16s ease;
+}
+
+.simiti-map-nav button:hover {
+  background: #f0f5f1;
+}
+
+.simiti-map-nav button.active {
+  background: var(--simiti-green);
+  color: #fff;
+  font-weight: 800;
+}
+
+.simiti-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+
+  gap: 8px;
+
+  min-width: 150px;
+}
+
+.simiti-live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  color: #257442;
+
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .07em;
+}
+
+.simiti-live-status i {
+  width: 7px;
+  height: 7px;
+
+  border-radius: 50%;
+
+  background: #14a44d;
+
+  box-shadow:
+    0 0 0 3px rgba(20,164,77,.12);
+}
+
+.simiti-header-icon {
+  width: 34px;
+  height: 34px;
+
+  display: grid;
+  place-items: center;
+
+  border: 1px solid #d7ded9;
+  border-radius: 5px;
+
+  background: #fff;
+  color: #42564a;
+
+  cursor: pointer;
+
+  transition:
+    background .15s ease,
+    border-color .15s ease;
+}
+
+.simiti-header-icon:hover {
+  background: #f4f8f5;
+  border-color: #bfcfc4;
+}
+
+/* =========================================================
+   MAP WORKSPACE
+   ========================================================= */
+
+.simiti-map-shell {
+  position: absolute;
+
+  top: 64px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+
+  width: 100%;
+  height: calc(100% - 64px);
+
+  min-width: 0;
+  min-height: 0;
+
+  overflow: hidden;
+
+  background: #add5e0;
+}
+
+.simiti-map {
+  position: absolute;
+
+  inset: 0;
+
+  z-index: 1;
+
+  background: #add5e0;
+}
+
+/*
+ * Leaflet harus tetap berada di bawah semua enterprise UI.
+ */
+.simiti-map .leaflet-container {
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+.simiti-map .leaflet-control-container {
+  z-index: 500;
+}
+
+/* =========================================================
+   GLOBAL MAP SEARCH
+   ========================================================= */
+
+.simiti-map-search {
+  position: absolute;
+  z-index: 850;
+
+  top: 16px;
+  left: 326px;
+
+  width: min(430px, calc(100% - 620px));
+  min-width: 280px;
+
+  height: 44px;
+
+  display: flex;
+  align-items: center;
+  gap: 9px;
+
+  padding: 0 12px;
+
+  background: rgba(255, 255, 255, 0.975);
+
+  border: 1px solid #cbd7d0;
+  border-radius: 6px;
+
+  box-shadow:
+    0 4px 14px rgba(16, 35, 25, 0.12);
+
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.simiti-map-search:focus-within {
+  border-color: #7db393;
+
+  box-shadow:
+    0 0 0 3px rgba(0, 143, 67, 0.08),
+    0 4px 14px rgba(16, 35, 25, 0.12);
+}
+
+.simiti-map-search:focus-within {
+  border-color: #7db393;
+
+  box-shadow:
+    0 0 0 3px rgba(0,143,67,.08),
+    0 4px 14px rgba(16,35,25,.12);
+}
+
+.simiti-map-search > svg {
+  color: #52665a;
+  flex: 0 0 auto;
+}
+
+.simiti-map-search input {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+
+  border: 0;
+  outline: 0;
+
+  background: transparent;
+  color: #203127;
+
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.simiti-map-search input::placeholder {
+  color: #7a877e;
+}
+
+.simiti-map-search > button {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #66746b;
+  cursor: pointer;
+}
+
+.simiti-area-results {
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: calc(100% + 6px);
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #d2dad5;
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(16,35,25,.16);
+}
+
+.simiti-area-results button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid #edf1ee;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.simiti-area-results button:hover {
+  background: #f3f8f4;
+}
+
+.simiti-area-results svg {
+  color: var(--simiti-green);
+  flex: 0 0 auto;
+}
+
+.simiti-area-results strong,
+.simiti-area-results small {
+  display: block;
+}
+
+.simiti-area-results strong {
+  color: #24352a;
+  font-size: 12px;
+}
+
+.simiti-area-results small {
+  margin-top: 2px;
+  color: #7a877e;
+  font-size: 10px;
+}
+
+.simiti-map-status {
+  position: absolute;
+  z-index: 700;
+  top: 16px;
+  right: 18px;
+  display: flex;
+  gap: 5px;
+}
+
+.simiti-map-status span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 10px;
+  background: rgba(255,255,255,.94);
+  border: 1px solid #d2dad5;
+  border-radius: 3px;
+  color: #3f5146;
+  font-size: 10px;
+  font-weight: 700;
+  box-shadow: 0 2px 7px rgba(16,35,25,.11);
+}
+
+.simiti-map-status svg {
+  color: var(--simiti-green);
+}
+
+.simiti-map .leaflet-control-zoom {
+  margin-top: 60px;
+  margin-right: 18px;
+  border: 1px solid #9db2a7 !important;
+  box-shadow: 0 2px 5px rgba(0,0,0,.13);
+}
+
+.simiti-map .leaflet-control-zoom a {
+  color: #17231b;
+  width: 32px;
+  height: 31px;
+  line-height: 31px;
+  background: #fff;
+}
+
+.simiti-map .leaflet-control-attribution {
+  display: none;
+}
+
+.simiti-map-controls {
+  position: absolute;
+  z-index: 750;
+  right: 18px;
+  top: 130px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.simiti-map-controls button {
+  width: 35px;
+  height: 35px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #c2cec7;
+  border-radius: 4px;
+  background: rgba(255,255,255,.96);
+  color: #35463b;
+  box-shadow: 0 2px 6px rgba(16,35,25,.13);
+  cursor: pointer;
+}
+
+.simiti-map-controls button.active {
+  color: #fff;
+  background: var(--simiti-green);
+  border-color: var(--simiti-green);
+}
+
+.simiti-map-legend {
+  position: absolute;
+  z-index: 700;
+  left: 0;
+  bottom: 0;
+  min-width: 270px;
+  padding: 11px 16px 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255,255,255,.96);
+  border-top: 1px solid #d2d8d4;
+  box-shadow: 0 -2px 8px rgba(0,0,0,.08);
+}
+
+.simiti-legend-title {
+  color: #657168;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  margin-right: 2px;
+}
+
+.simiti-map-legend button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 3px;
+  border: 0;
+  background: transparent;
+  color: #294033;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.simiti-map-legend button:not(.active) {
+  opacity: .38;
+}
+
+.legend-dot {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.18);
+}
+
+.hazard-flood { background: #178dc5; }
+.hazard-landslide { background: #8c5a35; }
+.hazard-fire { background: #ef5a35; }
+.hazard-drought { background: #d29c2d; }
+
+.simiti-map-legend button > i {
+  width: 11px;
+  color: var(--simiti-green);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.simiti-legend-divider {
+  height: 24px;
+  width: 1px;
+  background: #d7dfda;
+}
+
+.simiti-legend-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #3d5045;
+  font-size: 11px;
+}
+
+.legend-ai-dot {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--simiti-green);
+}
+
+.simiti-map-footer-left,
+.simiti-map-footer-right {
+  position: absolute;
+  z-index: 650;
+  bottom: 52px;
+  padding: 4px 7px;
+  color: #5d6b63;
+  background: rgba(255,255,255,.75);
+  font-size: 9px;
+}
+
+.simiti-map-footer-left {
+  left: 5px;
+  display: flex;
+  gap: 8px;
+}
+
+.simiti-map-footer-right {
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.simiti-incident-marker-wrap {
+  background: transparent;
+  border: 0;
+}
+
+.simiti-incident-marker {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 3px solid rgba(255,255,255,.94);
+  border-radius: 50%;
+  color: #fff;
+  font-size: 12px;
+  box-shadow: 0 2px 7px rgba(0,0,0,.28);
+  transition: transform .16s ease, box-shadow .16s ease;
+}
+
+.simiti-incident-marker.selected {
+  width: 34px;
+  height: 34px;
+  margin: -2px;
+  border-width: 4px;
+  box-shadow: 0 0 0 5px rgba(0,143,67,.20), 0 3px 9px rgba(0,0,0,.28);
+  transform: scale(1.05);
+}
+
+.simiti-tooltip {
+  border: 0 !important;
+  border-radius: 3px !important;
+  box-shadow: 0 3px 12px rgba(0,0,0,.18) !important;
+  color: #213128 !important;
+  font-size: 11px !important;
+}
+
+.simiti-drawer-tab {
+  position: absolute;
+  z-index: 1001;
+  top: 50%;
+  right: 0;
+  width: 28px;
+  height: 52px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 5px 0 0 5px;
+  background: var(--simiti-orange);
+  color: #fff;
+  box-shadow: -2px 2px 8px rgba(0,0,0,.18);
+  cursor: pointer;
+  transition: right .25s ease;
+}
+
+.simiti-drawer-tab.open {
+  right: 390px;
+}
+
+.simiti-ai-drawer {
+  position: absolute;
+  z-index: 1000;
+  top: 0;
+  right: -390px;
+  bottom: 0;
+  width: 390px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255,255,255,.985);
+  border-left: 1px solid #d5ddd8;
+  box-shadow: -8px 0 28px rgba(16,35,25,.17);
+  transition: right .25s ease;
+  overflow-y: auto;
+}
+
+.simiti-ai-drawer.open {
+  right: 0;
+}
+
+.simiti-drawer-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 18px 18px 15px;
+  background: #fff;
+  border-bottom: 1px solid #e1e7e3;
+}
+
+.simiti-drawer-head span,
+.simiti-mini-title,
+.simiti-section-title span,
+.simiti-driver-box span,
+.simiti-evidence-list span,
+.simiti-selected-title small,
+.simiti-risk-box span {
+  color: #718078;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+.simiti-drawer-head h2 {
+  margin: 3px 0 0;
+  color: #173322;
+  font-size: 19px;
+  line-height: 1.15;
+}
+
+.simiti-drawer-head > button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d7ded9;
+  background: #fff;
+  color: #53635a;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.simiti-selected-card {
+  margin: 14px;
+  padding: 14px;
+  border: 1px solid #dbe4de;
+  border-radius: 6px;
+  background: #f8fbf8;
+}
+
+.simiti-selected-top {
+  display: flex;
+  gap: 11px;
+}
+
+.simiti-selected-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  background: #e2f2e8;
+  color: var(--simiti-green);
+}
+
+.simiti-selected-title h3 {
+  margin: 3px 0 2px;
+  color: #20362a;
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.simiti-selected-title p {
+  margin: 0;
+  color: #65736a;
+  font-size: 11px;
+}
+
+.simiti-selected-meta {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.simiti-selected-meta span {
+  padding: 5px 7px;
+  border-radius: 3px;
+  background: #edf3ee;
+  color: #496055;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.simiti-focus-btn {
+  width: 100%;
+  height: 34px;
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #c8d9cc;
+  border-radius: 4px;
+  background: #fff;
+  color: var(--simiti-green-dark);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.simiti-risk-box {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 14px 14px;
+  padding: 13px 14px;
+  border: 1px solid #e0e6e2;
+  border-radius: 5px;
+  background: #fff;
+}
+
+.simiti-risk-box > div,
+.simiti-confidence {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.simiti-risk-box strong {
+  font-size: 16px;
+}
+
+.risk-high { color: #d53f2f; }
+.risk-medium { color: #b27a00; }
+.risk-low { color: #24804b; }
+
+.simiti-confidence {
+  align-items: flex-end;
+  border-left: 1px solid #e2e8e4;
+  padding-left: 18px;
+}
+
+.simiti-confidence strong {
+  color: #4a5d51;
+}
+
+.simiti-ai-loading,
+.simiti-ai-error,
+.simiti-verification,
+.simiti-diagnosis,
+.simiti-driver-box {
+  margin: 0 14px 13px;
+  border-radius: 5px;
+}
+
+.simiti-ai-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: #eff8f2;
+  color: #31724a;
+  font-size: 11px;
+}
+
+.simiti-ai-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 11px;
+  background: #fff3f1;
+  color: #a43c30;
+  font-size: 11px;
+}
+
+.simiti-diagnosis {
+  padding: 12px;
+  background: #f7faf8;
+  border: 1px solid #e1e8e3;
+}
+
+.simiti-mini-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.simiti-diagnosis p {
+  margin: 7px 0 0;
+  color: #42554a;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.simiti-drawer-section {
+  margin: 0 14px 13px;
+  padding-top: 2px;
+}
+
+.simiti-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e3e9e5;
+}
+
+.simiti-section-title svg {
+  color: var(--simiti-green);
+}
+
+.simiti-main-recommendation {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  gap: 9px;
+  align-items: start;
+  margin-top: 9px;
+  padding: 11px;
+  border-left: 3px solid var(--simiti-green);
+  background: #f2f8f3;
+}
+
+.simiti-rec-rank {
+  color: #4b6254;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.simiti-main-recommendation strong {
+  display: block;
+  color: #1e3928;
+  font-size: 12px;
+}
+
+.simiti-main-recommendation p {
+  margin: 4px 0 0;
+  color: #68776e;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.simiti-main-recommendation b {
+  color: var(--simiti-green);
+  font-size: 14px;
+}
+
+.simiti-rec-row {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  gap: 9px;
+  align-items: center;
+  padding: 10px 2px;
+  border-bottom: 1px solid #edf1ee;
+}
+
+.simiti-rec-row > span {
+  color: #849088;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.simiti-rec-row strong {
+  display: block;
+  color: #33483b;
+  font-size: 11px;
+}
+
+.simiti-rec-row small {
+  display: block;
+  margin-top: 2px;
+  color: #8a958e;
+  font-size: 9px;
+}
+
+.simiti-rec-row b {
+  color: #4e6557;
+  font-size: 12px;
+}
+
+.simiti-evidence-list {
+  margin-top: 3px;
+}
+
+.simiti-evidence-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 2px;
+  border-bottom: 1px solid #edf1ee;
+}
+
+.simiti-evidence-list strong {
+  color: #33473b;
+  font-size: 10px;
+  text-align: right;
+}
+
+.simiti-driver-box {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  background: #f4f8f5;
+  color: #567063;
+}
+
+.simiti-driver-box svg {
+  flex: 0 0 auto;
+  color: var(--simiti-green);
+}
+
+.simiti-driver-box p {
+  margin: 3px 0 0;
+  color: #3f5548;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.simiti-verification {
+  display: flex;
+  gap: 7px;
+  padding: 10px;
+  background: #fff8e9;
+  color: #86610c;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.simiti-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 260px;
+  padding: 30px;
+  text-align: center;
+  color: #7a877f;
+}
+
+.simiti-empty svg {
+  margin-bottom: 10px;
+  color: #6b8a77;
+}
+
+.simiti-empty strong {
+  color: #405348;
+  font-size: 14px;
+}
+
+.simiti-empty p {
+  max-width: 250px;
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.simiti-drawer-bottom {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: auto;
+  padding: 11px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: rgba(255,255,255,.98);
+  border-top: 1px solid #dfe6e1;
+}
+
+.simiti-drawer-bottom button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #cbd9cf;
+  border-radius: 4px;
+  background: #fff;
+  color: #2f5a3c;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.simiti-drawer-bottom > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #738078;
+  font-size: 9px;
+}
+
+.simiti-mobile-hint {
+  display: none;
+}
+
+.spin {
+  animation: simiti-spin 1s linear infinite;
+}
+
+@keyframes simiti-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 900px) {
+  .simiti-map-brand {
+    min-width: auto;
+  }
+
+  .simiti-map-brand strong,
+  .simiti-map-brand span {
+    display: none;
+  }
+
+  .simiti-map-nav button {
+    min-width: auto;
+    padding: 0 10px;
+    font-size: 11px;
+  }
+
+  .simiti-map-nav button.active {
+    padding: 0 11px;
+  }
+
+  .simiti-header-actions {
+    min-width: auto;
+  }
+
+  .simiti-live-status {
+    display: none;
+  }
+
+  .simiti-ai-drawer {
+    width: min(390px, 92vw);
+    right: min(-390px, -92vw);
+  }
+
+  .simiti-drawer-tab.open {
+    right: min(390px, 92vw);
+  }
+
+.simiti-map-legend {
+  max-width: calc(100% - 10px);
+}
+
+  .simiti-map-search {
+    width: min(360px, calc(100vw - 90px));
+  }
+}
+
+@media (max-width: 620px) {
+  .simiti-map-header {
+    height: 58px;
+    padding: 0 9px;
+  }
+
+  .simiti-map-shell {
+    inset: 58px 0 0;
+  }
+
+  .simiti-map-nav {
+    gap: 0;
+  }
+
+  .simiti-map-nav button {
+    padding: 0 6px;
+    font-size: 9px;
+  }
+
+  .simiti-map-nav button.active {
+    height: 34px;
+    padding: 0 8px;
+  }
+
+  .simiti-header-icon {
+    display: none;
+  }
+
+  .simiti-map-search {
+    top: 10px;
+    left: 9px;
+    width: calc(100vw - 18px);
+  }
+
+  .simiti-map-status {
+    top: 65px;
+    left: 9px;
+    right: auto;
+  }
+
+  .simiti-map-controls {
+    top: 118px;
+    right: 9px;
+  }
+
+  .simiti-map-legend {
+    left: 0;
+    right: 0;
+    min-width: 100%;
+    gap: 7px;
+  }
+
+  .simiti-legend-title,
+  .simiti-legend-divider,
+  .simiti-legend-note {
+    display: none;
+  }
+
+  .simiti-map-footer-left,
+  .simiti-map-footer-right {
+    bottom: 54px;
+  }
+
+  .simiti-mobile-hint {
+    position: absolute;
+    z-index: 650;
+    right: 8px;
+    bottom: 56px;
+    display: inline-flex;
+    padding: 5px 7px;
+    border-radius: 3px;
+    background: rgba(255,255,255,.82);
+    color: #5b6a61;
+    font-size: 9px;
+  }
+}
+
+
+/* ===== Enterprise Decision Center additions ===== */
+/* =========================================================
+   LEFT DECISION CENTER
+   ========================================================= */
+
+.simiti-analysis-panel {
+  position: absolute;
+  z-index: 900;
+
+  top: 16px;
+  left: 16px;
+  bottom: 50px;
+
+  width: 310px;
+  max-width: calc(100% - 32px);
+
+  min-width: 0;
+
+  display: flex;
+  flex-direction: column;
+
+  background: rgba(255, 255, 255, 0.985);
+
+  border: 1px solid #cfdad3;
+  border-radius: 8px;
+
+  box-shadow:
+    0 8px 28px rgba(16, 35, 25, 0.15),
+    0 1px 3px rgba(16, 35, 25, 0.08);
+
+  overflow: hidden;
+
+  transition:
+    transform 0.25s ease,
+    opacity 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.simiti-analysis-panel:hover {
+  box-shadow:
+    0 10px 32px rgba(16,35,25,.18),
+    0 1px 4px rgba(16,35,25,.08);
+}
+
+.simiti-analysis-panel.closed {
+  transform: translateX(calc(-100% - 24px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.simiti-analysis-head {
+  min-height: 62px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 12px 13px;
+
+  background:
+    linear-gradient(
+      180deg,
+      #ffffff 0%,
+      #f9fbfa 100%
+    );
+
+  border-bottom: 1px solid #e1e7e3;
+}
+
+.simiti-analysis-head > div > span {
+  color: #718078;
+
+  font-size: 8px;
+  font-weight: 900;
+
+  letter-spacing: .1em;
+}
+
+.simiti-analysis-head h2 {
+  margin: 3px 0 0;
+
+  color: #173322;
+
+  font-size: 17px;
+  line-height: 1.1;
+
+  letter-spacing: -.01em;
+}
+
+.simiti-analysis-head > button {
+  width: 29px;
+  height: 29px;
+
+  display: grid;
+  place-items: center;
+
+  border: 1px solid #d6dfda;
+  border-radius: 5px;
+
+  background: #fff;
+  color: #53635a;
+
+  cursor: pointer;
+
+  transition:
+    background .15s ease,
+    color .15s ease;
+}
+
+.simiti-analysis-head > button:hover {
+  background: #f0f6f2;
+  color: var(--simiti-green-dark);
+}
+.simiti-analysis-head h2 {
+  margin: 3px 0 0;
+  color: #173322;
+  font-size: 17px;
+}
+.simiti-analysis-head > button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d6dfda;
+  background: #fff;
+  color: #53635a;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.simiti-analysis-search {
+  margin: 10px 11px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1px solid #d3ddd7;
+  border-radius: 4px;
+  background: #f9fbf9;
+}
+.simiti-analysis-search > svg { color: #64746a; }
+.simiti-analysis-search input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #24362b;
+  font-size: 11px;
+}
+.simiti-analysis-search > button {
+  border: 0;
+  background: transparent;
+  color: #758078;
+  cursor: pointer;
+}
+.simiti-analysis-section {
+  padding: 0 11px 10px;
+}
+.simiti-analysis-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 2px 7px;
+  color: #728078;
+}
+.simiti-analysis-section-title span {
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+.simiti-analysis-section-title small {
+  font-size: 9px;
+}
+.simiti-analysis-section-title > svg {
+  color: #5d7767;
+}
+.simiti-hazard-list {
+  display: grid;
+  gap: 3px;
+}
+.simiti-hazard-list > button {
+  height: 35px;
+  display: grid;
+  grid-template-columns: 29px 1fr 27px 27px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 7px;
+  border: 1px solid #e0e7e2;
+  border-radius: 4px;
+  background: #fff;
+  color: #536359;
+  cursor: pointer;
+  text-align: left;
+}
+.simiti-hazard-list > button.active {
+  border-color: #c8ddce;
+  background: #f5faf6;
+  color: #244332;
+}
+.simiti-hazard-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+}
+.simiti-hazard-name {
+  font-size: 10px;
+  font-weight: 700;
+}
+.simiti-hazard-list b {
+  color: #405449;
+  font-size: 10px;
+  text-align: center;
+}
+.simiti-hazard-list i {
+  color: #7b887f;
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 900;
+  text-align: right;
+}
+.simiti-hazard-list button.active i { color: #26804a; }
+.simiti-layer-row {
+  padding-bottom: 5px;
+}
+.simiti-layer-row button {
+  width: 100%;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border: 1px solid #dce5df;
+  border-radius: 4px;
+  background: #f8faf8;
+  color: #415449;
+  cursor: pointer;
+  font-size: 10px;
+}
+.simiti-layer-row button b {
+  margin-left: auto;
+  color: #718077;
+  font-size: 9px;
+}
+.simiti-layer-info {
+  display: flex;
+  justify-content: space-between;
+  color: #859089;
+  font-size: 8px;
+}
+.simiti-layer-info span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.simiti-layer-info svg { color: #3b8755; }
+.simiti-selected-mini {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid #d8e4dc;
+  border-radius: 4px;
+  background: #f7fbf8;
+  text-align: left;
+  cursor: pointer;
+}
+.simiti-selected-mini strong,
+.simiti-selected-mini small {
+  display: block;
+}
+.simiti-selected-mini strong {
+  color: #2a4033;
+  font-size: 10px;
+  line-height: 1.25;
+}
+.simiti-selected-mini small {
+  margin-top: 2px;
+  color: #78867d;
+  font-size: 8px;
+}
+.simiti-selected-mini > span {
+  flex: 0 0 auto;
+  padding: 4px 6px;
+  border-radius: 3px;
+  background: #e6f2e9;
+  color: #3b764b;
+  font-size: 8px;
+  font-weight: 800;
+}
+.simiti-analysis-empty {
+  padding: 10px 8px;
+  border: 1px dashed #d7dfda;
+  border-radius: 4px;
+  color: #8a958e;
+  font-size: 9px;
+  text-align: center;
+}
+.simiti-ranking-section {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.simiti-priority-row {
+  display: grid;
+  grid-template-columns: 23px 1fr auto;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 3px;
+  border-bottom: 1px solid #edf1ee;
+}
+.simiti-priority-row > span {
+  color: #87928b;
+  font-size: 9px;
+  font-weight: 900;
+}
+.simiti-priority-row strong {
+  display: block;
+  color: #354a3d;
+  font-size: 9px;
+}
+.simiti-priority-row small {
+  color: #87928b;
+  font-size: 7px;
+}
+.simiti-priority-row b {
+  color: #27824c;
+  font-size: 11px;
+}
+.simiti-mini-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px;
+  border-radius: 4px;
+  background: #f0f8f2;
+  color: #39744d;
+  font-size: 9px;
+}
+.simiti-analysis-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 11px;
+  border-top: 1px solid #dfe6e1;
+  background: #fbfcfb;
+}
+.simiti-analysis-footer button {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid #cbd9cf;
+  border-radius: 3px;
+  background: #fff;
+  color: #315b3e;
+  font-size: 9px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.simiti-analysis-footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #7b877f;
+  font-size: 8px;
+}
+.simiti-left-reopen {
+  position: absolute;
+  z-index: 901;
+  left: 0;
+  top: 50%;
+  width: 28px;
+  height: 50px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 0 5px 5px 0;
+  background: #fff;
+  color: #486052;
+  box-shadow: 2px 2px 8px rgba(0,0,0,.15);
+  cursor: pointer;
+}
+.simiti-enterprise-status {
+  position: absolute;
+  z-index: 700;
+  left: 18px;
+  right: 18px;
+  bottom: 0;
+  height: 39px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 12px;
+  background: rgba(255,255,255,.97);
+  border-top: 1px solid #d3ddd7;
+  box-shadow: 0 -2px 8px rgba(16,35,25,.08);
+  color: #78857d;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.simiti-enterprise-status > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.simiti-enterprise-status strong {
+  color: #385044;
+  font-size: 9px;
+}
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #18a04d;
+  box-shadow: 0 0 0 3px rgba(24,160,77,.12);
+}
+.status-risk.high { color: #d23f31; }
+.status-risk.medium { color: #b27a00; }
+.status-risk.low { color: #27814b; }
+.status-time {
+  margin-left: auto;
+  color: #8b958f;
+  font-weight: 500;
+}
+@media (max-width: 1100px) {
+  .simiti-analysis-panel { width: 280px; }
+  .simiti-drawer-tab.open { right: min(390px, 42vw); }
+  .simiti-ai-drawer { width: min(390px, 42vw); right: min(-390px, -42vw); }
+  .simiti-enterprise-status { gap: 10px; }
+  .status-time { display: none !important; }
+}
+@media (max-width: 760px) {
+  .simiti-analysis-panel {
+    top: 70px;
+    left: 9px;
+    bottom: 52px;
+    width: min(300px, calc(100vw - 18px));
+  }
+  .simiti-enterprise-status {
+    left: 0;
+    right: 0;
+    gap: 8px;
+    overflow-x: auto;
+  }
+  .simiti-enterprise-status > div { font-size: 7px; }
+  .simiti-enterprise-status strong { font-size: 8px; }
+}
