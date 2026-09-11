@@ -61,7 +61,7 @@ import LokasiSaya from "./views/gis/LokasiSaya";
 // PUBLIC
 // ======================================================
 
-import Kerawanan from "./kerawanan";
+import Kerawanan from "./Kerawanan";
 import Kebencanaan from "./kejadian";
 import DetailKejadian from "./detailKejadian";
 
