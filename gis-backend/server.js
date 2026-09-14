@@ -5308,6 +5308,26 @@ ensureMasterRoleStatusColumn().catch((error) => {
 
 // // Error handler untuk kedua konfigurasi multer
 app.use((error, req, res, next) => {
+  // JSON body malformed harus menjadi 400 yang terkontrol, bukan stack trace
+  // berulang di log. Ini tidak mengubah endpoint yang valid.
+  if (
+    error instanceof SyntaxError &&
+    error.status === 400 &&
+    error.type === "entity.parse.failed"
+  ) {
+    console.error("Invalid JSON request body:", {
+      method: req.method,
+      url: req.originalUrl,
+      message: error.message,
+    });
+
+    return res.status(400).json({
+      success: false,
+      error: "Invalid JSON request body",
+      message: "Body request harus berupa JSON yang valid.",
+    });
+  }
+
   if (error instanceof multer.MulterError) {
     console.error("Multer error:", error);
 
@@ -9265,7 +9285,7 @@ app.post("/api/login", async (req, res) => {
         u.last_login,
         u.created_at,
         u.updated_at
-      FROM users u
+      FROM public.users u
       LEFT JOIN public.master_role r
         ON r.id = u.role_id
       WHERE LOWER(u.username) = $1
@@ -9342,7 +9362,7 @@ app.post("/api/login", async (req, res) => {
 
     await pool.query(
       `
-      UPDATE users
+      UPDATE public.users
       SET last_login = NOW()
       WHERE id = $1
       `,
@@ -12640,13 +12660,15 @@ const makeWktBounds = (bounds) => {
 // BNPB InaRISK live image proxy
 // ================================================================
 const BNPB_INARISK_SERVICES = (() => {
-  const raw = String(process.env.BNPB_IMAGE_SERVICES_JSON || '').trim();
+  const raw = String(process.env.BNPB_IMAGE_SERVICES_JSON || "").trim();
   if (!raw) return {};
   try {
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
   } catch (error) {
-    console.error('BNPB_IMAGE_SERVICES_JSON tidak valid:', error);
+    console.error("BNPB_IMAGE_SERVICES_JSON tidak valid:", error);
     return {};
   }
 })();
@@ -13989,65 +14011,137 @@ app.post("/api/layers/check-availability", async (req, res) => {
             authorizedLayerIds.has(Number(layer.id)),
           );
 
-    // Check each layer for data in bounds
+    // Check each layer for data in bounds.
+    // IMPORTANT: jangan mengasumsikan semua tabel punya `geom_valid`.
+    // Banyak layer legacy hanya mempunyai `geom` atau nama kolom geometry lain.
+    // Geometry metadata dibaca SEKALI agar tidak melakukan query schema berulang-ulang.
     const availableLayers = [];
     const [[minLat, minLng], [maxLat, maxLng]] = bounds;
     const boundsWKT = `POLYGON((${minLng} ${minLat}, ${maxLng} ${minLat}, ${maxLng} ${maxLat}, ${minLng} ${maxLat}, ${minLng} ${minLat}))`;
 
+    const tableNames = visibleLayers
+      .map((layer) => String(layer.table_name || "").trim())
+      .filter((tableName) => /^[A-Za-z0-9_]+$/.test(tableName));
+
+    const geometryMetaResult = tableNames.length
+      ? await client.query(
+          `
+          SELECT
+            c.table_name,
+            c.column_name,
+            c.udt_name,
+            c.data_type
+          FROM information_schema.columns c
+          WHERE c.table_schema = 'public'
+            AND c.table_name = ANY($1::text[])
+            AND (
+              c.udt_name = 'geometry'
+              OR c.data_type ILIKE '%geometry%'
+              OR c.column_name = 'nama_das'
+            )
+          ORDER BY
+            c.table_name,
+            CASE
+              WHEN c.column_name = 'geom_valid' THEN 1
+              WHEN c.column_name = 'geom' THEN 2
+              ELSE 3
+            END,
+            c.ordinal_position
+          `,
+          [tableNames],
+        )
+      : { rows: [] };
+
+    const geometryMap = new Map();
+    const namaDasMap = new Set();
+
+    for (const meta of geometryMetaResult.rows) {
+      if (meta.column_name === "nama_das") {
+        namaDasMap.add(meta.table_name);
+        continue;
+      }
+
+      const isGeometry =
+        meta.udt_name === "geometry" ||
+        String(meta.data_type || "")
+          .toLowerCase()
+          .includes("geometry");
+
+      if (isGeometry && !geometryMap.has(meta.table_name)) {
+        geometryMap.set(meta.table_name, meta.column_name);
+      }
+    }
+
+    const safeIdentifier = (value) =>
+      /^[A-Za-z0-9_]+$/.test(String(value || ""));
+    const normalizedDasFilter = Array.isArray(dasFilter)
+      ? dasFilter.filter(
+          (value) =>
+            value !== null &&
+            value !== undefined &&
+            String(value).trim() !== "",
+        )
+      : [];
+
     for (const layer of visibleLayers) {
       try {
-        // CEK apakah tabel memiliki kolom nama_das
-        const columnsResult = await client.query(
-          `
-          SELECT column_name 
-          FROM information_schema.columns 
-          WHERE table_name = $1 AND column_name = 'nama_das'
-        `,
-          [layer.table_name],
-        );
+        const tableName = String(layer.table_name || "").trim();
+        const geometryColumn = geometryMap.get(tableName);
 
-        const hasNamaDasColumn = columnsResult.rows.length > 0;
+        if (!safeIdentifier(tableName)) {
+          console.warn(`Skipping layer with invalid table name: ${tableName}`);
+          continue;
+        }
 
-        // Build query berdasarkan apakah ada filter DAS dan tabel memiliki kolom nama_das
+        if (!geometryColumn || !safeIdentifier(geometryColumn)) {
+          console.log(
+            `Skipping non-spatial layer ${tableName}: no geometry column found`,
+          );
+          continue;
+        }
+
+        const quotedTable = `"${tableName}"`;
+        const quotedGeometry = `"${geometryColumn}"`;
+        const hasNamaDasColumn = namaDasMap.has(tableName);
+
+        // Build query berdasarkan geometry column yang BENAR-BENAR tersedia.
         let countQuery;
         let queryParams;
 
-        if (dasFilter && dasFilter.length > 0 && hasNamaDasColumn) {
-          // FILTER DAS: Cek data berdasarkan bounds DAN nama_das
-          const dasPlaceholders = dasFilter
+        if (normalizedDasFilter.length > 0 && hasNamaDasColumn) {
+          const dasPlaceholders = normalizedDasFilter
             .map((_, idx) => `$${idx + 2}`)
             .join(", ");
+
           countQuery = `
             SELECT COUNT(*) as count
-            FROM ${layer.table_name}
-            WHERE geom_valid IS NOT NULL 
-            AND ST_Intersects(geom_valid, ST_GeomFromText($1, 4326))
-            AND nama_das IN (${dasPlaceholders})
-            LIMIT 1
+            FROM ${quotedTable}
+            WHERE ${quotedGeometry} IS NOT NULL
+              AND ST_Intersects(${quotedGeometry}, ST_GeomFromText($1, 4326))
+              AND "nama_das" IN (${dasPlaceholders})
           `;
-          queryParams = [boundsWKT, ...dasFilter];
+          queryParams = [boundsWKT, ...normalizedDasFilter];
         } else {
-          // NO DAS FILTER atau tabel tidak punya kolom nama_das: Cek hanya berdasarkan bounds
           countQuery = `
             SELECT COUNT(*) as count
-            FROM ${layer.table_name}
-            WHERE geom_valid IS NOT NULL 
-            AND ST_Intersects(geom_valid, ST_GeomFromText($1, 4326))
-            LIMIT 1
+            FROM ${quotedTable}
+            WHERE ${quotedGeometry} IS NOT NULL
+              AND ST_Intersects(${quotedGeometry}, ST_GeomFromText($1, 4326))
           `;
           queryParams = [boundsWKT];
         }
 
         const countResult = await client.query(countQuery, queryParams);
 
-        if (parseInt(countResult.rows[0].count) > 0) {
+        if (parseInt(countResult.rows[0].count, 10) > 0) {
           availableLayers.push({
             id: layer.id.toString(),
-            name: layer.table_name,
+            name: tableName,
             section: layer.section,
           });
         }
       } catch (err) {
+        // Satu layer bermasalah tidak boleh menggagalkan seluruh catalog.
         console.error(`Error checking layer ${layer.table_name}:`, err.message);
       }
     }
@@ -17970,7 +18064,6 @@ app.get("/api/location-proximity", async (req, res) => {
   }
 });
 
-
 // ============================================================
 // SIMITI - GPS -> BNPB -> ANCAMAN + TITIK AMAN TERDEKAT
 // Konfigurasi BNPB dan pencarian titik aman sepenuhnya melalui .env.
@@ -17978,7 +18071,7 @@ app.get("/api/location-proximity", async (req, res) => {
 // ============================================================
 
 function readJsonEnv(name, fallback = []) {
-  const raw = String(process.env[name] || '').trim();
+  const raw = String(process.env[name] || "").trim();
   if (!raw) return fallback;
   try {
     const value = JSON.parse(raw);
@@ -17989,8 +18082,10 @@ function readJsonEnv(name, fallback = []) {
 }
 
 function getBnpbConfig() {
-  const serviceUrl = String(process.env.BNPB_RISK_SERVICE_URL || '').trim().replace(/\/$/, '');
-  const layers = readJsonEnv('BNPB_RISK_LAYERS_JSON');
+  const serviceUrl = String(process.env.BNPB_RISK_SERVICE_URL || "")
+    .trim()
+    .replace(/\/$/, "");
+  const layers = readJsonEnv("BNPB_RISK_LAYERS_JSON");
   const safeMaxScore = Number(process.env.BNPB_SAFE_MAX_SCORE);
   const radiusMeters = Number(process.env.BNPB_SAFE_SEARCH_RADIUS_METERS);
   const stepMeters = Number(process.env.BNPB_SAFE_SEARCH_STEP_METERS);
@@ -17998,7 +18093,9 @@ function getBnpbConfig() {
   const maxPoints = Number(process.env.BNPB_SAFE_SEARCH_MAX_POINTS);
 
   if (!serviceUrl || !layers.length) {
-    throw new Error('Konfigurasi BNPB belum lengkap: BNPB_RISK_SERVICE_URL dan BNPB_RISK_LAYERS_JSON wajib di .env.');
+    throw new Error(
+      "Konfigurasi BNPB belum lengkap: BNPB_RISK_SERVICE_URL dan BNPB_RISK_LAYERS_JSON wajib di .env.",
+    );
   }
 
   const config = {
@@ -18022,43 +18119,63 @@ function getBnpbConfig() {
     config.bearingCount < 4 ||
     config.maxPoints < 1
   ) {
-    throw new Error('Konfigurasi pencarian titik aman BNPB tidak valid. Isi BNPB_SAFE_MAX_SCORE, BNPB_SAFE_SEARCH_RADIUS_METERS, BNPB_SAFE_SEARCH_STEP_METERS, BNPB_SAFE_SEARCH_BEARINGS, BNPB_SAFE_SEARCH_MAX_POINTS.');
+    throw new Error(
+      "Konfigurasi pencarian titik aman BNPB tidak valid. Isi BNPB_SAFE_MAX_SCORE, BNPB_SAFE_SEARCH_RADIUS_METERS, BNPB_SAFE_SEARCH_STEP_METERS, BNPB_SAFE_SEARCH_BEARINGS, BNPB_SAFE_SEARCH_MAX_POINTS.",
+    );
   }
 
   return config;
 }
 
 const normalizeBnpbClass = (value) =>
-  String(value ?? '')
+  String(value ?? "")
     .trim()
-    .replace(/\s+/g, ' ')
+    .replace(/\s+/g, " ")
     .toLowerCase();
 
 const normalizeBnpbRisk = (value) => {
   const v = normalizeBnpbClass(value);
   if (!v) return { class: null, score: null };
-  if (v === '3' || v.includes('sangat tinggi') || v.includes('tinggi') || v.includes('bahaya') || v.includes('rawan')) {
-    return { class: 'Tinggi', score: 3 };
+  if (
+    v === "3" ||
+    v.includes("sangat tinggi") ||
+    v.includes("tinggi") ||
+    v.includes("bahaya") ||
+    v.includes("rawan")
+  ) {
+    return { class: "Tinggi", score: 3 };
   }
-  if (v === '2' || v.includes('sedang') || v.includes('waspada') || v.includes('siaga')) {
-    return { class: 'Sedang', score: 2 };
+  if (
+    v === "2" ||
+    v.includes("sedang") ||
+    v.includes("waspada") ||
+    v.includes("siaga")
+  ) {
+    return { class: "Sedang", score: 2 };
   }
-  if (v === '1' || v === '0' || v.includes('rendah') || v.includes('aman')) {
-    return { class: 'Rendah', score: 1 };
+  if (v === "1" || v === "0" || v.includes("rendah") || v.includes("aman")) {
+    return { class: "Rendah", score: 1 };
   }
   return { class: null, score: null };
 };
 
 const classifyBnpbAttributes = (attributes = {}) => {
   const entries = Object.entries(attributes || {}).filter(
-    ([, value]) => value !== null && value !== undefined && String(value).trim() !== '',
+    ([, value]) =>
+      value !== null && value !== undefined && String(value).trim() !== "",
   );
   const preferred = entries.find(([key]) =>
-    /kelas|class|status|risiko|risk|bahaya|hazard|indeks|index|tingkat|level/i.test(String(key)),
+    /kelas|class|status|risiko|risk|bahaya|hazard|indeks|index|tingkat|level/i.test(
+      String(key),
+    ),
   );
-  const source = preferred || entries.find(([, value]) =>
-    /sangat tinggi|tinggi|sedang|rendah|aman|bahaya|rawan|^[0-3]$/i.test(String(value)),
-  );
+  const source =
+    preferred ||
+    entries.find(([, value]) =>
+      /sangat tinggi|tinggi|sedang|rendah|aman|bahaya|rawan|^[0-3]$/i.test(
+        String(value),
+      ),
+    );
   return {
     field: source ? String(source[0]) : null,
     value: source ? String(source[1]).trim() : null,
@@ -18074,30 +18191,33 @@ const queryBnpbPoint = async (layer, latitude, longitude, config) => {
   const x = Number(longitude);
   const y = Number(latitude);
   const params = new URLSearchParams({
-    f: 'json',
+    f: "json",
     geometry: JSON.stringify({ x, y, spatialReference: { wkid: 4326 } }),
-    geometryType: 'esriGeometryPoint',
-    sr: '4326',
+    geometryType: "esriGeometryPoint",
+    sr: "4326",
     layers: `all:${layerId}`,
-    tolerance: '2',
+    tolerance: "2",
     mapExtent: `${x - 0.01},${y - 0.01},${x + 0.01},${y + 0.01}`,
-    imageDisplay: '1000,1000,96',
-    returnGeometry: 'false',
+    imageDisplay: "1000,1000,96",
+    returnGeometry: "false",
   });
 
-  const response = await fetch(`${config.serviceUrl}/identify?${params.toString()}`, {
-    headers: { Accept: 'application/json' },
-  });
+  const response = await fetch(
+    `${config.serviceUrl}/identify?${params.toString()}`,
+    {
+      headers: { Accept: "application/json" },
+    },
+  );
   if (!response.ok) throw new Error(`BNPB HTTP ${response.status}`);
   const json = await response.json();
-  if (json?.error) throw new Error(json.error.message || 'BNPB identify error');
+  if (json?.error) throw new Error(json.error.message || "BNPB identify error");
 
   const result = Array.isArray(json?.results) ? json.results[0] : null;
   if (!result) {
     return {
       key: layer.key,
       label: layer.label || layer.key,
-      category: layer.category || 'Ancaman',
+      category: layer.category || "Ancaman",
       layerId,
       inside: false,
       available: true,
@@ -18114,7 +18234,7 @@ const queryBnpbPoint = async (layer, latitude, longitude, config) => {
   return {
     key: layer.key,
     label: layer.label || layer.key,
-    category: layer.category || 'Ancaman',
+    category: layer.category || "Ancaman",
     layerId,
     inside: true,
     available: true,
@@ -18127,36 +18247,51 @@ const queryBnpbPoint = async (layer, latitude, longitude, config) => {
   };
 };
 
-const identifyBnpbAtPoint = async (latitude, longitude, config = getBnpbConfig()) =>
-  Promise.all(config.layers.map(async (layer) => {
-    try {
-      return await queryBnpbPoint(layer, latitude, longitude, config);
-    } catch (error) {
-      return {
-        key: layer.key,
-        label: layer.label || layer.key,
-        category: layer.category || 'Ancaman',
-        layerId: Number(layer.layerId),
-        inside: false,
-        available: false,
-        class: null,
-        value: null,
-        score: null,
-        level: null,
-        field: null,
-        source: config.serviceUrl,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }));
+const identifyBnpbAtPoint = async (
+  latitude,
+  longitude,
+  config = getBnpbConfig(),
+) =>
+  Promise.all(
+    config.layers.map(async (layer) => {
+      try {
+        return await queryBnpbPoint(layer, latitude, longitude, config);
+      } catch (error) {
+        return {
+          key: layer.key,
+          label: layer.label || layer.key,
+          category: layer.category || "Ancaman",
+          layerId: Number(layer.layerId),
+          inside: false,
+          available: false,
+          class: null,
+          value: null,
+          score: null,
+          level: null,
+          field: null,
+          source: config.serviceUrl,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }),
+  );
 
 const isBnpbSafePoint = (layers, config) => {
   const usable = layers.filter((item) => item.available);
   if (usable.length !== config.layers.length) return false;
-  return layers.every((item) => !item.inside || (Number.isFinite(item.score) && item.score <= config.safeMaxScore));
+  return layers.every(
+    (item) =>
+      !item.inside ||
+      (Number.isFinite(item.score) && item.score <= config.safeMaxScore),
+  );
 };
 
-const destinationPoint = (latitude, longitude, distanceMeters, bearingDegrees) => {
+const destinationPoint = (
+  latitude,
+  longitude,
+  distanceMeters,
+  bearingDegrees,
+) => {
   const earthRadius = 6371008.8;
   const angular = distanceMeters / earthRadius;
   const bearing = (bearingDegrees * Math.PI) / 180;
@@ -18166,11 +18301,16 @@ const destinationPoint = (latitude, longitude, distanceMeters, bearingDegrees) =
     Math.sin(lat1) * Math.cos(angular) +
       Math.cos(lat1) * Math.sin(angular) * Math.cos(bearing),
   );
-  const lon2 = lon1 + Math.atan2(
-    Math.sin(bearing) * Math.sin(angular) * Math.cos(lat1),
-    Math.cos(angular) - Math.sin(lat1) * Math.sin(lat2),
-  );
-  return { latitude: (lat2 * 180) / Math.PI, longitude: (lon2 * 180) / Math.PI };
+  const lon2 =
+    lon1 +
+    Math.atan2(
+      Math.sin(bearing) * Math.sin(angular) * Math.cos(lat1),
+      Math.cos(angular) - Math.sin(lat1) * Math.sin(lat2),
+    );
+  return {
+    latitude: (lat2 * 180) / Math.PI,
+    longitude: (lon2 * 180) / Math.PI,
+  };
 };
 
 const distanceMeters = (lat1, lon1, lat2, lon2) => {
@@ -18186,33 +18326,68 @@ const distanceMeters = (lat1, lon1, lat2, lon2) => {
 };
 
 const buildSafeSearchCandidates = (latitude, longitude, config) => {
-  const points = [{ latitude, longitude, distanceMeters: 0, bearingDegrees: 0 }];
+  const points = [
+    { latitude, longitude, distanceMeters: 0, bearingDegrees: 0 },
+  ];
   const bearings = Math.max(4, Math.floor(config.bearingCount));
   const rings = Math.max(1, Math.ceil(config.radiusMeters / config.stepMeters));
 
-  for (let ring = 1; ring <= rings && points.length < config.maxPoints; ring += 1) {
+  for (
+    let ring = 1;
+    ring <= rings && points.length < config.maxPoints;
+    ring += 1
+  ) {
     const radius = Math.min(ring * config.stepMeters, config.radiusMeters);
     for (let i = 0; i < bearings && points.length < config.maxPoints; i += 1) {
       const bearing = (360 / bearings) * i;
       const point = destinationPoint(latitude, longitude, radius, bearing);
-      if (point.latitude < -90 || point.latitude > 90 || point.longitude < -180 || point.longitude > 180) continue;
-      points.push({ ...point, distanceMeters: distanceMeters(latitude, longitude, point.latitude, point.longitude), bearingDegrees: bearing });
+      if (
+        point.latitude < -90 ||
+        point.latitude > 90 ||
+        point.longitude < -180 ||
+        point.longitude > 180
+      )
+        continue;
+      points.push({
+        ...point,
+        distanceMeters: distanceMeters(
+          latitude,
+          longitude,
+          point.latitude,
+          point.longitude,
+        ),
+        bearingDegrees: bearing,
+      });
     }
   }
   return points;
 };
 
-app.get('/api/location-bnpb', async (req, res) => {
+app.get("/api/location-bnpb", async (req, res) => {
   const latitude = Number(req.query.latitude);
   const longitude = Number(req.query.longitude);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-    return res.status(400).json({ success: false, message: 'latitude dan longitude wajib berupa koordinat valid.' });
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "latitude dan longitude wajib berupa koordinat valid.",
+    });
   }
 
   const startedAt = Date.now();
   try {
     const config = getBnpbConfig();
-    const disasterLayers = await identifyBnpbAtPoint(latitude, longitude, config);
+    const disasterLayers = await identifyBnpbAtPoint(
+      latitude,
+      longitude,
+      config,
+    );
     const riskFactors = disasterLayers.map((item) => ({
       key: item.key,
       label: item.label,
@@ -18226,20 +18401,52 @@ app.get('/api/location-bnpb', async (req, res) => {
       rawValue: item.value,
     }));
 
-    const completeRisk = riskFactors.length === config.layers.length && riskFactors.every((item) => item.available);
-    const myLokasiScore = completeRisk ? riskFactors.reduce((sum, item) => sum + Number(item.score), 0) : null;
-    const myLokasiStatus = myLokasiScore == null ? null : myLokasiScore <= 7 ? 'Aman' : myLokasiScore <= 10 ? 'Siaga' : myLokasiScore <= 13 ? 'Waspada' : 'Rawan';
-    const apiRiskIndex = myLokasiScore == null ? null : Math.round(((myLokasiScore - config.layers.length) / Math.max(1, config.layers.length * 2)) * 100);
-    const identifiedDisasters = disasterLayers.filter((item) => item.inside).map((item) => ({
-      key: item.key, label: item.label, category: item.category, class: item.class, field: item.field, score: item.score, source: item.source,
-    }));
+    const completeRisk =
+      riskFactors.length === config.layers.length &&
+      riskFactors.every((item) => item.available);
+    const myLokasiScore = completeRisk
+      ? riskFactors.reduce((sum, item) => sum + Number(item.score), 0)
+      : null;
+    const myLokasiStatus =
+      myLokasiScore == null
+        ? null
+        : myLokasiScore <= 7
+          ? "Aman"
+          : myLokasiScore <= 10
+            ? "Siaga"
+            : myLokasiScore <= 13
+              ? "Waspada"
+              : "Rawan";
+    const apiRiskIndex =
+      myLokasiScore == null
+        ? null
+        : Math.round(
+            ((myLokasiScore - config.layers.length) /
+              Math.max(1, config.layers.length * 2)) *
+              100,
+          );
+    const identifiedDisasters = disasterLayers
+      .filter((item) => item.inside)
+      .map((item) => ({
+        key: item.key,
+        label: item.label,
+        category: item.category,
+        class: item.class,
+        field: item.field,
+        score: item.score,
+        source: item.source,
+      }));
 
     const candidates = buildSafeSearchCandidates(latitude, longitude, config);
     let safeLocation = null;
     let checked = 0;
 
     for (const candidate of candidates) {
-      const layers = await identifyBnpbAtPoint(candidate.latitude, candidate.longitude, config);
+      const layers = await identifyBnpbAtPoint(
+        candidate.latitude,
+        candidate.longitude,
+        config,
+      );
       checked += 1;
       const safe = isBnpbSafePoint(layers, config);
       if (safe) {
@@ -18250,7 +18457,13 @@ app.get('/api/location-bnpb', async (req, res) => {
           bearingDegrees: candidate.bearingDegrees,
           safe: true,
           verified: true,
-          layers: layers.map((item) => ({ key: item.key, label: item.label, class: item.class, score: item.score, source: item.source })),
+          layers: layers.map((item) => ({
+            key: item.key,
+            label: item.label,
+            class: item.class,
+            score: item.score,
+            source: item.source,
+          })),
         };
         break;
       }
@@ -18258,8 +18471,9 @@ app.get('/api/location-bnpb', async (req, res) => {
 
     return res.json({
       success: true,
-      source: 'BNPB InaRISK REST API',
-      analysisType: 'GPS disaster identification + nearest safe point from BNPB hazard layers',
+      source: "BNPB InaRISK REST API",
+      analysisType:
+        "GPS disaster identification + nearest safe point from BNPB hazard layers",
       generatedAt: new Date().toISOString(),
       processingTimeMs: Date.now() - startedAt,
       location: { latitude, longitude },
@@ -18271,11 +18485,20 @@ app.get('/api/location-bnpb', async (req, res) => {
         maximum: config.layers.length * 3,
         complete: completeRisk,
         factors: riskFactors,
-        methodology: 'GPS -> BNPB -> seluruh layer ancaman -> skor layer -> pencarian radial -> titik pertama yang seluruh layer-nya memenuhi batas aman.',
+        methodology:
+          "GPS -> BNPB -> seluruh layer ancaman -> skor layer -> pencarian radial -> titik pertama yang seluruh layer-nya memenuhi batas aman.",
       },
       disasters: identifiedDisasters,
       layers: disasterLayers.map((item) => ({
-        key: item.key, label: item.label, category: item.category, inside: item.inside, available: item.available, class: item.class, field: item.field, source: item.source, error: item.error || null,
+        key: item.key,
+        label: item.label,
+        category: item.category,
+        inside: item.inside,
+        available: item.available,
+        class: item.class,
+        field: item.field,
+        source: item.source,
+        error: item.error || null,
       })),
       safeLocation,
       search: {
@@ -18289,13 +18512,21 @@ app.get('/api/location-bnpb', async (req, res) => {
       summary: {
         disasterCount: identifiedDisasters.length,
         layerCount: disasterLayers.length,
-        availableLayerCount: disasterLayers.filter((item) => item.available).length,
+        availableLayerCount: disasterLayers.filter((item) => item.available)
+          .length,
         safeFound: Boolean(safeLocation),
       },
     });
   } catch (error) {
-    console.error('❌ [LOCATION BNPB] ERROR:', error);
-    return res.status(500).json({ success: false, message: error instanceof Error ? error.message : 'Gagal melakukan identifikasi bencana BNPB.', processingTimeMs: Date.now() - startedAt });
+    console.error("❌ [LOCATION BNPB] ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Gagal melakukan identifikasi bencana BNPB.",
+      processingTimeMs: Date.now() - startedAt,
+    });
   }
 });
 
