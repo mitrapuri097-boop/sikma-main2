@@ -1,0 +1,21 @@
+
+/* Enterprise responsive layer for PetaTMA.
+   Existing Tailwind classes and application behavior remain intact. */
+.leaflet-container {
+  font-family: inherit;
+}
+.leaflet-popup-content-wrapper {
+  border-radius: 14px;
+  box-shadow: 0 12px 35px rgba(15, 23, 42, 0.16);
+}
+.leaflet-popup-content {
+  margin: 12px;
+}
+@media (max-width: 640px) {
+  .leaflet-control-zoom {
+    margin-top: 56px !important;
+  }
+  .leaflet-popup-content {
+    margin: 9px;
+  }
+}

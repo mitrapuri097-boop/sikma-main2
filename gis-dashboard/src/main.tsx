@@ -13,6 +13,10 @@ import "./index.css";
 // LAYOUT
 // ======================================================
 
+import DashboardTMA from "./components/pages/DashboardTMA";
+import MonitoringTMA from "./components/pages/MonitoringTMA";
+import PetaTMA from "./components/pages/PetaTMA";
+import HistorisTMA from "./components/pages/HistorisTMA";
 import EnterpriseLayout from "./components/layouts/EnterpriseLayout";
 
 // ======================================================
@@ -75,7 +79,7 @@ import TambahDataSpasial from "./TambahDataSpasial";
 // INVENTARISASI LOKASI KEGIATAN
 // ======================================================
 
-import Kejadian from "./Kejadian";
+import Datakejadian from "./Datakejadian";
 import Lokasi from "./lokasi/Lokasi";
 import TambahLokasi from "./lokasi/TambahLokasi";
 
@@ -129,12 +133,16 @@ createRoot(rootElement).render(
 
             <Route path="/dashboard" element={<Dashboard />} />
 
+            <Route path="/tma" element={<DashboardTMA />} />
+            <Route path="/tma/monitoring" element={<MonitoringTMA />} />
+            <Route path="/tma/peta" element={<PetaTMA />} />
+            <Route path="/tma/historis" element={<HistorisTMA />} />
             {/* ==================================================
                 DATA KEBENCANAAN
             ================================================== */}
 
             <Route path="/kebencanaan" element={<Kebencanaan />} />
-            <Route path="/kejadian" element={<Kejadian />} />
+            <Route path="/kejadian" element={<Datakejadian />} />
 
             {/* ==================================================
                 WEBGIS COMMAND CENTER

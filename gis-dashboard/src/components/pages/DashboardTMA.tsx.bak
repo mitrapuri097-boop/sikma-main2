@@ -1,0 +1,509 @@
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  Clock3,
+  Droplets,
+  Gauge,
+  Map,
+  RefreshCw,
+  ShieldAlert,
+  Waves,
+} from "lucide-react";
+
+const API_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+const TMA_API = import.meta.env.VITE_TMA_API_URL || `${API_BASE}/api/tma`;
+
+type Station = {
+  id: string | number;
+  code?: string;
+  name?: string;
+  station_name?: string;
+  river?: string;
+  das?: string;
+  province?: string;
+  kabupaten?: string;
+  latitude?: number;
+  longitude?: number;
+  water_level?: number;
+  tma?: number;
+  value?: number;
+  status?: string;
+  updated_at?: string;
+  timestamp?: string;
+};
+
+const STATUS_META: Record<string, { label: string; tone: string }> = {
+  normal: {
+    label: "Normal",
+    tone: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  },
+  waspada: {
+    label: "Waspada",
+    tone: "bg-amber-50 text-amber-700 border-amber-200",
+  },
+  siaga: {
+    label: "Siaga",
+    tone: "bg-orange-50 text-orange-700 border-orange-200",
+  },
+  awas: {
+    label: "Awas",
+    tone: "bg-red-50 text-red-700 border-red-200",
+  },
+};
+
+function normalizeStatus(value?: string) {
+  const s = String(value || "")
+    .toLowerCase()
+    .trim();
+
+  if (s.includes("awas")) return "awas";
+  if (s.includes("siaga")) return "siaga";
+  if (s.includes("waspada")) return "waspada";
+
+  return "normal";
+}
+
+function stationValue(s: Station) {
+  return Number(s.tma ?? s.water_level ?? s.value ?? 0);
+}
+
+function formatDate(value?: string) {
+  if (!value) return "-";
+
+  const d = new Date(value);
+
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString("id-ID");
+}
+
+/**
+ * Normalisasi response TMA menjadi array Station.
+ *
+ * Mendukung beberapa bentuk response:
+ *
+ * 1. [...]
+ * 2. { data: [...] }
+ * 3. { items: [...] }
+ * 4. { stations: [...] }
+ * 5. { result: [...] }
+ * 6. { results: [...] }
+ * 7. { data: { stations: [...] } }
+ *
+ * Tujuannya supaya logic Dashboard yang sudah ada
+ * tetap menggunakan Station[] dan tidak error
+ * ketika backend mengembalikan wrapper object.
+ */
+function extractStationRows(payload: unknown): Station[] {
+  // Response langsung berupa array
+  if (Array.isArray(payload)) {
+    return payload as Station[];
+  }
+
+  // Bukan object → tidak ada data
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+
+  const obj = payload as Record<string, unknown>;
+
+  const candidates = [
+    obj.data,
+    obj.items,
+    obj.stations,
+    obj.result,
+    obj.results,
+    obj.rows,
+    obj.records,
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate as Station[];
+    }
+
+    // Support wrapper bertingkat:
+    // { data: { stations: [...] } }
+    if (candidate && typeof candidate === "object") {
+      const nested = extractStationRows(candidate);
+
+      if (nested.length > 0) {
+        return nested;
+      }
+    }
+  }
+
+  return [];
+}
+
+async function fetchStations(signal: AbortSignal): Promise<Station[]> {
+  const res = await fetch(TMA_API, {
+    signal,
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+
+  const payload: unknown = await res.json();
+
+  const rows = extractStationRows(payload);
+
+  console.log("[TMA] Endpoint:", TMA_API);
+
+  console.log("[TMA] Jumlah stasiun:", rows.length);
+
+  return rows;
+}
+
+export default function DashboardTMA() {
+  const [stations, setStations] = useState<Station[]>([]);
+
+  const [loading, setLoading] = useState(true);
+
+  const [error, setError] = useState("");
+
+  const [lastUpdate, setLastUpdate] = useState<string>();
+
+  const load = async () => {
+    const controller = new AbortController();
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const rows = await fetchStations(controller.signal);
+
+      // Safety guard:
+      // state selalu menerima array.
+      setStations(Array.isArray(rows) ? rows : []);
+
+      setLastUpdate(new Date().toISOString());
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") {
+        return;
+      }
+
+      setError(e instanceof Error ? e.message : "Gagal mengambil data TMA");
+
+      // Jangan biarkan state menjadi object.
+      setStations([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const summary = useMemo(() => {
+    const count = {
+      normal: 0,
+      waspada: 0,
+      siaga: 0,
+      awas: 0,
+    };
+
+    // Safety guard tambahan.
+    const safeStations = Array.isArray(stations) ? stations : [];
+
+    safeStations.forEach((s) => {
+      const status = normalizeStatus(s.status) as keyof typeof count;
+
+      count[status]++;
+    });
+
+    const values = safeStations.map(stationValue).filter(Number.isFinite);
+
+    return {
+      total: safeStations.length,
+      ...count,
+      average: values.length
+        ? values.reduce((a, b) => a + b, 0) / values.length
+        : 0,
+      max: values.length ? Math.max(...values) : 0,
+    };
+  }, [stations]);
+
+  const latest = useMemo(() => {
+    const safeStations = Array.isArray(stations) ? stations : [];
+
+    return [...safeStations]
+      .sort(
+        (a, b) =>
+          new Date(b.updated_at || b.timestamp || 0).getTime() -
+          new Date(a.updated_at || a.timestamp || 0).getTime(),
+      )
+      .slice(0, 6);
+  }, [stations]);
+
+  return (
+    <div className="min-h-screen bg-slate-50 p-4 md:p-6">
+      <div className="mx-auto max-w-[1600px] space-y-6">
+        <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="mb-2 flex items-center gap-2 text-sm text-slate-500">
+              <Waves className="h-4 w-4" />
+              Hidrologi & Risiko Banjir
+            </div>
+
+            <h1 className="text-2xl font-bold text-slate-900">
+              Dashboard Tinggi Muka Air (TMA)
+            </h1>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Ringkasan kondisi stasiun pemantauan TMA secara terintegrasi.
+            </p>
+          </div>
+
+          <button
+            onClick={load}
+            disabled={loading}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </header>
+
+        {error && (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            Data TMA belum dapat dimuat: {error}. Pastikan endpoint TMA sudah
+            tersedia.
+          </div>
+        )}
+
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+          <Kpi icon={<Gauge />} label="Total Stasiun" value={summary.total} />
+
+          <Kpi
+            icon={<Droplets />}
+            label="Rata-rata TMA"
+            value={`${summary.average.toFixed(2)} m`}
+          />
+
+          <Kpi
+            icon={<ArrowUp />}
+            label="TMA Tertinggi"
+            value={`${summary.max.toFixed(2)} m`}
+          />
+
+          <Kpi icon={<ShieldAlert />} label="Waspada" value={summary.waspada} />
+
+          <Kpi icon={<AlertTriangle />} label="Siaga" value={summary.siaga} />
+
+          <Kpi icon={<AlertTriangle />} label="Awas" value={summary.awas} />
+        </section>
+
+        <div className="grid gap-6 xl:grid-cols-[1.7fr_1fr]">
+          <section className="rounded-2xl border bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b p-5">
+              <div>
+                <h2 className="font-bold text-slate-900">Stasiun Terbaru</h2>
+
+                <p className="text-sm text-slate-500">
+                  Status dan pembacaan terakhir yang tersedia.
+                </p>
+              </div>
+
+              <Activity className="h-5 w-5 text-slate-400" />
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3">Stasiun</th>
+
+                    <th className="px-5 py-3">Sungai</th>
+
+                    <th className="px-5 py-3">TMA</th>
+
+                    <th className="px-5 py-3">Status</th>
+
+                    <th className="px-5 py-3">Update</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {latest.map((s, i) => {
+                    const status = normalizeStatus(s.status);
+
+                    return (
+                      <tr key={s.id ?? i} className="border-t">
+                        <td className="px-5 py-3 font-semibold text-slate-800">
+                          {s.station_name ||
+                            s.name ||
+                            s.code ||
+                            `Stasiun ${i + 1}`}
+                        </td>
+
+                        <td className="px-5 py-3 text-slate-600">
+                          {s.river || "-"}
+                        </td>
+
+                        <td className="px-5 py-3 font-semibold">
+                          {stationValue(s).toFixed(2)} m
+                        </td>
+
+                        <td className="px-5 py-3">
+                          <span
+                            className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${STATUS_META[status].tone}`}
+                          >
+                            {STATUS_META[status].label}
+                          </span>
+                        </td>
+
+                        <td className="px-5 py-3 text-slate-500">
+                          {formatDate(s.updated_at || s.timestamp)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {!loading && latest.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        className="px-5 py-10 text-center text-slate-500"
+                      >
+                        Belum ada data stasiun TMA.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-slate-900">Distribusi Status</h2>
+
+                <p className="text-sm text-slate-500">
+                  Komposisi status stasiun saat ini.
+                </p>
+              </div>
+
+              <Waves className="h-5 w-5 text-slate-400" />
+            </div>
+
+            <div className="mt-6 space-y-4">
+              {(["normal", "waspada", "siaga", "awas"] as const).map((key) => {
+                const pct = summary.total
+                  ? (summary[key] / summary.total) * 100
+                  : 0;
+
+                return (
+                  <div key={key}>
+                    <div className="mb-1 flex justify-between text-sm">
+                      <span className="font-medium">
+                        {STATUS_META[key].label}
+                      </span>
+
+                      <span className="text-slate-500">{summary[key]}</span>
+                    </div>
+
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full bg-slate-500"
+                        style={{
+                          width: `${pct}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-8 flex items-center gap-2 text-xs text-slate-500">
+              <Clock3 className="h-4 w-4" />
+              Sinkron terakhir: {formatDate(lastUpdate)}
+            </div>
+          </section>
+        </div>
+
+        <section className="grid gap-4 md:grid-cols-3">
+          <InfoCard
+            icon={<Map />}
+            title="Peta TMA"
+            text="Visualisasi spasial stasiun, sungai, DAS, administrasi, dan indikator risiko banjir."
+            href="/tma/peta"
+          />
+
+          <InfoCard
+            icon={<Activity />}
+            title="Monitoring TMA"
+            text="Pantau stasiun secara operasional dengan filter, status sensor, dan detail pembacaan."
+            href="/tma/monitoring"
+          />
+
+          <InfoCard
+            icon={<ArrowDown />}
+            title="Historis TMA"
+            text="Analisis tren, ambang batas, durasi kejadian, dan ekspor data historis."
+            href="/tma/historis"
+          />
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function Kpi({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between">
+        <span className="text-slate-400">{icon}</span>
+
+        <span className="text-xs font-medium text-slate-400">LIVE</span>
+      </div>
+
+      <div className="mt-4 text-2xl font-bold text-slate-900">{value}</div>
+
+      <div className="mt-1 text-sm text-slate-500">{label}</div>
+    </div>
+  );
+}
+
+function InfoCard({
+  icon,
+  title,
+  text,
+  href,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  text: string;
+  href: string;
+}) {
+  return (
+    <a
+      href={href}
+      className="rounded-2xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+    >
+      <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+        {icon}
+      </div>
+
+      <h3 className="font-bold text-slate-900">{title}</h3>
+
+      <p className="mt-1 text-sm leading-6 text-slate-500">{text}</p>
+    </a>
+  );
+}

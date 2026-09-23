@@ -123,12 +123,6 @@ const mainMenus: MenuItem[] = [
         href: "/kejadian",
         icon: ClipboardList,
       },
-      {
-        title: "EWS Banjir",
-        href: "/ews/banjir",
-        icon: Waves,
-        badge: "EWS",
-      },
     ],
   },
 
@@ -238,8 +232,39 @@ const mainMenus: MenuItem[] = [
   },
 
   /* ============================================================
-     PELAPORAN
-  ============================================================ */
+     TINGGI MUKA AIR (TMA)
+     ============================================================ */
+  {
+    title: "Tinggi Muka Air (TMA)",
+    description: "Monitoring hidrologi & risiko banjir",
+    icon: Waves,
+    children: [
+      {
+        title: "Dashboard TMA",
+        href: "/tma",
+        icon: LayoutDashboard,
+      },
+      {
+        title: "Monitoring TMA",
+        href: "/tma/monitoring",
+        icon: Activity,
+      },
+      {
+        title: "Peta TMA",
+        href: "/tma/peta",
+        icon: Map,
+      },
+      {
+        title: "Historis TMA",
+        href: "/tma/historis",
+        icon: History,
+      },
+    ],
+  },
+
+  /* ============================================================
+   PELAPORAN
+============================================================ */
   {
     title: "Pelaporan",
     description: "Laporan dan ekspor data",

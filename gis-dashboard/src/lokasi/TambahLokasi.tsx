@@ -62,11 +62,7 @@ const API_ENDPOINTS = {
 
 type CoordinateSource = "MAP" | "MANUAL" | "GPS" | "";
 
-type StepId =
-  | "activity"
-  | "spatial"
-  | "documentation"
-  | "review";
+type StepId = "activity" | "spatial" | "documentation" | "review";
 
 type DocumentationCategory =
   | "before"
@@ -760,7 +756,10 @@ export default function TambahLokasi() {
     });
   };
 
-  const detectLocationFromCoordinate = async (latitude: number, longitude: number) => {
+  const detectLocationFromCoordinate = async (
+    latitude: number,
+    longitude: number,
+  ) => {
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
 
     setDetectingLocation(true);
@@ -775,7 +774,16 @@ export default function TambahLokasi() {
 
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(result.message || `Server ${response.status}`);
+        throw new Error(
+          result.message ||
+            (response.status === 404
+              ? "Endpoint deteksi lokasi belum tersedia di backend."
+              : `Server ${response.status}`),
+        );
+      }
+
+      if (result.success === false) {
+        throw new Error(result.message || "Deteksi lokasi gagal.");
       }
 
       const data = result.data ?? result;
@@ -817,7 +825,10 @@ export default function TambahLokasi() {
     }
 
     const timer = window.setTimeout(() => {
-      void detectLocationFromCoordinate(Number(form.latitude), Number(form.longitude));
+      void detectLocationFromCoordinate(
+        Number(form.latitude),
+        Number(form.longitude),
+      );
     }, 450);
 
     return () => window.clearTimeout(timer);
@@ -918,30 +929,53 @@ export default function TambahLokasi() {
   const errors = useMemo(() => {
     const e: string[] = [];
 
-    if (!form.nama_kegiatan.trim()) e.push("Nama kegiatan belum diisi.");
+    if (!form.nama_kegiatan.trim()) {
+      e.push("Nama kegiatan belum diisi.");
+    }
 
-    if (!form.jenis_kegiatan) e.push("Jenis kegiatan belum dipilih.");
+    if (!form.jenis_kegiatan) {
+      e.push("Jenis kegiatan belum dipilih.");
+    }
 
-    if (!form.tahun_pelaksanaan) e.push("Tanggal pelaksanaan belum dipilih.");
+    if (!form.tanggal_pelaksanaan) {
+      e.push("Tanggal pelaksanaan belum dipilih.");
+    }
 
-    if (!form.sumber_pendanaan.trim()) e.push("Sumber pendanaan belum diisi.");
+    if (!form.sumber_pendanaan.trim()) {
+      e.push("Sumber pendanaan belum diisi.");
+    }
 
-    if (!form.instansi_pelaksana.trim())
+    if (!form.instansi_pelaksana.trim()) {
       e.push("Instansi pelaksana belum diisi.");
+    }
 
-    if (!validCoordinates) e.push("Koordinat lokasi belum valid.");
+    if (!validCoordinates) {
+      e.push("Koordinat lokasi belum valid.");
+    }
 
-    if (!form.provinsi) e.push("Provinsi belum dipilih.");
+    if (!form.provinsi) {
+      e.push("Provinsi belum dipilih.");
+    }
 
-    if (!form.kabupaten_kota) e.push("Kabupaten/Kota belum dipilih.");
+    if (!form.kabupaten_kota) {
+      e.push("Kabupaten/Kota belum dipilih.");
+    }
 
-    if (!form.kecamatan) e.push("Kecamatan belum dipilih.");
+    if (!form.kecamatan) {
+      e.push("Kecamatan belum dipilih.");
+    }
 
-    if (!form.desa_kelurahan) e.push("Desa/Kelurahan belum dipilih.");
+    if (!form.desa_kelurahan) {
+      e.push("Desa/Kelurahan belum dipilih.");
+    }
 
-    if (!form.das) e.push("DAS belum dipilih.");
+    if (!form.das) {
+      e.push("DAS belum dipilih.");
+    }
 
-    if (!form.luas_area) e.push("Luas area belum diisi.");
+    if (!form.luas_area) {
+      e.push("Luas area belum diisi.");
+    }
 
     return e;
   }, [form, validCoordinates]);
@@ -1025,6 +1059,9 @@ export default function TambahLokasi() {
     try {
       const payload = {
         ...buildPayload(),
+
+        status: submit ? "Menunggu Verifikasi" : form.status_pelaksanaan,
+
         status_pelaksanaan: submit
           ? "Menunggu Verifikasi"
           : form.status_pelaksanaan,
@@ -1268,7 +1305,12 @@ export default function TambahLokasi() {
                   <Field label="Klasifikasi Kegiatan" required>
                     <div className="mb-2 flex flex-wrap gap-2">
                       {["Semua", ...ACTIVITY_GROUPS].map((group) => (
-                        <button key={group} type="button" onClick={() => setActivityGroupFilter(group)} className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${activityGroupFilter === group ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 bg-white text-slate-600 hover:border-slate-500"}`}>
+                        <button
+                          key={group}
+                          type="button"
+                          onClick={() => setActivityGroupFilter(group)}
+                          className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${activityGroupFilter === group ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 bg-white text-slate-600 hover:border-slate-500"}`}
+                        >
                           {group}
                         </button>
                       ))}
@@ -1277,10 +1319,19 @@ export default function TambahLokasi() {
                       value={form.jenis_kegiatan}
                       onChange={(v) => update("jenis_kegiatan", v)}
                       placeholder="Pilih jenis kegiatan"
-                      options={activityGroupFilter === "Semua" ? ACTIVITY_TYPES : ACTIVITY_TYPES.filter((activity) => getActivityGroup(activity) === activityGroupFilter)}
+                      options={
+                        activityGroupFilter === "Semua"
+                          ? ACTIVITY_TYPES
+                          : ACTIVITY_TYPES.filter(
+                              (activity) =>
+                                getActivityGroup(activity) ===
+                                activityGroupFilter,
+                            )
+                      }
                     />
                     <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                      Filter kelompok: <strong>{activityGroupFilter}</strong>. Daftar mengikuti klasifikasi kegiatan SIMITI.
+                      Filter kelompok: <strong>{activityGroupFilter}</strong>.
+                      Daftar mengikuti klasifikasi kegiatan SIMITI.
                     </div>
                   </Field>
 
@@ -1442,7 +1493,14 @@ export default function TambahLokasi() {
                       <div className="flex items-end">
                         <button
                           type="button"
-                          onClick={() => { validateCoordinates(); if (validCoordinates) void detectLocationFromCoordinate(Number(form.latitude), Number(form.longitude)); }}
+                          onClick={() => {
+                            validateCoordinates();
+                            if (validCoordinates)
+                              void detectLocationFromCoordinate(
+                                Number(form.latitude),
+                                Number(form.longitude),
+                              );
+                          }}
                           className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 text-[9px] font-extrabold text-blue-600 transition hover:bg-blue-100 lg:w-auto"
                         >
                           <CheckCircle2 size={14} />
@@ -1490,14 +1548,20 @@ export default function TambahLokasi() {
                     )}
 
                     {locationDetectionMessage && (
-                      <div className={`mt-3 flex gap-2 rounded-xl border p-3 text-[9px] ${
-                        detectingLocation
-                          ? "border-blue-200 bg-blue-50 text-blue-700"
-                          : coordinateValidated
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                            : "border-amber-200 bg-amber-50 text-amber-700"
-                      }`}>
-                        {detectingLocation ? <Crosshair size={13} /> : <CheckCircle2 size={13} />}
+                      <div
+                        className={`mt-3 flex gap-2 rounded-xl border p-3 text-[9px] ${
+                          detectingLocation
+                            ? "border-blue-200 bg-blue-50 text-blue-700"
+                            : coordinateValidated
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : "border-amber-200 bg-amber-50 text-amber-700"
+                        }`}
+                      >
+                        {detectingLocation ? (
+                          <Crosshair size={13} />
+                        ) : (
+                          <CheckCircle2 size={13} />
+                        )}
                         {locationDetectionMessage}
                       </div>
                     )}
@@ -1526,7 +1590,9 @@ export default function TambahLokasi() {
                     Otomatis dari peta / koordinat
                   </div>
                   <div className="mt-1 text-[8px] leading-relaxed">
-                    Jika koordinat tersedia, sistem melakukan point-in-polygon dan mengisi wilayah administrasi serta DAS. Field di bawah tetap dapat dikoreksi manual bila diperlukan.
+                    Jika koordinat tersedia, sistem melakukan point-in-polygon
+                    dan mengisi wilayah administrasi serta DAS. Field di bawah
+                    tetap dapat dikoreksi manual bila diperlukan.
                   </div>
                 </div>
 
@@ -1828,7 +1894,13 @@ export default function TambahLokasi() {
                   <ReviewCard
                     title="Administrasi & DAS"
                     icon={Layers3}
-                    complete={!!form.provinsi && !!form.kabupaten_kota && !!form.kecamatan && !!form.desa_kelurahan && !!form.das}
+                    complete={
+                      !!form.provinsi &&
+                      !!form.kabupaten_kota &&
+                      !!form.kecamatan &&
+                      !!form.desa_kelurahan &&
+                      !!form.das
+                    }
                   >
                     <ReviewRow
                       label="Provinsi"
@@ -1951,8 +2023,12 @@ export default function TambahLokasi() {
 
               <button
                 type="button"
-                disabled={idx >= 4}
-                onClick={() => go(STEPS[idx + 1].id)}
+                disabled={idx >= STEPS.length - 1}
+                onClick={() => {
+                  if (idx < STEPS.length - 1) {
+                    go(STEPS[idx + 1].id);
+                  }
+                }}
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-[10px] font-extrabold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-30"
               >
                 Lanjut

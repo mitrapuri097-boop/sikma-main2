@@ -11213,43 +11213,61 @@ app.get("/api/das/by-location", async (req, res) => {
   try {
     const { kecamatan, kabupaten, provinsi } = req.query;
 
-    let query = `
-      SELECT DISTINCT 
-        INITCAP(nama_das) as nama_das
-      FROM das_boundaries
-      WHERE 1=1
-    `;
+    if (!kecamatan && !kabupaten && !provinsi) {
+      return res.json({ dasList: [] });
+    }
 
-    const params = [];
-    let paramIndex = 1;
+    const conditions = [];
+    const values = [];
 
     if (provinsi) {
-      query += ` AND LOWER(provinsi) = LOWER($${paramIndex})`;
-      params.push(provinsi);
-      paramIndex++;
+      values.push(String(provinsi).trim());
+      conditions.push(`
+        LOWER(TRIM(wadmpr)) = LOWER(TRIM($${values.length}))
+      `);
     }
 
     if (kabupaten) {
-      query += ` AND LOWER(kab_kota) = LOWER($${paramIndex})`;
-      params.push(kabupaten);
-      paramIndex++;
+      values.push(String(kabupaten).trim());
+      conditions.push(`
+        LOWER(TRIM(wadmkk)) = LOWER(TRIM($${values.length}))
+      `);
     }
 
     if (kecamatan) {
-      query += ` AND LOWER(kecamatan) = LOWER($${paramIndex})`;
-      params.push(kecamatan);
-      paramIndex++;
+      values.push(String(kecamatan).trim());
+      conditions.push(`
+        LOWER(TRIM(wadmkc)) = LOWER(TRIM($${values.length}))
+      `);
     }
 
-    query += " ORDER BY nama_das";
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-    const result = await pool.query(query, params);
-    const dasList = result.rows.map((row) => row.nama_das);
+    const query = `
+      SELECT DISTINCT
+        kode_das,
+        nama_das,
+        luas_das
+      FROM public.das_adm
+      ${whereClause}
+      AND kode_das IS NOT NULL
+      AND nama_das IS NOT NULL
+      ORDER BY nama_das ASC
+    `;
 
-    res.json({ dasList });
+    const result = await pool.query(query, values);
+
+    res.json({
+      dasList: result.rows,
+    });
   } catch (error) {
     console.error("Error fetching DAS by location:", error);
-    res.status(500).json({ error: error.message, dasList: [] });
+
+    res.status(500).json({
+      error: error.message,
+      dasList: [],
+    });
   }
 });
 
@@ -16592,6 +16610,154 @@ app.put(
 // Semua analisis dilakukan di backend.
 // ============================================================
 
+// ============================================================
+// SIMITI - SPATIAL LOCATION DETECTION
+// POST /api/spatial/detect-location
+// Body: { latitude, longitude }
+//
+// Endpoint ini sengaja tidak bergantung pada /api/layers/*/geojson
+// dan tidak memerlukan permission View layer untuk sekadar point-in-polygon.
+// ============================================================
+app.post("/api/spatial/detect-location", async (req, res) => {
+  const latitude = Number(req.body?.latitude);
+  const longitude = Number(req.body?.longitude);
+
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Koordinat latitude/longitude tidak valid.",
+    });
+  }
+
+  const point = "ST_SetSRID(ST_MakePoint($2, $1), 4326)";
+
+  const findOne = async (sql, params = [latitude, longitude]) => {
+    try {
+      const result = await pool.query(sql, params);
+      return result.rows[0] || null;
+    } catch (error) {
+      console.warn("⚠️ [SPATIAL DETECT] query layer gagal:", error.message);
+      return null;
+    }
+  };
+
+  try {
+    const [provinsi, kabupaten, kecamatan, kelurahan, das] = await Promise.all([
+      findOne(`
+          SELECT provinsi
+          FROM public.provinsi
+          WHERE geom IS NOT NULL
+            AND ST_Covers(
+              CASE
+                WHEN ST_SRID(geom) = 0 THEN ST_SetSRID(geom, 4326)
+                WHEN ST_SRID(geom) = 4326 THEN geom
+                ELSE ST_Transform(geom, 4326)
+              END,
+              ${point}
+            )
+          LIMIT 1
+        `),
+
+      findOne(`
+          SELECT kab_kota
+          FROM public.kab_kota
+          WHERE geom IS NOT NULL
+            AND ST_Covers(
+              CASE
+                WHEN ST_SRID(geom) = 0 THEN ST_SetSRID(geom, 4326)
+                WHEN ST_SRID(geom) = 4326 THEN geom
+                ELSE ST_Transform(geom, 4326)
+              END,
+              ${point}
+            )
+          LIMIT 1
+        `),
+
+      findOne(`
+          SELECT kecamatan
+          FROM public.kecamatan
+          WHERE geom IS NOT NULL
+            AND ST_Covers(
+              CASE
+                WHEN ST_SRID(geom) = 0 THEN ST_SetSRID(geom, 4326)
+                WHEN ST_SRID(geom) = 4326 THEN geom
+                ELSE ST_Transform(geom, 4326)
+              END,
+              ${point}
+            )
+          LIMIT 1
+        `),
+
+      findOne(`
+          SELECT kel_desa
+          FROM public.kel_desa
+          WHERE geom IS NOT NULL
+            AND ST_Covers(
+              CASE
+                WHEN ST_SRID(geom) = 0 THEN ST_SetSRID(geom, 4326)
+                WHEN ST_SRID(geom) = 4326 THEN geom
+                ELSE ST_Transform(geom, 4326)
+              END,
+              ${point}
+            )
+          LIMIT 1
+        `),
+
+      findOne(`
+          SELECT nama_das, kode_das
+          FROM public.das_adm
+          WHERE geom IS NOT NULL
+            AND ST_Covers(
+              CASE
+                WHEN ST_SRID(geom) = 0 THEN ST_SetSRID(geom, 4326)
+                WHEN ST_SRID(geom) = 4326 THEN geom
+                ELSE ST_Transform(geom, 4326)
+              END,
+              ${point}
+            )
+          LIMIT 1
+        `),
+    ]);
+
+    return res.json({
+      success: true,
+      data: {
+        provinsi: provinsi?.provinsi ?? "",
+        kabupaten_kota: kabupaten?.kab_kota ?? "",
+        kecamatan: kecamatan?.kecamatan ?? "",
+        desa_kelurahan: kelurahan?.kel_desa ?? "",
+        das: das?.nama_das ?? "",
+        nama_das: das?.nama_das ?? "",
+        kode_das: das?.kode_das ?? "",
+      },
+    });
+  } catch (error) {
+    console.error("❌ /api/spatial/detect-location ERROR:", error);
+
+    // Detection should never crash the location-entry workflow.
+    return res.json({
+      success: true,
+      data: {
+        provinsi: "",
+        kabupaten_kota: "",
+        kecamatan: "",
+        desa_kelurahan: "",
+        das: "",
+        nama_das: "",
+        kode_das: "",
+      },
+      warning: "Layer administrasi/DAS tidak dapat dibaca untuk titik ini.",
+    });
+  }
+});
+
 app.get("/api/location-assessment", async (req, res) => {
   const latitude = Number(req.query.latitude);
   const longitude = Number(req.query.longitude);
@@ -16876,9 +17042,18 @@ app.get("/api/location-assessment", async (req, res) => {
         ) AS das
     `;
 
-    const adminResult = await pool.query(adminQuery, [latitude, longitude]);
+    let admin = {};
 
-    const admin = adminResult.rows[0] || {};
+    try {
+      const adminResult = await pool.query(adminQuery, [latitude, longitude]);
+      admin = adminResult.rows[0] || {};
+    } catch (adminError) {
+      console.warn(
+        "⚠️ [LOCATION] ADMIN + DAS lookup gagal, assessment dilanjutkan:",
+        adminError?.message || adminError,
+      );
+      admin = {};
+    }
 
     checkpoint("ADMIN + DAS DONE");
 
@@ -18660,7 +18835,57 @@ app.post("/api/lokasi-kegiatan", async (req, res) => {
         .json({ message: "Nama kegiatan dan koordinat valid wajib diisi." });
     const kode = `KGT-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
     const r = await pool.query(
-      `INSERT INTO lokasi_kegiatan (kode,nama_kegiatan,jenis_kegiatan,tahun_pelaksanaan,sumber_pendanaan,instansi_pelaksana,provinsi,kabupaten_kota,kecamatan,desa_kelurahan,kode_prov,kode_kk,kode_kec,kode_kd,das,kode_das,luas_area,status,keterangan,longitude,latitude,geom,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,ST_SetSRID(ST_MakePoint($19,$20),4326),NOW()) RETURNING *`,
+      `INSERT INTO lokasi_kegiatan (
+    kode,
+    nama_kegiatan,
+    jenis_kegiatan,
+    tahun_pelaksanaan,
+    sumber_pendanaan,
+    instansi_pelaksana,
+    provinsi,
+    kabupaten_kota,
+    kecamatan,
+    desa_kelurahan,
+    kode_prov,
+    kode_kk,
+    kode_kec,
+    kode_kd,
+    das,
+    kode_das,
+    luas_area,
+    status,
+    keterangan,
+    longitude,
+    latitude,
+    geom,
+    updated_at
+  )
+  VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    $9,
+    $10,
+    $11,
+    $12,
+    $13,
+    $14,
+    $15,
+    $16,
+    $17,
+    $18,
+    $19,
+    $20,
+    $21,
+    ST_SetSRID(ST_MakePoint($20, $21), 4326),
+    NOW()
+  )
+  RETURNING *`,
       [
         kode,
         b.nama_kegiatan,
@@ -18681,14 +18906,33 @@ app.post("/api/lokasi-kegiatan", async (req, res) => {
         b.luas_area !== "" && b.luas_area != null ? Number(b.luas_area) : null,
         b.status || "Direncanakan",
         b.keterangan || null,
+
+        // $20 = longitude
         lng,
+
+        // $21 = latitude
         lat,
       ],
     );
     res.status(201).json(r.rows[0]);
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ message: "Gagal menyimpan lokasi kegiatan" });
+    console.error("\n========== LOKASI KEGIATAN ERROR ==========");
+    console.error("Message :", e?.message);
+    console.error("Code    :", e?.code);
+    console.error("Detail  :", e?.detail);
+    console.error("Hint    :", e?.hint);
+    console.error("Table   :", e?.table);
+    console.error("Column  :", e?.column);
+    console.error("Constraint:", e?.constraint);
+    console.error("Stack   :", e?.stack);
+    console.error("===========================================\n");
+
+    res.status(500).json({
+      message: e?.message || "Gagal menyimpan lokasi kegiatan",
+      code: e?.code || null,
+      detail: e?.detail || null,
+      hint: e?.hint || null,
+    });
   }
 });
 app.put("/api/lokasi-kegiatan/:id", async (req, res) => {
@@ -20606,6 +20850,608 @@ app.get("/api/master/das", async (req, res) => {
     res
       .status(500)
       .json({ success: false, message: "Gagal mencari master DAS." });
+  }
+});
+
+// ==================== SIPEAT / TMA INTEGRATION ====================
+// SIPEAT API key tetap di backend. Frontend TIDAK pernah menerima key.
+// Endpoint lama /api/sipeat dipertahankan.
+// Endpoint /api/tma dipertahankan untuk data realtime.
+// Tambahan:
+//   GET /api/tma/history?range=7d&sensor_id=...
+//   GET /api/tma/history?range=30d&sensor_id=...
+//
+// Catatan: histori yang disimpan backend mulai tersedia sejak fitur ini aktif.
+// Backend tidak mengarang data historis yang belum pernah diterima dari SIPEAT.
+
+const SIPEAT_API_URL =
+  process.env.SIPEAT_API_URL || "https://sipeat-2026.web.app/api";
+const SIPEAT_API_KEY = process.env.SIPEAT_API_KEY || "";
+
+const SIPEAT_TIMEOUT_MS = Number(process.env.SIPEAT_TIMEOUT_MS || 15000);
+const TMA_HISTORY_ENABLED =
+  String(process.env.TMA_HISTORY_ENABLED || "true").toLowerCase() !== "false";
+const TMA_HISTORY_RETENTION_DAYS = Math.max(
+  7,
+  Number(process.env.TMA_HISTORY_RETENTION_DAYS || 180),
+);
+
+let tmaHistoryTableReady = false;
+
+function normalizeMetricValue(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+
+  const text = String(value).trim().replace(",", ".");
+  if (!text) return null;
+
+  const numeric = Number(text);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function pickFirst(obj, aliases) {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+
+  const normalized = new Map(
+    Object.entries(obj).map(([key, value]) => [
+      key.toLowerCase().replace(/[\s_\-./()]+/g, ""),
+      value,
+    ]),
+  );
+
+  for (const alias of aliases) {
+    const value = normalized.get(
+      alias.toLowerCase().replace(/[\s_\-./()]+/g, ""),
+    );
+    if (value !== undefined && value !== null && value !== "") {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function findFirstObjectValue(root, aliases) {
+  const wanted = new Set(
+    aliases.map((x) => x.toLowerCase().replace(/[\s_\-./()]+/g, "")),
+  );
+
+  const visited = new Set();
+
+  function walk(value) {
+    if (!value || typeof value !== "object") return null;
+    if (visited.has(value)) return null;
+    visited.add(value);
+
+    if (!Array.isArray(value)) {
+      for (const [key, item] of Object.entries(value)) {
+        const normalizedKey = key.toLowerCase().replace(/[\s_\-./()]+/g, "");
+        if (wanted.has(normalizedKey) && item !== null && item !== "") {
+          return item;
+        }
+      }
+    }
+
+    for (const child of Array.isArray(value) ? value : Object.values(value)) {
+      const found = walk(child);
+      if (found !== null && found !== undefined) return found;
+    }
+
+    return null;
+  }
+
+  return walk(root);
+}
+
+function findCandidateSensorRecords(payload) {
+  const records = [];
+  const visited = new Set();
+
+  function walk(value, parentKey = "") {
+    if (!value || typeof value !== "object") return;
+    if (visited.has(value)) return;
+    visited.add(value);
+
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item, parentKey);
+      return;
+    }
+
+    const keys = Object.keys(value);
+    const hasSensorLikeField = keys.some((key) =>
+      [
+        "id",
+        "sensorid",
+        "sensor_id",
+        "deviceid",
+        "device_id",
+        "stationid",
+        "station_id",
+        "tma",
+        "tinggimukaair",
+        "waterlevel",
+        "water_level",
+        "suhu",
+        "temperature",
+        "kelembaban",
+        "humidity",
+        "ph",
+        "ec",
+        "battery",
+        "curahhujan",
+        "curah_hujan",
+        "rainfall",
+      ].includes(key.toLowerCase().replace(/[\s_\-./()]+/g, "")),
+    );
+
+    if (hasSensorLikeField) records.push(value);
+
+    for (const [key, child] of Object.entries(value)) {
+      if (child && typeof child === "object") walk(child, key);
+    }
+  }
+
+  walk(payload);
+
+  // Jika payload sendiri adalah satu record sensor.
+  if (records.length === 0 && payload && typeof payload === "object") {
+    records.push(payload);
+  }
+
+  // Hindari menyimpan object yang sama berkali-kali.
+  return [...new Set(records)];
+}
+
+function normalizeSipeatRecord(record, fallbackPayload) {
+  const source = record || fallbackPayload || {};
+
+  const sensorId =
+    pickFirst(source, [
+      "sensor_id",
+      "sensorId",
+      "sensorid",
+      "device_id",
+      "deviceId",
+      "deviceid",
+      "station_id",
+      "stationId",
+      "stationid",
+      "id",
+      "kode_sensor",
+      "kodeSensor",
+    ]) ||
+    findFirstObjectValue(source, [
+      "sensor_id",
+      "sensorId",
+      "sensorid",
+      "device_id",
+      "deviceId",
+      "deviceid",
+      "station_id",
+      "stationId",
+      "stationid",
+    ]) ||
+    "unknown";
+
+  const observedAt =
+    pickFirst(source, [
+      "timestamp",
+      "datetime",
+      "date_time",
+      "dateTime",
+      "time",
+      "waktu",
+      "observed_at",
+      "observedAt",
+      "created_at",
+      "createdAt",
+      "acquisition_time",
+    ]) || null;
+
+  return {
+    sensor_id: String(sensorId),
+    observed_at: observedAt ? new Date(observedAt).toISOString() : null,
+    tma: normalizeMetricValue(
+      pickFirst(source, [
+        "tma",
+        "tinggi_muka_air",
+        "tinggiMukaAir",
+        "tinggimukaair",
+        "water_level",
+        "waterLevel",
+        "level",
+      ]),
+    ),
+    suhu: normalizeMetricValue(
+      pickFirst(source, ["suhu", "temperature", "temp"]),
+    ),
+    kelembaban: normalizeMetricValue(
+      pickFirst(source, ["kelembaban", "humidity", "rh"]),
+    ),
+    ph: normalizeMetricValue(pickFirst(source, ["ph", "pH"])),
+    ec: normalizeMetricValue(
+      pickFirst(source, ["ec", "electrical_conductivity", "conductivity"]),
+    ),
+    battery: normalizeMetricValue(
+      pickFirst(source, [
+        "battery",
+        "battery_level",
+        "batteryLevel",
+        "baterai",
+      ]),
+    ),
+    curah_hujan: normalizeMetricValue(
+      pickFirst(source, [
+        "curah_hujan",
+        "curahHujan",
+        "curahhujan",
+        "rainfall",
+        "rain",
+        "rainfall_online",
+      ]),
+    ),
+  };
+}
+
+async function ensureTmaHistoryTable() {
+  if (!TMA_HISTORY_ENABLED || tmaHistoryTableReady) return;
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.sipeat_tma_history (
+      id BIGSERIAL PRIMARY KEY,
+      sensor_id VARCHAR(255) NOT NULL,
+      captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      observed_at TIMESTAMPTZ NULL,
+      tma DOUBLE PRECISION NULL,
+      suhu DOUBLE PRECISION NULL,
+      kelembaban DOUBLE PRECISION NULL,
+      ph DOUBLE PRECISION NULL,
+      ec DOUBLE PRECISION NULL,
+      battery DOUBLE PRECISION NULL,
+      curah_hujan DOUBLE PRECISION NULL,
+      payload JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sipeat_tma_history_sensor_time
+      ON public.sipeat_tma_history (sensor_id, captured_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_sipeat_tma_history_captured_at
+      ON public.sipeat_tma_history (captured_at DESC);
+  `);
+
+  tmaHistoryTableReady = true;
+}
+
+async function saveSipeatHistory(payload) {
+  if (!TMA_HISTORY_ENABLED) return 0;
+
+  try {
+    await ensureTmaHistoryTable();
+
+    const records = findCandidateSensorRecords(payload);
+    const rows = records.map((record) =>
+      normalizeSipeatRecord(record, payload),
+    );
+
+    let saved = 0;
+
+    for (const row of rows) {
+      const hasMetric = [
+        row.tma,
+        row.suhu,
+        row.kelembaban,
+        row.ph,
+        row.ec,
+        row.battery,
+        row.curah_hujan,
+      ].some((value) => value !== null);
+
+      if (!hasMetric) continue;
+
+      await pool.query(
+        `
+          INSERT INTO public.sipeat_tma_history
+            (
+              sensor_id, observed_at, tma, suhu, kelembaban,
+              ph, ec, battery, curah_hujan, payload
+            )
+          VALUES
+            ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+        `,
+        [
+          row.sensor_id,
+          row.observed_at,
+          row.tma,
+          row.suhu,
+          row.kelembaban,
+          row.ph,
+          row.ec,
+          row.battery,
+          row.curah_hujan,
+          JSON.stringify(row),
+        ],
+      );
+
+      saved++;
+    }
+
+    // Retensi otomatis agar tabel tidak tumbuh tanpa batas.
+    await pool.query(
+      `
+        DELETE FROM public.sipeat_tma_history
+        WHERE captured_at < NOW() - ($1 * INTERVAL '1 day')
+      `,
+      [TMA_HISTORY_RETENTION_DAYS],
+    );
+
+    return saved;
+  } catch (error) {
+    // Histori tidak boleh membuat endpoint realtime gagal.
+    console.error("⚠️ Gagal menyimpan histori SIPEAT:", error.message);
+    return 0;
+  }
+}
+
+async function fetchSipeatData({ sensorId = "all", lastdata = "" } = {}) {
+  if (!SIPEAT_API_KEY) {
+    const error = new Error("SIPEAT_API_KEY belum dikonfigurasi di backend.");
+    error.statusCode = 500;
+    throw error;
+  }
+
+  const sipeatUrl = new URL(SIPEAT_API_URL);
+  sipeatUrl.searchParams.set("key", SIPEAT_API_KEY);
+  sipeatUrl.searchParams.set("ID", sensorId || "all");
+  sipeatUrl.searchParams.set("lastdata", lastdata ?? "");
+
+  console.log(
+    "📡 SIPEAT request:",
+    sipeatUrl.origin + sipeatUrl.pathname,
+    `ID=${sensorId || "all"}`,
+  );
+
+  const response = await fetchWithTimeout(
+    sipeatUrl.toString(),
+    {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    },
+    SIPEAT_TIMEOUT_MS,
+  );
+
+  const text = await response.text();
+
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    console.error("❌ Response SIPEAT bukan JSON:", text.slice(0, 1000));
+    const error = new Error("Response dari SIPEAT bukan JSON yang valid.");
+    error.statusCode = 502;
+    throw error;
+  }
+
+  if (!response.ok) {
+    const error = new Error(`SIPEAT HTTP ${response.status}`);
+    error.statusCode = response.status;
+    error.responseData = data;
+    throw error;
+  }
+
+  return data;
+}
+
+// ==================== SIPEAT PROXY ====================
+// Endpoint existing dipertahankan agar frontend lama tidak rusak.
+app.get("/api/sipeat", async (req, res) => {
+  try {
+    const data = await fetchSipeatData({
+      sensorId: req.query.id || "all",
+      lastdata: req.query.lastdata ?? "",
+    });
+
+    // Simpan snapshot tanpa menunggu proses histori selesai.
+    void saveSipeatHistory(data);
+
+    return res.json(data);
+  } catch (error) {
+    console.error("❌ SIPEAT proxy error:", error);
+
+    return res.status(error.statusCode || 502).json(
+      error.responseData || {
+        success: false,
+        message: error.message || "Gagal mengambil data dari SIPEAT.",
+      },
+    );
+  }
+});
+
+// ==================== TMA REALTIME ====================
+// Default tetap realtime. Tidak mengubah kontrak frontend lama.
+app.get("/api/tma", async (req, res) => {
+  try {
+    const data = await fetchSipeatData({
+      sensorId: req.query.sensor_id || req.query.id || "all",
+      lastdata: req.query.lastdata ?? "",
+    });
+
+    await saveSipeatHistory(data);
+
+    // Pertahankan response SIPEAT apa adanya agar frontend lama tidak rusak.
+    // Informasi histori hanya disimpan di backend.
+    return res.json(data);
+  } catch (error) {
+    console.error("❌ TMA/SIPEAT error:", error);
+
+    return res.status(error.statusCode || 502).json(
+      error.responseData || {
+        success: false,
+        message: "Gagal mengambil data TMA dari SIPEAT.",
+        error: error.message,
+      },
+    );
+  }
+});
+
+// ==================== TMA HISTORI ====================
+// GET /api/tma/history?range=7d
+// GET /api/tma/history?range=30d&sensor_id=xxx
+// GET /api/tma/history?from=2026-09-01&to=2026-09-17&sensor_id=xxx
+app.get("/api/tma/history", async (req, res) => {
+  try {
+    await ensureTmaHistoryTable();
+
+    const rangeText = String(req.query.range || "7d").toLowerCase();
+    const sensorId = req.query.sensor_id || req.query.id || null;
+
+    const allowedRanges = {
+      "7d": 7,
+      "30d": 30,
+      "90d": 90,
+      "180d": 180,
+    };
+
+    let fromDate;
+    let toDate = new Date();
+
+    if (req.query.from || req.query.to) {
+      if (!req.query.from || !req.query.to) {
+        return res.status(400).json({
+          success: false,
+          message: "Parameter from dan to harus dikirim bersama.",
+        });
+      }
+
+      fromDate = new Date(`${req.query.from}T00:00:00+07:00`);
+      toDate = new Date(`${req.query.to}T23:59:59.999+07:00`);
+
+      if (
+        Number.isNaN(fromDate.getTime()) ||
+        Number.isNaN(toDate.getTime()) ||
+        fromDate > toDate
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Rentang tanggal tidak valid.",
+        });
+      }
+    } else {
+      const days = allowedRanges[rangeText] || 7;
+      fromDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    }
+
+    const result = await pool.query(
+      `
+        SELECT
+          id,
+          sensor_id,
+          captured_at,
+          observed_at,
+          tma,
+          suhu,
+          kelembaban,
+          ph,
+          ec,
+          battery,
+          curah_hujan
+        FROM public.sipeat_tma_history
+        WHERE captured_at >= $1
+          AND captured_at <= $2
+          AND ($3::text IS NULL OR sensor_id = $3)
+        ORDER BY captured_at ASC
+      `,
+      [fromDate.toISOString(), toDate.toISOString(), sensorId],
+    );
+
+    const rows = result.rows.map((row) => ({
+      ...row,
+      captured_at: row.captured_at
+        ? new Date(row.captured_at).toISOString()
+        : null,
+      observed_at: row.observed_at
+        ? new Date(row.observed_at).toISOString()
+        : null,
+    }));
+
+    return res.json({
+      success: true,
+      source: "SIMITIGASI PostgreSQL ← SIPEAT",
+      range: req.query.from || req.query.to ? "custom" : rangeText,
+      sensor_id: sensorId,
+      from: fromDate.toISOString(),
+      to: toDate.toISOString(),
+      count: rows.length,
+      data: rows,
+    });
+  } catch (error) {
+    console.error("❌ TMA history error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Gagal mengambil histori TMA.",
+      error: error.message,
+    });
+  }
+});
+
+// ==================== TMA HISTORY STATS ====================
+app.get("/api/tma/history/stats", async (req, res) => {
+  try {
+    await ensureTmaHistoryTable();
+
+    const rangeText = String(req.query.range || "7d").toLowerCase();
+    const allowedRanges = { "7d": 7, "30d": 30, "90d": 90, "180d": 180 };
+    const days = allowedRanges[rangeText] || 7;
+    const sensorId = req.query.sensor_id || req.query.id || null;
+
+    const result = await pool.query(
+      `
+        SELECT
+          COUNT(*)::int AS total_readings,
+          COUNT(DISTINCT sensor_id)::int AS total_sensors,
+          MIN(tma) AS tma_min,
+          MAX(tma) AS tma_max,
+          AVG(tma) AS tma_avg,
+          MIN(suhu) AS suhu_min,
+          MAX(suhu) AS suhu_max,
+          AVG(suhu) AS suhu_avg,
+          MIN(kelembaban) AS kelembaban_min,
+          MAX(kelembaban) AS kelembaban_max,
+          AVG(kelembaban) AS kelembaban_avg,
+          MIN(ph) AS ph_min,
+          MAX(ph) AS ph_max,
+          AVG(ph) AS ph_avg,
+          MIN(ec) AS ec_min,
+          MAX(ec) AS ec_max,
+          AVG(ec) AS ec_avg,
+          MIN(battery) AS battery_min,
+          MAX(battery) AS battery_max,
+          AVG(battery) AS battery_avg,
+          MIN(curah_hujan) AS curah_hujan_min,
+          MAX(curah_hujan) AS curah_hujan_max,
+          AVG(curah_hujan) AS curah_hujan_avg
+        FROM public.sipeat_tma_history
+        WHERE captured_at >= NOW() - ($1 * INTERVAL '1 day')
+          AND ($2::text IS NULL OR sensor_id = $2)
+      `,
+      [days, sensorId],
+    );
+
+    return res.json({
+      success: true,
+      range: rangeText,
+      sensor_id: sensorId,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error("❌ TMA history stats error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Gagal mengambil statistik histori TMA.",
+      error: error.message,
+    });
   }
 });
 

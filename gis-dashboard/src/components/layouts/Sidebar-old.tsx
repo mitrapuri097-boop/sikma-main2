@@ -10,8 +10,6 @@ import {
   BrainCircuit,
   Bot,
   Waves,
-  Mountain,
-  Flame,
   CloudSun,
   Trees,
   ClipboardList,
@@ -31,15 +29,16 @@ import {
   Wrench,
   HelpCircle,
   Network,
-  Code2,
   Globe2,
   RefreshCw,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  Menu,
   X,
   Circle,
+  UserCog,
+  Building2,
+  UserCheck,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -67,13 +66,12 @@ interface MenuItem {
 
 /* ============================================================
    MAIN NAVIGATION
-============================================================ */
+   ============================================================ */
 
 const mainMenus: MenuItem[] = [
   /* ============================================================
      DASHBOARD
   ============================================================ */
-
   {
     title: "Dashboard Utama",
     description: "Ringkasan sistem & risiko",
@@ -83,9 +81,7 @@ const mainMenus: MenuItem[] = [
 
   /* ============================================================
      WEBGIS & DATA SPASIAL
-     Pendukung KAK 3.2, 3.3, 3.4 dan 3.7
   ============================================================ */
-
   {
     title: "WebGIS & Data Spasial",
     description: "Peta dan data spasial",
@@ -93,49 +89,52 @@ const mainMenus: MenuItem[] = [
     children: [
       {
         title: "Peta Interaktif",
-        href: "/gis",
+        href: "/kerawanan",
         icon: Map,
       },
       {
         title: "Layer & Overlay",
-        href: "/layeroverlay", // <-- UBAH DI SINI (Sebelumnya: "/gis/layers")
+        href: "/layeroverlay",
         icon: Layers3,
       },
       {
-        title: "Data Administrasi",
-        href: "/gis/administrasi",
-        icon: Database,
-      },
-
-      {
-        title: "Data DAS",
-        href: "/gis/das",
-        icon: Waves,
-      },
-      {
-        title: "Peta Risiko",
-        href: "/gis/risk-map",
-        icon: AlertTriangle,
-      },
-      {
-        title: "Manajemen Layer",
-        href: "/gis/layer-management",
-        icon: Layers3,
-      },
-      {
-        title: "Publikasi Data Spasial",
-        href: "/tambah-data-spasial",
+        title: "Tambah Data di Peta",
+        href: "/gis/add-data",
         icon: PlusCircle,
-        badge: "ADMIN",
       },
     ],
   },
 
   /* ============================================================
-     KAK 3.2
-     REKOMENDASI MITIGASI & ADAPTASI BERBASIS AI
+     DATA KEBENCANAAN
   ============================================================ */
+  {
+    title: "Data Kebencanaan",
+    description: "Kejadian bencana & peringatan dini",
+    icon: Waves,
+    children: [
+      {
+        title: "Pusat Data Kejadian",
+        href: "/kebencanaan",
+        icon: Database,
+      },
+      {
+        title: "Data Kejadian",
+        href: "/kejadian",
+        icon: ClipboardList,
+      },
+      {
+        title: "EWS Banjir",
+        href: "/ews/banjir",
+        icon: Waves,
+        badge: "EWS",
+      },
+    ],
+  },
 
+  /* ============================================================
+     REKOMENDASI MITIGASI & ADAPTASI
+  ============================================================ */
   {
     title: "Rekomendasi Mitigasi & Adaptasi",
     description: "Analisis spasial berbasis AI",
@@ -148,31 +147,6 @@ const mainMenus: MenuItem[] = [
         badge: "AI",
       },
       {
-        title: "Analisis Banjir",
-        href: "/rekomendasi/banjir",
-        icon: Waves,
-      },
-      {
-        title: "Analisis Longsor",
-        href: "/rekomendasi/longsor",
-        icon: Mountain,
-      },
-      {
-        title: "Analisis Karhutla",
-        href: "/rekomendasi/karhutla",
-        icon: Flame,
-      },
-      {
-        title: "Analisis Kekeringan",
-        href: "/rekomendasi/kekeringan",
-        icon: CloudSun,
-      },
-      {
-        title: "Analisis Spasial",
-        href: "/rekomendasi/spasial",
-        icon: MapPinned,
-      },
-      {
         title: "Peta Rekomendasi",
         href: "/rekomendasi/peta",
         icon: MapPinned,
@@ -181,13 +155,11 @@ const mainMenus: MenuItem[] = [
   },
 
   /* ============================================================
-     KAK 3.3
-     INVENTARISASI & PEMETAAN LOKASI KEGIATAN
+     INVENTARISASI & PEMETAAN KEGIATAN
   ============================================================ */
-
   {
-    title: "Inventarisasi Lokasi Kegiatan",
-    description: "Data kegiatan mitigasi & adaptasi",
+    title: "Inventarisasi & Pemetaan Kegiatan",
+    description: "Data lokasi mitigasi & adaptasi",
     icon: Trees,
     children: [
       {
@@ -224,10 +196,8 @@ const mainMenus: MenuItem[] = [
   },
 
   /* ============================================================
-     KAK 3.4
-     GPS & ANALISIS KERAWANAN
+     DETEKSI & ANALISIS KERAWANAN
   ============================================================ */
-
   {
     title: "Deteksi & Analisis Kerawanan",
     description: "GPS dan status risiko lokasi",
@@ -235,7 +205,7 @@ const mainMenus: MenuItem[] = [
     children: [
       {
         title: "Cek Lokasi Saya",
-        href: "/kerawanan",
+        href: "/gis/lokasi-saya",
         icon: Navigation,
         badge: "GPS",
       },
@@ -268,10 +238,39 @@ const mainMenus: MenuItem[] = [
   },
 
   /* ============================================================
-     KAK 3.5
-     PELAPORAN DATA SIMITI
-  ============================================================ */
+   TINGGI MUKA AIR (TMA)
+============================================================ */
+  {
+    title: "Tinggi Muka Air (TMA)",
+    description: "Pemantauan tinggi muka air dan kondisi sungai",
+    icon: Waves,
+    children: [
+      {
+        title: "Dashboard TMA",
+        href: "/tma",
+        icon: Waves,
+      },
+      {
+        title: "Monitoring TMA",
+        href: "/tma/monitoring",
+        icon: Activity,
+      },
+      {
+        title: "Peta TMA",
+        href: "/tma/peta",
+        icon: Map,
+      },
+      {
+        title: "Historis TMA",
+        href: "/tma/historis",
+        icon: History,
+      },
+    ],
+  },
 
+  /* ============================================================
+   PELAPORAN
+============================================================ */
   {
     title: "Pelaporan",
     description: "Laporan dan ekspor data",
@@ -311,19 +310,17 @@ const mainMenus: MenuItem[] = [
   },
 
   /* ============================================================
-     KAK 3.6
-     INTEROPERABILITAS DATA
+     INTEROPERABILITAS
   ============================================================ */
-
   {
     title: "Interoperabilitas Data",
     description: "Integrasi dan pertukaran data",
     icon: Network,
     children: [
       {
-        title: "API & REST",
-        href: "/interoperabilitas/api",
-        icon: Code2,
+        title: "Integration Hub",
+        href: "/interoperabilitas",
+        icon: Network,
       },
       {
         title: "GeoJSON",
@@ -371,34 +368,66 @@ const mainMenus: MenuItem[] = [
 
 /* ============================================================
    SYSTEM ADMINISTRATION
-============================================================ */
+   USER MANAGEMENT SIMITI
+   ============================================================ */
 
 const systemMenus: MenuItem[] = [
   {
     title: "Administrasi Sistem",
-    description: "Hak akses, keamanan & konfigurasi",
+    description: "Pengguna, hak akses, keamanan & sistem",
     icon: Settings,
+
     children: [
+      /* --------------------------------------------------------
+         USER MANAGEMENT
+      -------------------------------------------------------- */
       {
-        title: "User Management",
+        title: "Dashboard User",
         href: "/system/users",
+        icon: LayoutDashboard,
+      },
+      {
+        title: "Daftar User",
+        href: "/system/users/directory",
         icon: Users,
       },
+
+      /* --------------------------------------------------------
+         ROLE & PERMISSION
+      -------------------------------------------------------- */
       {
         title: "Role & Permission",
         href: "/system/roles",
         icon: Shield,
       },
       {
-        title: "Audit Log",
-        href: "/system/audit-log",
-        icon: ScrollText,
+        title: "Otorisasi User",
+        href: "/system/user-authorization",
+        icon: UserCog,
       },
+
+      /* --------------------------------------------------------
+         MASTER / ORGANIZATION
+         Route ditambahkan hanya jika component sudah tersedia.
+      -------------------------------------------------------- */
       {
         title: "Master Data",
         href: "/master-data",
         icon: Database,
       },
+
+      /* --------------------------------------------------------
+         AUDIT
+      -------------------------------------------------------- */
+      {
+        title: "Audit Log",
+        href: "/system/audit-log",
+        icon: ScrollText,
+      },
+
+      /* --------------------------------------------------------
+         SYSTEM
+      -------------------------------------------------------- */
       {
         title: "System Health",
         href: "/system/health",
@@ -409,6 +438,10 @@ const systemMenus: MenuItem[] = [
         href: "/system/maintenance",
         icon: Wrench,
       },
+
+      /* --------------------------------------------------------
+         HELP
+      -------------------------------------------------------- */
       {
         title: "Bantuan & Panduan",
         href: "/bantuan",
@@ -420,7 +453,7 @@ const systemMenus: MenuItem[] = [
 
 /* ============================================================
    COMPONENT
-============================================================ */
+   ============================================================ */
 
 export default function Sidebar({
   collapsed,
@@ -430,13 +463,6 @@ export default function Sidebar({
 }: SidebarProps) {
   const location = useLocation();
 
-  /*
-   * Desktop:
-   * collapsed mengikuti state sidebar.
-   *
-   * Mobile:
-   * sidebar selalu expanded ketika dibuka.
-   */
   const effectiveCollapsed = mobileOpen ? false : collapsed;
 
   const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
@@ -488,9 +514,7 @@ export default function Sidebar({
 
     return (
       <div className="relative">
-        {/* ==================================================
-            PARENT MENU
-        ================================================== */}
+        {/* PARENT MENU */}
 
         <button
           type="button"
@@ -660,9 +684,7 @@ export default function Sidebar({
             </>
           )}
 
-          {/* ==================================================
-              COLLAPSED TOOLTIP
-          ================================================== */}
+          {/* COLLAPSED TOOLTIP */}
 
           {effectiveCollapsed && (
             <span
@@ -696,9 +718,7 @@ export default function Sidebar({
           )}
         </button>
 
-        {/* ==================================================
-            CHILDREN
-        ================================================== */}
+        {/* CHILDREN */}
 
         {!effectiveCollapsed && isOpen && (
           <div className="relative ml-[22px] mt-1 pl-7">
@@ -725,40 +745,40 @@ export default function Sidebar({
                     to={item.href}
                     onClick={onCloseMobile}
                     className={({ isActive }) => `
-  group
-  relative
-  flex
-  min-h-[40px]
-  items-center
-  gap-3
-  rounded-lg
-  px-3
-  text-[12.5px]
-  font-medium
-  no-underline
-  transition-all
-  duration-200
-  outline-none
+                      group
+                      relative
+                      flex
+                      min-h-[40px]
+                      items-center
+                      gap-3
+                      rounded-lg
+                      px-3
+                      text-[12.5px]
+                      font-medium
+                      no-underline
+                      transition-all
+                      duration-200
+                      outline-none
 
-  ${
-    isActive
-      ? `
-        bg-emerald-500/15
-        font-semibold
-        !text-emerald-300
-        !no-underline
-        shadow-sm
-        ring-1
-        ring-emerald-500/10
-      `
-      : `
-        !text-slate-300
-        !no-underline
-        hover:bg-slate-800/80
-        hover:!text-white
-      `
-  }
-`}
+                      ${
+                        isActive
+                          ? `
+                            bg-emerald-500/15
+                            font-semibold
+                            !text-emerald-300
+                            !no-underline
+                            shadow-sm
+                            ring-1
+                            ring-emerald-500/10
+                          `
+                          : `
+                            !text-slate-300
+                            !no-underline
+                            hover:bg-slate-800/80
+                            hover:!text-white
+                          `
+                      }
+                    `}
                   >
                     {({ isActive }) => (
                       <>
@@ -908,6 +928,7 @@ export default function Sidebar({
           duration-200
           outline-none
           !no-underline
+
           ${
             isActive
               ? `
@@ -1034,9 +1055,7 @@ export default function Sidebar({
 
   return (
     <>
-      {/* ======================================================
-          MOBILE OVERLAY
-      ====================================================== */}
+      {/* MOBILE OVERLAY */}
 
       {mobileOpen && (
         <div
@@ -1052,9 +1071,7 @@ export default function Sidebar({
         />
       )}
 
-      {/* ======================================================
-          SIDEBAR
-      ====================================================== */}
+      {/* SIDEBAR */}
 
       <aside
         className={`
@@ -1095,6 +1112,7 @@ export default function Sidebar({
             items-center
             border-b
             border-slate-800
+
             ${
               effectiveCollapsed
                 ? "justify-center px-3"
@@ -1102,8 +1120,6 @@ export default function Sidebar({
             }
           `}
         >
-          {/* BRAND */}
-
           <div
             className={`
               flex
@@ -1273,7 +1289,6 @@ export default function Sidebar({
             overflow-x-hidden
             px-2.5
             py-4
-
             scrollbar-thin
             scrollbar-track-transparent
             scrollbar-thumb-slate-700
@@ -1353,8 +1368,6 @@ export default function Sidebar({
               "
             >
               <div className="flex items-center gap-3">
-                {/* STATUS ICON */}
-
                 <div
                   className="
                     flex
@@ -1372,8 +1385,6 @@ export default function Sidebar({
                 >
                   <ShieldCheck size={16} strokeWidth={2} />
                 </div>
-
-                {/* STATUS TEXT */}
 
                 <div className="min-w-0 flex-1">
                   <div
@@ -1399,8 +1410,6 @@ export default function Sidebar({
                     Disaster Mitigation Platform
                   </div>
                 </div>
-
-                {/* ONLINE */}
 
                 <div
                   className="
@@ -1436,14 +1445,7 @@ export default function Sidebar({
               </div>
             </div>
           ) : (
-            <div
-              className="
-                flex
-                justify-center
-                py-2
-              "
-              title="System Online"
-            >
+            <div className="flex justify-center py-2" title="System Online">
               <span
                 className="
                   h-2.5

@@ -5,6 +5,19 @@ import Header from "./header";
 import Sidebar from "./components/layouts/Sidebar";
 
 const Kerawanan = () => {
+  // UI-only state; declared before every hook/render reference.
+  const [isBottomSummaryOpen, setIsBottomSummaryOpen] = useState(true);
+
+  // Leaflet needs a size recalculation after the bottom grid row collapses/expands.
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      (mapInstanceRef.current as any)?.invalidateSize?.();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isBottomSummaryOpen]);
+
+  const [isRightLayerPanelOpen, setIsRightLayerPanelOpen] = useState(true);
+
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const mapWeatherMarkerRef = useRef<any>(null);
@@ -188,6 +201,31 @@ const Kerawanan = () => {
   const [selectedSigapKawasanHutanClass, setSelectedSigapKawasanHutanClass] =
     useState<string | null>(null);
   const selectedSigapKawasanHutanClassRef = useRef<string | null>(null);
+
+  // UI-only: synchronize Leaflet with the map container after panel resize.
+  useEffect(() => {
+    const el = mapRef.current;
+    if (!el) return;
+
+    const refresh = () => {
+      const map = mapInstanceRef.current;
+      if (map && typeof map.invalidateSize === "function") {
+        map.invalidateSize({ pan: false, animate: false });
+      }
+    };
+
+    const observer = new ResizeObserver(() => requestAnimationFrame(refresh));
+    observer.observe(el);
+
+    const timers = [50, 350, 700].map((ms) => window.setTimeout(refresh, ms));
+    window.addEventListener("resize", refresh);
+
+    return () => {
+      observer.disconnect();
+      timers.forEach((timer) => window.clearTimeout(timer));
+      window.removeEventListener("resize", refresh);
+    };
+  }, [isRightLayerPanelOpen]);
 
   useEffect(() => {
     selectedSigapKawasanHutanClassRef.current = selectedSigapKawasanHutanClass;
@@ -5828,6 +5866,8 @@ const Kerawanan = () => {
     setCurrentBounds(null);
   };
   const [showLayerPanel, setShowLayerPanel] = useState(false);
+  // UI-only: collapse/expand panel kanan tanpa mengubah logic layer.
+  
   // ======================================================
   // ENTERPRISE LAYER MANAGER
   // Search, active-only view, collapse groups, opacity,
@@ -10061,12 +10101,57 @@ const Kerawanan = () => {
         </div>
 
         <main className="relative flex-1 min-h-0 p-2 md:p-3 overflow-y-auto xl:overflow-hidden">
-          <div className="min-h-full xl:h-full grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_350px] grid-rows-[minmax(520px,1fr)_auto_auto] xl:grid-rows-[minmax(0,1fr)_184px] gap-2">
+          <div
+            className={`min-h-0 h-full grid grid-cols-1 ${
+              isRightLayerPanelOpen
+                ? "xl:grid-cols-[minmax(0,1fr)_350px]"
+                : "xl:grid-cols-1"
+            } gap-0 transition-[grid-template-columns,grid-template-rows] duration-300 ease-out`}
+            style={{
+              gridTemplateRows: isBottomSummaryOpen
+                ? "minmax(0, 1fr) 184px"
+                : "minmax(0, 1fr) 0px",
+              rowGap: isBottomSummaryOpen ? "8px" : "0px",
+            }}
+          >
             {/* =====================================================
                 MAP — pusat visual seperti mockup
                ===================================================== */}
-            <section className="relative min-h-[520px] xl:min-h-0 rounded-xl overflow-hidden bg-sky-100 border border-white shadow-sm">
+            <section
+                className={`relative min-w-0 w-full ${isBottomSummaryOpen ? "min-h-[520px]" : "min-h-0"} xl:min-h-0 rounded-xl overflow-hidden bg-sky-100 border border-white shadow-sm transition-[grid-column] duration-300 ${
+                  isRightLayerPanelOpen ? "" : "xl:col-span-full"
+                }`}
+              >
               <div ref={mapRef} className="absolute inset-0" />
+
+              {/* Toggle panel bawah — selalu menempel di garis bawah peta */}
+              <button
+                type="button"
+                onClick={() => setIsBottomSummaryOpen((open) => !open)}
+                className="absolute left-1/2 bottom-0 -translate-x-1/2 z-[2500] flex items-center justify-center w-9 h-7 rounded-t-lg border border-slate-200 bg-white text-slate-500 shadow-lg hover:text-emerald-600 hover:bg-slate-50 transition-colors"
+                aria-expanded={isBottomSummaryOpen}
+                aria-controls="kerawanan-bottom-summary-panel"
+                title={
+                  isBottomSummaryOpen
+                    ? "Sembunyikan panel bawah"
+                    : "Tampilkan panel bawah"
+                }
+              >
+                <svg
+                  className={`w-4 h-4 transition-transform duration-300 ${
+                    isBottomSummaryOpen ? "rotate-0" : "rotate-180"
+                  }`}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
 
               {/* Enterprise Search */}
               <div className="absolute top-[58px] left-3 right-3 sm:right-auto z-[1900] w-auto sm:w-[390px] mockup-map-search">
@@ -10273,7 +10358,53 @@ const Kerawanan = () => {
                  Panel layer dipindahkan dari floating drawer ke
                  kolom kanan agar selalu tersedia seperti mockup.
                 ===================================================== */}
-             <aside className="xl:row-span-2 min-h-[420px] xl:min-h-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+             {/* =====================================================
+                 RIGHT PANEL TOGGLE — UI only
+                 Panah tetap berada di tepi kanan map saat panel ditutup.
+                ===================================================== */}
+             <button
+               type="button"
+               onClick={() => setIsRightLayerPanelOpen((open) => !open)}
+               aria-expanded={isRightLayerPanelOpen}
+               aria-controls="kerawanan-right-layer-panel"
+               title={
+                 isRightLayerPanelOpen
+                   ? "Sembunyikan panel layer"
+                   : "Tampilkan panel layer"
+               }
+               className={`absolute right-0 top-1/2 z-[1200] -translate-y-1/2 flex h-11 w-8 items-center justify-center rounded-l-xl border border-slate-200 bg-white text-slate-600 shadow-lg transition-all duration-300 hover:w-10 hover:bg-slate-50 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 ${
+                 isRightLayerPanelOpen ? "xl:right-[350px]" : "xl:right-0"
+               }`}
+             >
+               <svg
+                 className={`h-5 w-5 transition-transform duration-300 ${
+                   isRightLayerPanelOpen ? "rotate-0" : "rotate-180"
+                 }`}
+                 viewBox="0 0 24 24"
+                 fill="none"
+                 stroke="currentColor"
+                 strokeWidth="2.5"
+                 strokeLinecap="round"
+                 strokeLinejoin="round"
+                 aria-hidden="true"
+               >
+                 <path d="m15 18-6-6 6-6" />
+               </svg>
+               <span className="sr-only">
+                 {isRightLayerPanelOpen
+                   ? "Sembunyikan panel layer"
+                   : "Tampilkan panel layer"}
+               </span>
+             </button>
+
+             <aside
+               id="kerawanan-right-layer-panel"
+               className={`xl:row-span-2 min-h-[420px] xl:min-h-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col transition-all duration-300 ${
+                 isRightLayerPanelOpen
+                   ? "opacity-100 translate-x-0"
+                   : "hidden opacity-0 pointer-events-none"
+               }`}
+             >
                 <div className="w-full h-full bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
                   <div className="px-4 py-3 border-b border-slate-100 flex items-start justify-between">
                     <div>
@@ -10285,7 +10416,7 @@ const Kerawanan = () => {
                       </div>
                     </div>
                     <button
-                      onClick={() => setShowLayerPanel(false)}
+                      onClick={() => { setShowLayerPanel(false); setIsRightLayerPanelOpen(false); }}
                       className="text-slate-400 text-lg"
                     >
                       ×
@@ -10589,7 +10720,12 @@ const Kerawanan = () => {
             {/* =====================================================
                 BOTTOM ANALYTICS — 3 kartu seperti mockup
                ===================================================== */}
-            <section className="min-h-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[1.35fr_1fr_1fr] gap-2">
+            <section
+              id="kerawanan-bottom-summary-panel"
+              className={`min-h-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[1.35fr_1fr_1fr] gap-2 overflow-hidden transition-opacity duration-200 ${
+                isBottomSummaryOpen ? "opacity-100" : "hidden"
+              }`}
+            >
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 overflow-hidden">
                 <div className="flex items-center justify-between">
                   <div>
@@ -10633,7 +10769,7 @@ const Kerawanan = () => {
 
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 overflow-hidden">
                 <div className="text-[8px] uppercase tracking-wide text-slate-400 font-bold">
-                  Sebaran Tingkat Kerawanan 
+                  Sebaran Tingkat Kerawanan
                 </div>
                 <div className="flex items-center gap-4 mt-3">
                   <div className="w-[92px] h-[92px] rounded-full border-[16px] border-emerald-400 relative shrink-0">
@@ -10709,6 +10845,7 @@ const Kerawanan = () => {
               </div>
             </section>
           </div>
+
         </main>
       </div>
 

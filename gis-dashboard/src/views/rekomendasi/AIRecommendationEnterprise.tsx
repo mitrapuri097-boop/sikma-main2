@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
-import { booleanPointInPolygon, point } from "@turf/turf";
-import { API_URL } from "../../api";
+import { booleanPointInPolygon, point, centroid } from "@turf/turf";
+const API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 import {
   Activity,
   AlertTriangle,
@@ -31,6 +31,60 @@ import "./AIRecommendationEnterprise.css";
 
 type Hazard = "Banjir" | "Longsor" | "Karhutla" | "Kekeringan";
 
+const getSmitiToken = (): string | null => {
+  // Keep this page aligned with the authentication storage used by
+  // other SIMITI GIS pages. Prefer a non-expired JWT when several keys exist.
+  const keys = ["smiti_token", "adminToken", "token", "access_token", "authToken"];
+  const tokens: string[] = [];
+
+  for (const key of keys) {
+    const local = localStorage.getItem(key);
+    const session = sessionStorage.getItem(key);
+    if (local) tokens.push(local);
+    if (session && session !== local) tokens.push(session);
+  }
+
+  const getExp = (token: string): number | null => {
+    try {
+      const part = token.split(".")[1];
+      if (!part) return null;
+      const normalized = part.replace(/-/g, "+").replace(/_/g, "/");
+      const payload = JSON.parse(atob(normalized));
+      return Number.isFinite(Number(payload?.exp)) ? Number(payload.exp) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const now = Math.floor(Date.now() / 1000);
+  return (
+    tokens.find((token) => {
+      const exp = getExp(token);
+      return exp === null || exp > now + 15;
+    }) ||
+    tokens[0] ||
+    null
+  );
+};
+
+const smitiFetch = async (
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+): Promise<Response> => {
+  const token = getSmitiToken();
+  const headers = new Headers(init.headers || {});
+
+  if (!headers.has("Accept")) {
+    headers.set("Accept", "application/json");
+  }
+
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  return fetch(input, { ...init, headers });
+};
+
 const hazardMeta: Record<
   Hazard,
   { icon: typeof Droplets; markerClass: string; label: string }
@@ -56,6 +110,9 @@ type Incident = {
   date?: string;
   location?: string;
   das?: string;
+  das_id?: number | string;
+  das_name?: string;
+  das_area_km2?: number | string;
   longitude?: number | string;
   latitude?: number | string;
   curah_hujan?: number | string | null;
@@ -78,6 +135,18 @@ type AdminBoundary = {
   kab_kota?: string;
   kecamatan?: string;
   feature: any;
+};
+
+type BnpbFloodEvidence = {
+  available: boolean;
+  value: number | null;
+  rawValue?: string | null;
+  service: string;
+  queriedAt?: string;
+  geometryType?: "point" | "polygon";
+  catalogItemCount?: number;
+  coverageNote?: string;
+  error?: string;
 };
 
 const ADMIN_ZOOM_LEVELS: Array<{ min: number; level: AdminLevel }> = [
@@ -185,15 +254,12 @@ export default function AIRecommendationEnterprise() {
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
   const boundaryLayerRef = useRef<L.LayerGroup | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const adminBoundaryCacheRef = useRef<
-    Partial<Record<AdminLevel, AdminBoundary[]>>
-  >({});
-  const adminRequestRef = useRef<
-    Partial<Record<AdminLevel, Promise<AdminBoundary[]>>>
-  >({});
+  // Boundary administratif di halaman ini memakai geometry dari
+  // /api/areas/search saat wilayah dipilih. Jangan memanggil endpoint
+  // /api/layers/*/geojson karena endpoint tersebut membutuhkan can_view
+  // per-layer dan dapat menghasilkan 403 untuk user biasa.
   const [adminLevel, setAdminLevel] = useState<AdminLevel>("provinsi");
   const [adminBoundaries, setAdminBoundaries] = useState<AdminBoundary[]>([]);
-  const [adminBoundaryLoading, setAdminBoundaryLoading] = useState(false);
 
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [selectedId, setSelectedId] = useState<number | string | null>(null);
@@ -217,6 +283,150 @@ export default function AIRecommendationEnterprise() {
   const [selectedAreaBoundary, setSelectedAreaBoundary] =
     useState<AdminBoundary | null>(null);
 
+  const [selectedDas, setSelectedDas] = useState<any | null>(null);
+  const [dasLoading, setDasLoading] = useState(false);
+  const [dasError, setDasError] = useState("");
+  const [bnpbFlood, setBnpbFlood] = useState<BnpbFloodEvidence>({
+    available: false,
+    value: null,
+    service: "InaRISK BNPB — layer_risiko_banjir",
+  });
+  const [bnpbFloodLoading, setBnpbFloodLoading] = useState(false);
+
+  const fetchDasForArea = useCallback(async (area: AdminBoundary | null) => {
+    if (!area?.feature) {
+      setSelectedDas(null);
+      setDasError("");
+      return;
+    }
+
+    setDasLoading(true);
+    setDasError("");
+
+    try {
+      const props = area.feature?.properties || {};
+      const params = new URLSearchParams();
+      if (props?.provinsi) params.set("provinsi", String(props.provinsi));
+      if (props?.kab_kota) params.set("kabupaten", String(props.kab_kota));
+      if (props?.kecamatan) params.set("kecamatan", String(props.kecamatan));
+
+      if (![props?.provinsi, props?.kab_kota, props?.kecamatan].some(Boolean)) {
+        setSelectedDas(null);
+        setDasError("Wilayah administratif belum lengkap untuk pencarian DAS.");
+        return;
+      }
+
+      const response = await smitiFetch(
+        `${API_URL}/api/das/by-location?${params.toString()}`,
+        { headers: { Accept: "application/json" } },
+      );
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const payload = await response.json();
+      const rows = Array.isArray(payload?.dasList) ? payload.dasList : [];
+
+      setSelectedDas(rows[0] || null);
+      if (!rows.length) {
+        setDasError("DAS belum ditemukan untuk wilayah terpilih.");
+      }
+    } catch (error: any) {
+      console.warn("Gagal mengambil DAS:", error);
+      setSelectedDas(null);
+      setDasError("Data DAS belum tersedia dari backend untuk wilayah ini.");
+    } finally {
+      setDasLoading(false);
+    }
+  }, []);
+
+  const fetchBnpbFloodForArea = useCallback(async (area: AdminBoundary | null) => {
+    if (!area?.feature?.geometry) {
+      setBnpbFlood({
+        available: false,
+        value: null,
+        service: "InaRISK BNPB — layer_risiko_banjir",
+      });
+      return;
+    }
+
+    setBnpbFloodLoading(true);
+    setBnpbFlood({
+      available: false,
+      value: null,
+      service: "InaRISK BNPB — layer_risiko_banjir",
+    });
+
+    try {
+      const service =
+        "https://gis.bnpb.go.id/server/rest/services/inarisk/layer_risiko_banjir/ImageServer/identify";
+      const geometry = {
+        ...area.feature.geometry,
+        spatialReference: { wkid: 4326 },
+      };
+      const params = new URLSearchParams({
+        f: "json",
+        geometry: JSON.stringify(geometry),
+        geometryType: "esriGeometryPolygon",
+        sr: "4326",
+        returnGeometry: "false",
+        returnCatalogItems: "true",
+      });
+
+      // IMPORTANT: polygon geometry can be very large. Sending it in the URL
+      // causes HTTP 414 (URI Too Long). ArcGIS REST accepts POST form data,
+      // so keep the full geometry in the request body instead.
+      const response = await fetch(service, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        },
+        body: params.toString(),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const payload = await response.json();
+      const raw =
+        payload?.value ??
+        payload?.properties?.value ??
+        payload?.catalogItems?.features?.[0]?.attributes?.PixelValue ??
+        null;
+      const value = raw === null || raw === "" ? null : Number(raw);
+      const catalogItemCount = Array.isArray(
+        payload?.catalogItems?.features,
+      )
+        ? payload.catalogItems.features.length
+        : 0;
+
+      setBnpbFlood({
+        available: Number.isFinite(value),
+        value: Number.isFinite(value) ? value : null,
+        rawValue: raw == null ? null : String(raw),
+        service: "InaRISK BNPB — layer_risiko_banjir",
+        queriedAt: new Date().toISOString(),
+        geometryType: "polygon",
+        catalogItemCount,
+        coverageNote:
+          "Nilai raster yang dikembalikan ImageServer merupakan nilai representatif pada centroid geometri; catalog item menunjukkan raster yang beririsan dengan wilayah terpilih.",
+        error:
+          Number.isFinite(value)
+            ? undefined
+            : "Nilai raster BNPB tidak tersedia untuk wilayah terpilih.",
+      });
+    } catch (error: any) {
+      console.warn("Gagal mengambil indeks risiko banjir BNPB:", error);
+      setBnpbFlood({
+        available: false,
+        value: null,
+        service: "InaRISK BNPB — layer_risiko_banjir",
+        geometryType: "polygon",
+        error: "Data risiko banjir BNPB gagal dibaca untuk wilayah terpilih.",
+      });
+    } finally {
+      setBnpbFloodLoading(false);
+    }
+  }, []);
+
   const candidates = useMemo<Candidate[]>(
     () =>
       incidents
@@ -237,6 +447,21 @@ export default function AIRecommendationEnterprise() {
     [incidents],
   );
 
+  const selectedAreaIncidents = useMemo(() => {
+    if (!selectedAreaBoundary?.feature) return [];
+    return candidates.filter((candidate) => {
+      try {
+        return booleanPointInPolygon(
+          point([candidate.lng, candidate.lat]),
+          selectedAreaBoundary.feature as any,
+        );
+      } catch {
+        return false;
+      }
+    });
+  }, [candidates, selectedAreaBoundary]);
+
+
   const filteredCandidates = useMemo(
     () =>
       candidates.filter((item) => {
@@ -251,57 +476,118 @@ export default function AIRecommendationEnterprise() {
   const selected =
     candidates.find((item) => String(item.id) === String(selectedId)) || null;
 
-  const fetchAdminBoundaries = useCallback(async (level: AdminLevel) => {
-    const cached = adminBoundaryCacheRef.current[level];
-    if (cached?.length) return cached;
-    if (adminRequestRef.current[level]) return adminRequestRef.current[level]!;
+  const floodEvidence = useMemo(() => {
+    const floodIncidents = selectedAreaIncidents.filter(
+      (item) => item.hazard === "Banjir",
+    );
+    const rainfall = floodIncidents
+      .map((item) => toNumber(item.curah_hujan))
+      .filter((value): value is number => value !== null);
 
-    const request = (async () => {
-      setAdminBoundaryLoading(true);
-      try {
-        const bounds = "-11,94,6,141";
-        const response = await fetch(
-          `${API_URL}/api/layers/${level === "provinsi" ? "provinsi" : level === "kabupaten" ? "kab_kota" : "kecamatan"}/geojson?bounds=${bounds}`,
-          { headers: { Accept: "application/json" } },
-        );
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const payload = await response.json();
-        const features = Array.isArray(payload?.features)
-          ? payload.features
-          : [];
-        const rows: AdminBoundary[] = features
-          .filter((feature: any) => feature?.geometry)
-          .map((feature: any, index: number) => {
-            const props = feature.properties || {};
-            const label = adminLabel(level, props);
-            return {
-              id: `${level}:${props?.id ?? props?.gid ?? label}:${index}`,
-              level,
-              label,
-              provinsi: props?.provinsi,
-              kab_kota: props?.kab_kota,
-              kecamatan: props?.kecamatan,
-              feature: {
-                type: "Feature",
-                geometry: feature.geometry,
-                properties: props,
-              },
-            };
-          });
-        adminBoundaryCacheRef.current[level] = rows;
-        return rows;
-      } catch (error) {
-        console.warn(`Gagal mengambil boundary ${level}:`, error);
-        return [];
-      } finally {
-        setAdminBoundaryLoading(false);
-        delete adminRequestRef.current[level];
-      }
-    })();
+    return {
+      count: floodIncidents.length,
+      avgRainfall: rainfall.length
+        ? rainfall.reduce((sum, value) => sum + value, 0) / rainfall.length
+        : null,
+      maxRainfall: rainfall.length ? Math.max(...rainfall) : null,
+      locations: Array.from(
+        new Set(
+          floodIncidents
+            .map((item) => item.area || item.location || item.title)
+            .filter(Boolean),
+        ),
+      ).slice(0, 4),
+    };
+  }, [selectedAreaIncidents]);
 
-    adminRequestRef.current[level] = request;
-    return request;
-  }, []);
+  const floodRecommendations = useMemo(() => {
+    const dasName =
+      selectedDas?.nama_das ||
+      selectedDas?.name ||
+      selectedDas?.das_name ||
+      selectedDas?.label ||
+      selectedAreaIncidents.find((item) => item.das)?.das ||
+      "DAS belum teridentifikasi";
+
+    const recommendations: Array<{ title: string; status: string; text: string; source: string }> = [];
+    const rain = floodEvidence.maxRainfall ?? floodEvidence.avgRainfall;
+    const bnpb = bnpbFlood.value;
+
+    if (bnpb != null) {
+      recommendations.push({
+        title: "Gunakan evidence BNPB",
+        status: "DATA TERSEDIA",
+        text: `Indeks risiko banjir BNPB terbaca (${bnpb.toFixed(3)}). Gunakan sebagai salah satu evidence untuk menentukan prioritas mitigasi wilayah terpilih.`,
+        source: "BNPB / InaRISK",
+      });
+    } else {
+      recommendations.push({
+        title: "Verifikasi risiko BNPB",
+        status: "VERIFIKASI",
+        text: "Indeks risiko banjir BNPB belum terbaca pada titik tengah wilayah; jangan menjadikan nilai BNPB sebagai dasar tunggal sebelum data berhasil diverifikasi.",
+        source: "BNPB / InaRISK — belum terbaca",
+      });
+    }
+
+    if (selectedDas) {
+      recommendations.push({
+        title: "Mitigasi berbasis DAS",
+        status: "EVIDENCE DAS",
+        text: `Kelola banjir berbasis DAS ${dasName}: kurangi limpasan di hulu, tingkatkan retensi/infiltrasi, dan jaga kapasitas saluran menuju hilir.`,
+        source: `DAS — ${dasName}`,
+      });
+    } else {
+      recommendations.push({
+        title: "Identifikasi DAS",
+        status: "DATA BELUM TERSEDIA",
+        text: "Identifikasi DAS terlebih dahulu agar intervensi tidak berhenti pada titik terdampak dan dapat mencakup sumber limpasan dari hulu.",
+        source: "SIMITI DAS — belum teridentifikasi",
+      });
+    }
+
+    if (rain !== null) {
+      recommendations.push({
+        title: "Monitoring curah hujan",
+        status: "DATA TERSEDIA",
+        text: `Curah hujan terdata mencapai ${rain.toFixed(1)} (satuan mengikuti sumber); tingkatkan pemantauan hujan dan tinggi muka air ketika hujan meningkat.`,
+        source: "Data kejadian SIMITI",
+      });
+    } else {
+      recommendations.push({
+        title: "Integrasikan curah hujan",
+        status: "DATA BELUM TERSEDIA",
+        text: "Data curah hujan kejadian belum tersedia; hubungkan data hujan historis/real-time sebelum menetapkan ambang operasional lokal.",
+        source: "Curah hujan — belum tersedia",
+      });
+    }
+
+    if (floodEvidence.count > 0) {
+      recommendations.push({
+        title: "Validasi riwayat kejadian",
+        status: "EVIDENCE KEJADIAN",
+        text: `Terdapat ${floodEvidence.count} kejadian banjir pada data SIMITI di wilayah terpilih; verifikasi titik berulang untuk prioritas drainase, sungai, dan jalur evakuasi.`,
+        source: "SIMITI / Data Kejadian",
+      });
+    }
+
+    if (bnpb != null && rain !== null && selectedDas) {
+      recommendations.push({
+        title: "Gabungkan evidence",
+        status: "MULTI-EVIDENCE",
+        text: "Gabungkan risiko BNPB, karakter DAS, dan curah hujan dalam satu matriks prioritas; gunakan verifikasi lapangan untuk keputusan desain/intervensi fisik.",
+        source: "BNPB + DAS + Curah Hujan",
+      });
+    }
+
+    return recommendations;
+  }, [
+    selectedDas,
+    selectedAreaIncidents,
+    floodEvidence,
+    bnpbFlood.value,
+  ]);
+
+
 
   const locateCandidateAdmin = useCallback(
     (candidate: Candidate, boundaries: AdminBoundary[]) => {
@@ -385,7 +671,7 @@ export default function AIRecommendationEnterprise() {
   const fetchIncidents = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/kejadian/list`, {
+      const response = await smitiFetch(`${API_URL}/api/kejadian/list`, {
         headers: { Accept: "application/json" },
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -410,7 +696,7 @@ export default function AIRecommendationEnterprise() {
 
   const fetchLayerCount = useCallback(async () => {
     try {
-      const response = await fetch(`${API_URL}/api/layers`, {
+      const response = await smitiFetch(`${API_URL}/api/layers`, {
         headers: { Accept: "application/json" },
       });
       if (!response.ok) return;
@@ -436,7 +722,7 @@ export default function AIRecommendationEnterprise() {
     setAiLoading(true);
     setAiError("");
     try {
-      const response = await fetch(
+      const response = await smitiFetch(
         `${API_URL}/api/ai/mitigation-recommendation`,
         {
           method: "POST",
@@ -452,7 +738,18 @@ export default function AIRecommendationEnterprise() {
               incident_title: candidate.title,
               category_source: candidate.category,
               event_date: candidate.date,
-              das: candidate.das,
+              das:
+                candidate.das ||
+                selectedDas?.nama_das ||
+                selectedDas?.name ||
+                selectedDas?.das_name ||
+                null,
+              das_id: selectedDas?.id ?? candidate.das_id ?? null,
+              bnpb_flood_risk_index: bnpbFlood.value,
+              bnpb_flood_risk_source: bnpbFlood.service,
+              rainfall_average: floodEvidence.avgRainfall,
+              rainfall_maximum: floodEvidence.maxRainfall,
+              flood_event_count: floodEvidence.count,
               latitude: candidate.lat,
               longitude: candidate.lng,
               curah_hujan: candidate.curah_hujan,
@@ -473,7 +770,7 @@ export default function AIRecommendationEnterprise() {
     } finally {
       setAiLoading(false);
     }
-  }, []);
+  }, [selectedDas, bnpbFlood, floodEvidence]);
 
   useEffect(() => {
     void fetchIncidents();
@@ -511,9 +808,6 @@ export default function AIRecommendationEnterprise() {
       setAdminLevel((current) => (current === nextLevel ? current : nextLevel));
     };
     map.on("zoomend", syncAdminLevel);
-    void fetchAdminBoundaries("provinsi").then((rows) =>
-      setAdminBoundaries(rows),
-    );
 
     const resize = () => map.invalidateSize();
     window.addEventListener("resize", resize);
@@ -528,18 +822,6 @@ export default function AIRecommendationEnterprise() {
       boundaryLayerRef.current = null;
     };
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      const rows = await fetchAdminBoundaries(adminLevel);
-      if (!cancelled) setAdminBoundaries(rows);
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [adminLevel, fetchAdminBoundaries]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -673,7 +955,12 @@ export default function AIRecommendationEnterprise() {
                 setSelectedAreaBoundary(boundary);
                 setSelectedId(null);
                 setAiResult(null);
-                setDrawerOpen(false);
+                setSelectedDas(null);
+                setDasError("");
+                setDrawerOpen(true);
+                void fetchDasForArea(boundary);
+                void fetchBnpbFloodForArea(boundary);
+                setAreaSearchQuery(boundary.label);
                 const bounds = boundaryLayer.getBounds();
                 if (bounds.isValid()) {
                   mapInstanceRef.current?.fitBounds(bounds, {
@@ -705,6 +992,30 @@ export default function AIRecommendationEnterprise() {
     }
   }, [adminBoundaries, adminLevel, selectedAreaBoundary]);
 
+  const fetchDasForSearchArea = async (area: any) => {
+    const params = new URLSearchParams();
+    if (area?.provinsi) params.set("provinsi", String(area.provinsi));
+    if (area?.kab_kota) params.set("kabupaten", String(area.kab_kota));
+    if (area?.kecamatan) params.set("kecamatan", String(area.kecamatan));
+
+    if (!params.toString()) return null;
+
+    try {
+      const response = await smitiFetch(
+        `${API_URL}/api/das/by-location?${params.toString()}`,
+        { headers: { Accept: "application/json" } },
+      );
+      if (!response.ok) return null;
+
+      const payload = await response.json();
+      const rows = Array.isArray(payload?.dasList) ? payload.dasList : [];
+
+      return rows[0] || null;
+    } catch {
+      return null;
+    }
+  };
+
   const searchAreas = async (value: string) => {
     const q = value.trim();
     if (q.length < 2) {
@@ -718,7 +1029,7 @@ export default function AIRecommendationEnterprise() {
       const levels = ["provinsi", "kabupaten", "kecamatan", "kelurahan"];
       const responses = await Promise.all(
         levels.map((level) =>
-          fetch(
+          smitiFetch(
             `${API_URL}/api/areas/search?query=${encodeURIComponent(
               q,
             )}&level=${level}`,
@@ -746,7 +1057,23 @@ export default function AIRecommendationEnterprise() {
         })
         .slice(0, 12);
 
-      setAreaSearchResults(merged);
+      const enriched = await Promise.all(
+        merged.map(async (area: any) => {
+          const das = await fetchDasForSearchArea(area);
+          return {
+            ...area,
+            _das: das,
+            _dasName:
+              das?.nama_das ||
+              das?.name ||
+              das?.das_name ||
+              das?.label ||
+              null,
+          };
+        }),
+      );
+
+      setAreaSearchResults(enriched);
       setShowAreaResults(true);
     } finally {
       setAreaSearchLoading(false);
@@ -770,9 +1097,18 @@ export default function AIRecommendationEnterprise() {
       area?.provinsi ||
       "";
     setAreaSearchQuery(selectedLabel);
+    const selectedSearchLevel: AdminLevel =
+      area?.level === "kabupaten"
+        ? "kabupaten"
+        : area?.level === "kecamatan"
+          ? "kecamatan"
+          : "provinsi";
+    setAdminLevel(selectedSearchLevel);
     setSelectedId(null);
     setAiResult(null);
-    setDrawerOpen(false);
+    setDrawerOpen(true);
+    setSelectedDas(null);
+    setDasError("");
 
     if (area?.geom) {
       const level = (
@@ -794,6 +1130,26 @@ export default function AIRecommendationEnterprise() {
     } else {
       setSelectedAreaBoundary(null);
     }
+
+    const selectedBoundaryForDas: AdminBoundary | null = area?.geom
+      ? {
+          id: `search:${area?.level || "provinsi"}:${selectedLabel}`,
+          level:
+            (area?.level === "kabupaten"
+              ? "kabupaten"
+              : area?.level === "kecamatan"
+                ? "kecamatan"
+                : "provinsi") as AdminLevel,
+          label: selectedLabel,
+          provinsi: area?.provinsi,
+          kab_kota: area?.kab_kota,
+          kecamatan: area?.kecamatan,
+          feature: { type: "Feature", geometry: area.geom, properties: area },
+        }
+      : null;
+
+    void fetchDasForArea(selectedBoundaryForDas);
+    void fetchBnpbFloodForArea(selectedBoundaryForDas);
 
     if (!map) return;
 
@@ -832,7 +1188,7 @@ export default function AIRecommendationEnterprise() {
     if (!map || q.length < 3) return;
 
     try {
-      const response = await fetch(
+      const response = await smitiFetch(
         `${API_URL}/api/geocode/search?q=${encodeURIComponent(q)}`,
         { headers: { Accept: "application/json" } },
       );
@@ -975,6 +1331,10 @@ export default function AIRecommendationEnterprise() {
                       {area?.level || "wilayah"}
                       {area?.provinsi ? ` · ${area.provinsi}` : ""}
                     </small>
+                    <small>
+                      <Droplets size={11} style={{ verticalAlign: "-2px" }} />{" "}
+                      DAS: {area?._dasName || "belum teridentifikasi"}
+                    </small>
                   </span>
                 </button>
               ))}
@@ -1067,9 +1427,9 @@ export default function AIRecommendationEnterprise() {
                 <ShieldCheck size={12} /> SIMITI live data
               </span>
               <span>
-                {adminBoundaryLoading
-                  ? "Loading boundary..."
-                  : `Boundary ${adminLevel}`}
+                {selectedAreaBoundary
+                  ? `Boundary ${selectedAreaBoundary.level}`
+                  : "Boundary via pencarian wilayah"}
               </span>
             </div>
           </section>
@@ -1102,6 +1462,98 @@ export default function AIRecommendationEnterprise() {
             ) : (
               <div className="simiti-analysis-empty">
                 Pilih titik pada peta.
+              </div>
+            )}
+          </section>
+
+          <section className="simiti-analysis-section simiti-das-section">
+            <div className="simiti-analysis-section-title">
+              <span>DAS &amp; BANJIR</span>
+              <Droplets size={14} />
+            </div>
+
+            {selectedAreaBoundary ? (
+              <>
+                <div className="simiti-das-card">
+                  <div className="simiti-das-card-icon">
+                    <Droplets size={15} />
+                  </div>
+                  <div>
+                    <small>DAS WILAYAH TERPILIH</small>
+                    <strong>
+                      {dasLoading
+                        ? "Mengidentifikasi DAS..."
+                        : selectedDas?.nama_das ||
+                          selectedDas?.name ||
+                          selectedDas?.das_name ||
+                          selectedDas?.label ||
+                          selectedAreaIncidents.find((item) => item.das)?.das ||
+                          "Belum teridentifikasi"}
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="simiti-das-card" style={{ marginTop: 8 }}>
+                  <div className="simiti-das-card-icon">
+                    <ShieldCheck size={15} />
+                  </div>
+                  <div>
+                    <small>RISIKO BANJIR BNPB / InaRISK</small>
+                    <strong>
+                      {bnpbFloodLoading
+                        ? "Membaca indeks BNPB..."
+                        : bnpbFlood.value == null
+                          ? "Belum tersedia"
+                          : bnpbFlood.value.toFixed(3)}
+                    </strong>
+                    {bnpbFlood.error && (
+                      <small className="simiti-das-error">{bnpbFlood.error}</small>
+                    )}
+                  </div>
+                </div>
+
+                <div className="simiti-flood-kpi-grid">
+                  <div>
+                    <span>Kejadian banjir</span>
+                    <b>{floodEvidence.count}</b>
+                  </div>
+                  <div>
+                    <span>Avg. hujan</span>
+                    <b>
+                      {floodEvidence.avgRainfall == null
+                        ? "—"
+                        : floodEvidence.avgRainfall.toFixed(1)}
+                    </b>
+                  </div>
+                  <div>
+                    <span>Max. hujan</span>
+                    <b>
+                      {floodEvidence.maxRainfall == null
+                        ? "—"
+                        : floodEvidence.maxRainfall.toFixed(1)}
+                    </b>
+                  </div>
+                </div>
+
+                <div className="simiti-flood-recommendation">
+                  <div className="simiti-mini-title">
+                    <Sparkles size={13} /> REKOMENDASI BANJIR LOKASI
+                  </div>
+                  {floodRecommendations.slice(0, 3).map((item, index) => (
+                    <div key={`${item.title}-${index}`} className="simiti-flood-rec-row">
+                      <span>{String(index + 1).padStart(2, "0")}</span>
+                      <p>{item.text}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {dasError && (
+                  <small className="simiti-das-error">{dasError}</small>
+                )}
+              </>
+            ) : (
+              <div className="simiti-analysis-empty">
+                Pilih daerah untuk melihat DAS dan rekomendasi mitigasi banjir.
               </div>
             )}
           </section>
@@ -1180,6 +1632,8 @@ export default function AIRecommendationEnterprise() {
               setSelectedId(null);
               setAiResult(null);
               setDrawerOpen(false);
+              setSelectedDas(null);
+              setDasError("");
               mapInstanceRef.current?.setView([-2.5, 118], 5);
             }}
             title="Kembali ke Indonesia"
@@ -1259,13 +1713,103 @@ export default function AIRecommendationEnterprise() {
           </div>
 
           {!selected ? (
-            <div className="simiti-empty">
-              <MapPinned size={30} />
-              <strong>Belum ada lokasi</strong>
-              <p>
-                Pilih titik kejadian pada peta untuk menjalankan analisis AI.
-              </p>
-            </div>
+            selectedAreaBoundary ? (
+              <div className="simiti-area-decision-card">
+                <div className="simiti-selected-card">
+                  <div className="simiti-selected-top">
+                    <div className="simiti-selected-icon">
+                      <Droplets size={19} />
+                    </div>
+                    <div className="simiti-selected-title">
+                      <small>SELECTED AREA · FLOOD ANALYSIS</small>
+                      <h3>{selectedAreaBoundary.label}</h3>
+                      <p>
+                        {selectedAreaBoundary.kecamatan ||
+                          selectedAreaBoundary.kab_kota ||
+                          selectedAreaBoundary.provinsi ||
+                          "Wilayah terpilih"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="simiti-drawer-section">
+                  <div className="simiti-section-title">
+                    <span>DAS &amp; BANJIR</span>
+                    <Droplets size={14} />
+                  </div>
+
+                  <div className="simiti-evidence-list">
+                    <div>
+                      <span>DAS</span>
+                      <strong>
+                        {dasLoading
+                          ? "Mengidentifikasi..."
+                          : selectedDas?.nama_das ||
+                            selectedDas?.name ||
+                            selectedDas?.das_name ||
+                            selectedDas?.label ||
+                            "Belum teridentifikasi"}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Indeks banjir BNPB</span>
+                      <strong>
+                        {bnpbFloodLoading
+                          ? "Membaca..."
+                          : bnpbFlood.value == null
+                            ? "—"
+                            : bnpbFlood.value.toFixed(3)}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Kejadian banjir</span>
+                      <strong>{floodEvidence.count}</strong>
+                    </div>
+                    <div>
+                      <span>Curah hujan maksimum</span>
+                      <strong>
+                        {floodEvidence.maxRainfall == null
+                          ? "—"
+                          : floodEvidence.maxRainfall.toFixed(1)}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="simiti-drawer-section">
+                  <div className="simiti-section-title">
+                    <span>REKOMENDASI OTOMATIS</span>
+                    <Sparkles size={14} />
+                  </div>
+                  {floodRecommendations.slice(0, 4).map((item, index) => (
+                    <div key={`${item.title}-${index}`} className="simiti-rec-row">
+                      <span>{String(index + 1).padStart(2, "0")}</span>
+                      <div>
+                        <strong>{item.title}</strong>
+                        <small>{item.text}</small>
+                        <small className="simiti-rec-source">{item.status} · {item.source}</small>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {(dasError || bnpbFlood.error) && (
+                  <div className="simiti-verification">
+                    <AlertTriangle size={14} />
+                    <span>{dasError || bnpbFlood.error}</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="simiti-empty">
+                <MapPinned size={30} />
+                <strong>Belum ada lokasi</strong>
+                <p>
+                  Pilih daerah pada pencarian atau boundary peta untuk menjalankan analisis banjir dan DAS.
+                </p>
+              </div>
+            )
           ) : (
             <>
               <div className="simiti-selected-card">
@@ -1380,7 +1924,13 @@ export default function AIRecommendationEnterprise() {
                       </div>
                       <div>
                         <span>DAS</span>
-                        <strong>{selected.das || "—"}</strong>
+                        <strong>
+                          {selected.das ||
+                            selectedDas?.nama_das ||
+                            selectedDas?.name ||
+                            selectedDas?.das_name ||
+                            "—"}
+                        </strong>
                       </div>
                       <div>
                         <span>Koordinat</span>
