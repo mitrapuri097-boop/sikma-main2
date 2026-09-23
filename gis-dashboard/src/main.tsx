@@ -79,7 +79,7 @@ import TambahDataSpasial from "./TambahDataSpasial";
 // INVENTARISASI LOKASI KEGIATAN
 // ======================================================
 
-import Datakejadian from "./Datakejadian";
+import Datakejadian from "./DataKejadian";
 import Lokasi from "./lokasi/Lokasi";
 import TambahLokasi from "./lokasi/TambahLokasi";
 
