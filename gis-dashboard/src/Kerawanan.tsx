@@ -21,6 +21,8 @@ const Kerawanan = () => {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const mapWeatherMarkerRef = useRef<any>(null);
+  const gpsMarkerRef = useRef<any>(null);
+  const gpsAccuracyCircleRef = useRef<any>(null);
   const locationSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -4358,7 +4360,7 @@ const Kerawanan = () => {
   };
 
   // Cari lokasi dari kolom pencarian utama lalu langsung arahkan peta ke hasilnya.
-  // Menggunakan Nominatim/OpenStreetMap agar pencarian tetap bisa dipakai tanpa endpoint backend tambahan.
+  // Pencarian lokasi menggunakan endpoint geocoding backend SIMITI; browser tidak memanggil Nominatim langsung.
   const searchLocationOnMap = async (query: string) => {
     const trimmed = query.trim();
     if (trimmed.length < 3) return;
@@ -9809,7 +9811,7 @@ const Kerawanan = () => {
           { headers: { Accept: "application/json" }, cache: "no-store" },
         ),
         fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}&zoom=10&addressdetails=1`,
+          `${API_URL}/api/geocode/reverse?lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}`,
           { headers: { Accept: "application/json" }, cache: "no-store" },
         ),
       ]);
@@ -10011,6 +10013,229 @@ const Kerawanan = () => {
     return () => window.clearInterval(interval);
   }, []);
 
+  type GpsLocationState = {
+    loading: boolean;
+    error: string;
+    latitude: number | null;
+    longitude: number | null;
+    accuracy: number | null;
+    locationName: string;
+    village: string;
+    district: string;
+    city: string;
+    province: string;
+    displayName: string;
+    updatedAt: string | null;
+  };
+
+  const [gpsLocation, setGpsLocation] = useState<GpsLocationState>({
+    loading: false,
+    error: "",
+    latitude: null,
+    longitude: null,
+    accuracy: null,
+    locationName: "Lokasi saat ini",
+    village: "",
+    district: "",
+    city: "",
+    province: "",
+    displayName: "",
+    updatedAt: null,
+  });
+  const [gpsPopupOpen, setGpsPopupOpen] = useState(true);
+
+  const detectCurrentGpsLocation = () => {
+    if (!navigator.geolocation) {
+      setGpsLocation((prev) => ({
+        ...prev,
+        loading: false,
+        error: "Browser ini tidak mendukung GPS/geolocation.",
+      }));
+      setGpsPopupOpen(true);
+      return;
+    }
+
+    setGpsPopupOpen(true);
+    setGpsLocation((prev) => ({ ...prev, loading: true, error: "" }));
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+        const accuracy = position.coords.accuracy;
+
+        setGpsLocation((prev) => ({
+          ...prev,
+          loading: true,
+          error: "",
+          latitude,
+          longitude,
+          accuracy,
+          updatedAt: new Date().toISOString(),
+        }));
+
+        try {
+          const response = await fetch(
+            `${API_URL}/api/geocode/reverse?lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}`,
+            { headers: { Accept: "application/json" }, cache: "no-store" },
+          );
+          if (!response.ok) throw new Error(`Reverse geocoding HTTP ${response.status}`);
+
+          const json = await response.json();
+          const address = json?.address || {};
+          const village =
+            address.village || address.suburb || address.neighbourhood ||
+            address.quarter || address.hamlet || "";
+          const district =
+            address.city_district || address.district || address.subdistrict || "";
+          const city =
+            address.city || address.town || address.municipality || address.county || "";
+          const province = address.state || address.province || address.region || "";
+          const locationName =
+            village || district || city || province || json?.name || "Lokasi saat ini";
+
+          setGpsLocation({
+            loading: false,
+            error: "",
+            latitude,
+            longitude,
+            accuracy,
+            locationName,
+            village,
+            district,
+            city,
+            province,
+            displayName: json?.display_name || "",
+            updatedAt: new Date().toISOString(),
+          });
+
+          // Tampilkan posisi GPS tanpa mengubah viewport peta Indonesia.
+          // Marker dibuat terpisah dari marker hasil pencarian agar keduanya tidak saling menimpa.
+          if (mapInstanceRef.current && window.L) {
+            try {
+              const gpsIcon = window.L.divIcon({
+                className: "gps-current-location-marker",
+                html: `
+                  <div class="gps-marker-pulse"></div>
+                  <div class="gps-marker-core">
+                    <div class="gps-marker-arrow"></div>
+                  </div>
+                `,
+                iconSize: [42, 42],
+                iconAnchor: [21, 21],
+              });
+
+              if (gpsMarkerRef.current) {
+                gpsMarkerRef.current.setLatLng([latitude, longitude]);
+                gpsMarkerRef.current.setIcon(gpsIcon);
+              } else {
+                gpsMarkerRef.current = window.L
+                  .marker([latitude, longitude], {
+                    icon: gpsIcon,
+                    zIndexOffset: 1200,
+                    keyboard: false,
+                    title: "Lokasi saya saat ini",
+                  })
+                  .addTo(mapInstanceRef.current);
+
+                gpsMarkerRef.current.bindTooltip("Lokasi saya saat ini", {
+                  direction: "top",
+                  offset: [0, -18],
+                  className: "gps-location-tooltip",
+                });
+              }
+
+              // Guarded Leaflet lifecycle: jangan pakai instance layer yang sudah
+              // terlepas dari map / map instance yang sudah berubah saat GPS update.
+              const currentMap = mapInstanceRef.current;
+              const gpsLatLng: [number, number] = [Number(latitude), Number(longitude)];
+              const gpsAccuracy = Math.max(Number(accuracy) || 0, 5);
+
+              if (
+                currentMap &&
+                window.L &&
+                Number.isFinite(gpsLatLng[0]) &&
+                Number.isFinite(gpsLatLng[1]) &&
+                Number.isFinite(gpsAccuracy)
+              ) {
+                const circle = gpsAccuracyCircleRef.current;
+
+                if (circle && typeof circle.setLatLng === "function") {
+                  try {
+                    const layerMap =
+                      typeof circle._map !== "undefined" ? circle._map : currentMap;
+
+                    if (layerMap === currentMap) {
+                      circle.setLatLng(gpsLatLng);
+                      if (typeof circle.setRadius === "function") {
+                        circle.setRadius(gpsAccuracy);
+                      }
+                    } else {
+                      // Instance lama sudah tidak terpasang pada map aktif.
+                      gpsAccuracyCircleRef.current = null;
+                    }
+                  } catch (circleError) {
+                    console.warn(
+                      "GPS accuracy circle stale; membuat ulang layer:",
+                      circleError,
+                    );
+                    gpsAccuracyCircleRef.current = null;
+                  }
+                }
+
+                if (!gpsAccuracyCircleRef.current) {
+                  try {
+                    const circle = window.L.circle(gpsLatLng, gpsAccuracy, {
+                      color: "#16a34a",
+                      weight: 1,
+                      opacity: 0.35,
+                      fillColor: "#22c55e",
+                      fillOpacity: 0.08,
+                      interactive: false,
+                    });
+
+                    circle.addTo(currentMap);
+                    gpsAccuracyCircleRef.current = circle;
+                  } catch (circleError) {
+                    console.warn(
+                      "Gagal membuat GPS accuracy circle:",
+                      circleError,
+                    );
+                    gpsAccuracyCircleRef.current = null;
+                  }
+                }
+              }
+            } catch (mapError) {
+              console.warn("Gagal menampilkan marker lokasi GPS:", mapError);
+            }
+          }
+        } catch (error: any) {
+          setGpsLocation((prev) => ({
+            ...prev,
+            loading: false,
+            error: error?.message || "Koordinat ditemukan, tetapi nama wilayah gagal dimuat.",
+          }));
+        }
+      },
+      (error) => {
+        const message =
+          error.code === error.PERMISSION_DENIED
+            ? "Izin lokasi ditolak. Aktifkan izin Location/GPS pada browser."
+            : error.code === error.POSITION_UNAVAILABLE
+              ? "Lokasi GPS belum tersedia. Pastikan layanan lokasi perangkat aktif."
+              : error.code === error.TIMEOUT
+                ? "Pencarian lokasi GPS terlalu lama. Silakan coba lagi."
+                : "Gagal mendapatkan lokasi saat ini.";
+        setGpsLocation((prev) => ({ ...prev, loading: false, error: message }));
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
+    );
+  };
+
+  useEffect(() => {
+    detectCurrentGpsLocation();
+  }, []);
+
   const selectedRegionName =
     selectedAreas.length > 0 ? selectedAreas[0].label : "Indonesia";
   const totalEvents = kejadianListings.length || kejadianPhotos.length || 0;
@@ -10020,6 +10245,54 @@ const Kerawanan = () => {
     <div className="flex h-screen w-screen overflow-hidden bg-[#f4f7f6] text-slate-800">
       <style>{`
         .custom-kejadian-marker { background:none; border:none; }
+        .gps-current-location-marker {
+          background: transparent !important;
+          border: 0 !important;
+        }
+        .gps-marker-pulse {
+          position: absolute;
+          inset: 3px;
+          border-radius: 9999px;
+          background: rgba(34,197,94,.22);
+          box-shadow: 0 0 0 8px rgba(34,197,94,.10);
+          animation: gpsPulse 1.8s ease-out infinite;
+        }
+        .gps-marker-core {
+          position: absolute;
+          left: 8px;
+          top: 8px;
+          width: 26px;
+          height: 26px;
+          border-radius: 9999px;
+          background: #16a34a;
+          border: 3px solid #fff;
+          box-shadow: 0 3px 12px rgba(15,23,42,.32);
+          display: grid;
+          place-items: center;
+        }
+        .gps-marker-arrow {
+          width: 8px;
+          height: 8px;
+          border-radius: 9999px;
+          background: #fff;
+          box-shadow: 0 0 0 2px rgba(255,255,255,.28);
+        }
+        .gps-location-tooltip {
+          border: 0 !important;
+          border-radius: 999px !important;
+          padding: 5px 9px !important;
+          background: #064e3b !important;
+          color: #fff !important;
+          font-size: 11px !important;
+          font-weight: 700 !important;
+          box-shadow: 0 5px 18px rgba(15,23,42,.18) !important;
+        }
+        .gps-location-tooltip:before { border-top-color: #064e3b !important; }
+        @keyframes gpsPulse {
+          0% { transform: scale(.65); opacity: .85; }
+          70% { transform: scale(1.25); opacity: 0; }
+          100% { transform: scale(1.25); opacity: 0; }
+        }
         .marker-container:hover .marker-bg { fill:#ef4444 !important; }
         .custom-kejadian-popup .leaflet-popup-content-wrapper { border-radius:12px; padding:0; box-shadow:0 8px 30px rgba(15,23,42,.16); }
         .custom-kejadian-popup .leaflet-popup-content { margin:0; width:280px !important; }
@@ -10037,6 +10310,135 @@ const Kerawanan = () => {
         .mobile-page-title { font-size:11px; font-weight:800; color:#0f513f; letter-spacing:.02em; }
         .mobile-page-title span { color:#94a3b8; font-weight:600; }
         .admin-boundary-tooltip { border:0; border-radius:8px; box-shadow:0 6px 18px rgba(15,23,42,.16); font-size:11px; font-weight:700; }
+
+        /* =========================================================
+           SIMITI Enterprise Responsive UI — UI ONLY
+           No data/API/business logic is changed.
+           ========================================================= */
+        html, body, #root { min-height: 100%; }
+        .kerawanan-workspace { min-width: 0; }
+        .kerawanan-map,
+        .kerawanan-layer-panel,
+        .kerawanan-bottom-summary { min-width: 0; }
+
+        @media (max-width: 1279px) {
+          .kerawanan-workspace {
+            height: auto !important;
+            min-height: 100% !important;
+            grid-template-columns: minmax(0, 1fr) !important;
+            grid-template-rows: auto !important;
+            gap: 10px !important;
+          }
+          .kerawanan-map {
+            grid-column: 1 / -1 !important;
+            grid-row: auto !important;
+            height: clamp(460px, 62vh, 720px) !important;
+            min-height: 420px !important;
+          }
+          .kerawanan-layer-panel {
+            grid-column: 1 / -1 !important;
+            grid-row: auto !important;
+            min-height: 360px !important;
+            max-height: min(62vh, 620px) !important;
+          }
+          .kerawanan-bottom-summary {
+            grid-column: 1 / -1 !important;
+            grid-row: auto !important;
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+          }
+          .kerawanan-bottom-summary > * {
+            min-width: 0;
+            min-height: 150px;
+          }
+        }
+
+        @media (max-width: 767px) {
+          .kerawanan-workspace { gap: 8px !important; }
+          .kerawanan-map {
+            height: clamp(420px, 64svh, 640px) !important;
+            min-height: 390px !important;
+            border-radius: 12px !important;
+          }
+          .kerawanan-layer-panel {
+            min-height: 320px !important;
+            max-height: 58svh !important;
+            border-radius: 12px !important;
+          }
+          .kerawanan-bottom-summary {
+            grid-template-columns: minmax(0, 1fr) !important;
+            gap: 8px !important;
+          }
+          .kerawanan-bottom-summary > * {
+            min-height: 170px;
+            border-radius: 12px !important;
+          }
+          .kerawanan-map .mockup-map-search {
+            top: 10px !important;
+            left: 10px !important;
+            right: 10px !important;
+            width: auto !important;
+          }
+          .kerawanan-map .mockup-map-search > div:first-child {
+            height: 42px !important;
+            border-radius: 12px !important;
+          }
+          .kerawanan-map .mockup-map-search input {
+            font-size: 12px !important;
+            min-width: 0;
+          }
+          .kerawanan-map button[aria-controls="kerawanan-bottom-summary-panel"] {
+            width: 42px !important;
+            height: 30px !important;
+          }
+        }
+
+        @media (max-width: 479px) {
+          .kerawanan-map {
+            height: 56svh !important;
+            min-height: 360px !important;
+          }
+          .kerawanan-layer-panel { max-height: 54svh !important; }
+          .kerawanan-bottom-summary > * { min-height: 155px; }
+        }
+
+        @media (min-width: 1600px) {
+          .kerawanan-workspace { gap: 10px !important; }
+        }
+
+        @media (max-width: 1023px) and (orientation: landscape) {
+          .kerawanan-map { height: 72svh !important; min-height: 360px !important; }
+          .kerawanan-layer-panel { max-height: 70svh !important; }
+        }
+
+        @supports (padding: env(safe-area-inset-bottom)) {
+          .kerawanan-workspace { padding-bottom: max(0px, env(safe-area-inset-bottom)); }
+        }
+
+        .kerawanan-workspace * { min-width: 0; }
+        .kerawanan-workspace input,
+        .kerawanan-workspace select,
+        .kerawanan-workspace button { max-width: 100%; }
+
+        .kerawanan-workspace button:focus-visible,
+        .kerawanan-workspace input:focus-visible,
+        .kerawanan-workspace select:focus-visible {
+          outline: 2px solid rgba(16,185,129,.45);
+          outline-offset: 1px;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .enterprise-sidebar,
+          .kerawanan-workspace *,
+          .kerawanan-workspace *::before,
+          .kerawanan-workspace *::after {
+            animation-duration: .01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: .01ms !important;
+            scroll-behavior: auto !important;
+          }
+        }
         @media (max-width: 1279px) {
           .enterprise-sidebar { position:fixed; inset:0 0 0 auto; width:270px; max-width:82vw; transform:translateX(105%); box-shadow:-16px 0 40px rgba(0,0,0,.22); }
           .enterprise-sidebar.mobile-sidebar-open { transform:translateX(0); }
@@ -10102,7 +10504,7 @@ const Kerawanan = () => {
 
         <main className="relative flex-1 min-h-0 p-2 md:p-3 overflow-y-auto xl:overflow-hidden">
           <div
-            className={`min-h-0 h-full grid grid-cols-1 ${
+            className={`kerawanan-workspace min-h-0 h-full grid grid-cols-1 ${
               isRightLayerPanelOpen
                 ? "xl:grid-cols-[minmax(0,1fr)_350px]"
                 : "xl:grid-cols-1"
@@ -10118,7 +10520,7 @@ const Kerawanan = () => {
                 MAP — pusat visual seperti mockup
                ===================================================== */}
             <section
-                className={`relative min-w-0 w-full ${isBottomSummaryOpen ? "min-h-[520px]" : "min-h-0"} xl:min-h-0 rounded-xl overflow-hidden bg-sky-100 border border-white shadow-sm transition-[grid-column] duration-300 ${
+                className={`kerawanan-map relative min-w-0 w-full ${isBottomSummaryOpen ? "min-h-[520px]" : "min-h-0"} xl:min-h-0 rounded-xl overflow-hidden bg-sky-100 border border-white shadow-sm transition-[grid-column] duration-300 ${
                   isRightLayerPanelOpen ? "" : "xl:col-span-full"
                 }`}
               >
@@ -10399,7 +10801,7 @@ const Kerawanan = () => {
 
              <aside
                id="kerawanan-right-layer-panel"
-               className={`xl:row-span-2 min-h-[420px] xl:min-h-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col transition-all duration-300 ${
+               className={`kerawanan-layer-panel xl:row-span-2 min-h-[420px] xl:min-h-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col transition-all duration-300 ${
                  isRightLayerPanelOpen
                    ? "opacity-100 translate-x-0"
                    : "hidden opacity-0 pointer-events-none"
@@ -10722,7 +11124,7 @@ const Kerawanan = () => {
                ===================================================== */}
             <section
               id="kerawanan-bottom-summary-panel"
-              className={`min-h-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[1.35fr_1fr_1fr] gap-2 overflow-hidden transition-opacity duration-200 ${
+              className={`kerawanan-bottom-summary min-h-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[1.35fr_1fr_1fr] gap-2 overflow-hidden transition-opacity duration-200 ${
                 isBottomSummaryOpen ? "opacity-100" : "hidden"
               }`}
             >
@@ -11723,6 +12125,89 @@ const Kerawanan = () => {
               >
                 Hapus
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GPS Current Location — popup pojok kanan bawah */}
+      {gpsPopupOpen && (
+        <div className="fixed bottom-4 right-4 z-[1900] w-[calc(100vw-2rem)] max-w-[360px] overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-2xl">
+          <div className="flex items-start justify-between gap-3 bg-gradient-to-r from-emerald-700 to-teal-600 px-4 py-3 text-white">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-100">
+                <span className="grid h-6 w-6 place-items-center rounded-full bg-white/15 ring-1 ring-white/20">
+                  <span className="h-2.5 w-2.5 rounded-full bg-white shadow-[0_0_0_4px_rgba(255,255,255,.16)]" />
+                </span>
+                GPS • Lokasi Saat Ini
+              </div>
+              <div className="mt-1 truncate text-sm font-bold">
+                {gpsLocation.loading ? "Mendeteksi posisi perangkat..." : gpsLocation.locationName}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setGpsPopupOpen(false)}
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-white/10 text-lg leading-none text-white hover:bg-white/20"
+              aria-label="Tutup informasi lokasi"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="p-4">
+            {gpsLocation.loading ? (
+              <div className="flex items-center gap-3 py-2 text-xs text-slate-600">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
+                Meminta GPS dan membaca informasi wilayah...
+              </div>
+            ) : gpsLocation.error && gpsLocation.latitude === null ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
+                {gpsLocation.error}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                    <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Latitude</div>
+                    <div className="mt-1 font-mono text-xs font-bold text-slate-800">
+                      {gpsLocation.latitude?.toFixed(6) ?? "-"}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                    <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Longitude</div>
+                    <div className="mt-1 font-mono text-xs font-bold text-slate-800">
+                      {gpsLocation.longitude?.toFixed(6) ?? "-"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 text-[11px]">
+                  {gpsLocation.village && <div><span className="font-semibold text-slate-500">Desa/Kelurahan:</span> <span className="text-slate-800">{gpsLocation.village}</span></div>}
+                  {gpsLocation.district && <div><span className="font-semibold text-slate-500">Kecamatan:</span> <span className="text-slate-800">{gpsLocation.district}</span></div>}
+                  {gpsLocation.city && <div><span className="font-semibold text-slate-500">Kab/Kota:</span> <span className="text-slate-800">{gpsLocation.city}</span></div>}
+                  {gpsLocation.province && <div><span className="font-semibold text-slate-500">Provinsi:</span> <span className="text-slate-800">{gpsLocation.province}</span></div>}
+                  {gpsLocation.accuracy !== null && <div><span className="font-semibold text-slate-500">Akurasi GPS:</span> <span className="text-slate-800">± {Math.round(gpsLocation.accuracy)} meter</span></div>}
+                </div>
+
+                {gpsLocation.error && (
+                  <div className="rounded-lg bg-amber-50 px-2.5 py-2 text-[10px] text-amber-700">
+                    {gpsLocation.error}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={detectCurrentGpsLocation}
+              disabled={gpsLocation.loading}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-3 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {gpsLocation.loading ? "Mendeteksi GPS..." : "Perbarui Lokasi GPS"}
+            </button>
+            <div className="mt-2 text-center text-[9px] leading-4 text-slate-400">
+              Posisi berasal dari GPS/geolocation perangkat dan membutuhkan izin lokasi browser.
             </div>
           </div>
         </div>

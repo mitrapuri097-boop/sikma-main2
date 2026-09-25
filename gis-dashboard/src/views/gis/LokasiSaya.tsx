@@ -8,6 +8,139 @@ import "leaflet/dist/leaflet.css";
 
 const API_URL = String(import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 
+// ============================================================
+// SIMITI LOCAL RISK TABLES
+// Mengikuti source layer risiko yang dipakai Kerawanan.tsx.
+// Tidak lagi mengambil Analisis Ancaman dari BNPB InaRISK.
+// ============================================================
+const LOCAL_RISK_TABLES = [
+  { key: "longsor", label: "Longsor", table: "risiko_longsor" },
+  { key: "banjir", label: "Banjir", table: "risiko_banjir" },
+  { key: "banjir_bandang", label: "Banjir Bandang", table: "risiko_banjir_bandang" },
+  { key: "kekeringan", label: "Kekeringan", table: "risiko_kekeringan" },
+  { key: "karhutla", label: "Karhutla", table: "risiko_karhutla" },
+] as const;
+
+function getAuthToken() {
+  return (
+    localStorage.getItem("smiti_token") ||
+    sessionStorage.getItem("smiti_token") ||
+    localStorage.getItem("adminToken") ||
+    sessionStorage.getItem("adminToken") ||
+    localStorage.getItem("token") ||
+    localStorage.getItem("access_token") ||
+    localStorage.getItem("authToken") ||
+    ""
+  );
+}
+
+function normalizeRiskLevel(value: unknown) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized.includes("tinggi")) return "Tinggi";
+  if (normalized.includes("sedang")) return "Sedang";
+  if (normalized.includes("rendah")) return "Rendah";
+  return String(value || "").trim();
+}
+
+function riskScoreFromClass(value: unknown) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized.includes("tinggi")) return 3;
+  if (normalized.includes("sedang")) return 2;
+  if (normalized.includes("rendah")) return 1;
+  return null;
+}
+
+async function fetchLocalRiskFactors(latitude: number, longitude: number) {
+  // Sama seperti Kerawanan.tsx: source utama adalah /api/layers/:table/geojson.
+  // Bbox dibuat kecil di sekitar titik GPS agar response hanya mengambil
+  // polygon risiko di sekitar lokasi, tanpa mengubah endpoint/backend lama.
+  const delta = 0.01;
+  const bounds = [
+    latitude - delta,
+    longitude - delta,
+    latitude + delta,
+    longitude + delta,
+  ].join(",");
+  const token = getAuthToken();
+
+  const results = await Promise.all(
+    LOCAL_RISK_TABLES.map(async ({ key, label, table }) => {
+      try {
+        const url =
+          `${API_URL}/api/layers/${table}/geojson` +
+          `?bounds=${encodeURIComponent(bounds)}&zoom=16`;
+
+        const response = await fetch(url, {
+          headers: token
+            ? { Authorization: `Bearer ${token}`, Accept: "application/json" }
+            : { Accept: "application/json" },
+        });
+
+        const json = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(json?.message || `HTTP ${response.status}`);
+        }
+
+        const features = Array.isArray(json?.features) ? json.features : [];
+        const feature = features.find((item: any) => item?.properties?.kelas) || features[0];
+        const kelas = feature?.properties?.kelas ?? null;
+        const normalizedClass = normalizeRiskLevel(kelas);
+        const score = riskScoreFromClass(normalizedClass);
+
+        return {
+          key,
+          label,
+          level: score,
+          status: normalizedClass || "",
+          class: normalizedClass || null,
+          source: `SIMITI PostgreSQL/PostGIS • ${table}`,
+          available: Boolean(feature && score != null),
+        } as RiskFactor;
+      } catch (error) {
+        console.warn(`Gagal membaca layer risiko lokal ${table}:`, error);
+        return {
+          key,
+          label,
+          level: null,
+          status: "",
+          class: null,
+          source: `SIMITI PostgreSQL/PostGIS • ${table}`,
+          available: false,
+        } as RiskFactor;
+      }
+    }),
+  );
+
+  const complete = results.every((item) => item.available);
+  const score = complete
+    ? results.reduce((total, item) => total + Number(item.level || 0), 0)
+    : null;
+
+  let status = null;
+  if (score != null) {
+    if (score <= 7) status = "Aman";
+    else if (score <= 10) status = "Siaga";
+    else if (score <= 13) status = "Waspada";
+    else status = "Bahaya";
+  }
+
+  return {
+    success: true,
+    source: "SIMITI PostgreSQL/PostGIS",
+    analysisType: "local-risk-tables",
+    risk: {
+      status,
+      score,
+      index: score,
+      minimum: 5,
+      maximum: 15,
+      complete,
+      factors: results,
+      methodology: "Membaca tabel risiko lokal melalui endpoint layer SIMITI seperti Kerawanan.tsx.",
+    },
+  } as BnpbLocationAssessment;
+}
+
 const LOCATION_STORAGE_KEY = "smiti.my-location.coordinates";
 
 type RiskFactor = {
@@ -675,17 +808,13 @@ export default function LokasiSaya() {
     const proximityUrl =
       `${API_URL}/api/location-proximity?latitude=${encodeURIComponent(lat)}` +
       `&longitude=${encodeURIComponent(lng)}&threatLimit=5&mitigationLimit=5&incidentLimit=5`;
-    const bnpbUrl =
-      `${API_URL}/api/location-bnpb?latitude=${encodeURIComponent(lat)}` +
-      `&longitude=${encodeURIComponent(lng)}`;
-
     setBnpbState("loading");
 
     const [assessmentResult, weatherResult, proximityResult, bnpbResult] = await Promise.allSettled([
       fetch(assessmentUrl),
       fetch(weatherUrl),
       fetch(proximityUrl),
-      fetch(bnpbUrl),
+      fetchLocalRiskFactors(lat, lng),
     ]);
 
     let assessmentFailed = false;
@@ -764,11 +893,12 @@ export default function LokasiSaya() {
 
     if (bnpbResult.status === "fulfilled") {
       try {
-        const response = bnpbResult.value;
-        const json = await response.json();
+        // Data ancaman sekarang berasal dari tabel risiko lokal SIMITI,
+        // dengan endpoint layer yang sama seperti Kerawanan.tsx.
+        const json = bnpbResult.value;
 
-        if (!response.ok || !json?.success) {
-          throw new Error(json?.message || "Identifikasi BNPB gagal.");
+        if (!json?.success) {
+          throw new Error("Data risiko lokal SIMITI tidak tersedia.");
         }
 
         setBnpbLocation(json);
@@ -779,7 +909,7 @@ export default function LokasiSaya() {
         setErrorMessage(
           error instanceof Error
             ? error.message
-            : "Identifikasi BNPB gagal.",
+            : "Pembacaan tabel risiko lokal gagal.",
         );
       }
     } else {
@@ -831,21 +961,105 @@ export default function LokasiSaya() {
   const apiRiskStatus = bnpbLocation?.risk?.status || "";
   const apiRiskIndex = bnpbLocation?.risk?.index ?? null;
 
+  /**
+   * MY LOKASI — SCORING RESMI
+   *
+   * Tepat 5 parameter:
+   * 1. Longsor
+   * 2. Banjir
+   * 3. Banjir Bandang
+   * 4. Kekeringan
+   * 5. Karhutla
+   *
+   * Bobot: Tinggi = 3, Sedang = 2, Rendah = 1.
+   * Total minimum = 5, maksimum = 15.
+   * Status: 5–7 Aman, 8–10 Siaga, 11–13 Waspada, 14–15 Bahaya.
+   *
+   * Scoring dilakukan dari faktor tabel risiko lokal SIMITI yang sudah diterima.
+   * Fungsi GPS, API, peta, weather, proximity, dan endpoint lain tetap.
+   */
   const myLokasiRisk = useMemo(() => {
-    const items = factors.map((factor) => ({
-      parameter: factor.label || factor.key,
-      factor,
-      level: factor.status || factor.class || null,
-      value: factor.level ?? null,
-    }));
-    return {
-      complete: Boolean(bnpbLocation?.risk?.complete),
-      score: bnpbLocation?.risk?.score ?? null,
-      status: apiRiskStatus || null,
-      items,
-      missing: factors.filter((factor) => !factor.available).map((factor) => factor.label || factor.key),
+    const parameterDefinitions = [
+      { key: "longsor", label: "Longsor" },
+      { key: "banjir", label: "Banjir" },
+      { key: "banjir_bandang", label: "Banjir Bandang" },
+      { key: "kekeringan", label: "Kekeringan" },
+      { key: "karhutla", label: "Karhutla" },
+    ] as const;
+
+    const normalizeKey = (value: unknown) =>
+      String(value || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_|_$/g, "");
+
+    const scoreFromLevel = (value: unknown) => {
+      const normalized = String(value || "").toLowerCase().trim();
+      if (normalized.includes("tinggi")) return 3;
+      if (normalized.includes("sedang")) return 2;
+      if (normalized.includes("rendah")) return 1;
+      return null;
     };
-  }, [apiRiskStatus, bnpbLocation?.risk?.complete, bnpbLocation?.risk?.score, factors]);
+
+    const factorByKey = new Map<string, RiskFactor>();
+
+    for (const factor of factors) {
+      const key = normalizeKey(factor.key);
+      const labelKey = normalizeKey(factor.label);
+
+      if (key === "longsor" || labelKey === "longsor") factorByKey.set("longsor", factor);
+      else if (key === "banjir" || labelKey === "banjir") factorByKey.set("banjir", factor);
+      else if (
+        key === "banjir_bandang" ||
+        labelKey === "banjir_bandang" ||
+        labelKey.includes("banjir_bandang")
+      ) {
+        factorByKey.set("banjir_bandang", factor);
+      } else if (key === "kekeringan" || labelKey === "kekeringan") {
+        factorByKey.set("kekeringan", factor);
+      } else if (key === "karhutla" || labelKey === "karhutla") {
+        factorByKey.set("karhutla", factor);
+      }
+    }
+
+    const items = parameterDefinitions.map(({ key, label }) => {
+      const factor = factorByKey.get(key) || null;
+      const level = factor?.status || factor?.class || null;
+      const score = scoreFromLevel(level);
+
+      return {
+        parameter: label,
+        factor,
+        level,
+        value: factor?.level ?? null,
+        score,
+        available: Boolean(factor && factor.available !== false && score != null),
+      };
+    });
+
+    const complete = items.every((item) => item.available);
+    const score = complete
+      ? items.reduce((total, item) => total + Number(item.score), 0)
+      : null;
+
+    let status: string | null = null;
+    if (score != null) {
+      if (score <= 7) status = "Aman";
+      else if (score <= 10) status = "Siaga";
+      else if (score <= 13) status = "Waspada";
+      else status = "Bahaya";
+    }
+
+    return {
+      complete,
+      score,
+      minimum: 5,
+      maximum: 15,
+      status,
+      items,
+      missing: items.filter((item) => !item.available).map((item) => item.parameter),
+    };
+  }, [factors]);
 
   /**
    * Status utama:
@@ -895,9 +1109,12 @@ export default function LokasiSaya() {
       }));
   }, [weather]);
 
-  const myLokasiScore = bnpbLocation?.risk?.score ?? null;
-  const myLokasiMaximum = bnpbLocation?.risk?.maximum ?? null;
-  const myLokasiPercent = apiRiskIndex == null ? 0 : Math.min(100, Math.max(0, Number(apiRiskIndex)));
+  const myLokasiScore = myLokasiRisk.score;
+  const myLokasiMaximum = 15;
+  const myLokasiPercent =
+    myLokasiScore == null
+      ? 0
+      : Math.min(100, Math.max(0, ((myLokasiScore - 5) / 10) * 100));
 
   const dynamicRiskDetails = useMemo(() => {
     if (!assessment?.risk) return [];
@@ -1210,7 +1427,12 @@ export default function LokasiSaya() {
                       {item.parameter}
                     </span>
                     <span className="text-[10px] font-bold text-slate-200">
-                      {item.level || "Belum tersedia"}
+                      <span className="flex items-center gap-2">
+                        <span>{item.level || "Belum tersedia"}</span>
+                        <span className="rounded-md bg-slate-800 px-1.5 py-0.5 text-[9px] font-black text-cyan-200">
+                          {item.score != null ? item.score : "—"}
+                        </span>
+                      </span>
                     </span>
                   </div>
                 ))}
@@ -1224,14 +1446,12 @@ export default function LokasiSaya() {
               <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/30 p-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-slate-500">
-                    Skor dari API BNPB
+                    Skor MY Lokasi
                   </span>
                   <span className="text-sm font-black text-slate-100">
-                    {myLokasiScore == null
-                      ? "Belum dianalisis"
-                      : myLokasiMaximum != null
-                        ? `${myLokasiScore} / ${myLokasiMaximum}`
-                        : String(myLokasiScore)}
+                    {myLokasiRisk.score == null
+                      ? "Belum lengkap"
+                      : `${myLokasiRisk.score} / 15`}
                   </span>
                 </div>
                 {myLokasiRisk.status && (
@@ -1474,8 +1694,8 @@ export default function LokasiSaya() {
                   <div className="mt-1 flex items-center justify-between gap-3">
                     <span className="text-[10px] text-slate-400">
                       {myLokasiRisk.complete
-                        ? "Hasil dari data faktor risiko aktual"
-                        : "Belum lengkap dari Risk API"}
+                        ? "5 parameter • Tinggi 3 • Sedang 2 • Rendah 1"
+                        : "Menunggu 5 parameter risiko lengkap"}
                     </span>
 
                     <span
@@ -1485,9 +1705,7 @@ export default function LokasiSaya() {
                     >
                       {myLokasiScore == null
                         ? "—"
-                        : myLokasiMaximum != null
-                          ? `${myLokasiScore}/${myLokasiMaximum}`
-                          : String(myLokasiScore)}
+                        : `${myLokasiScore}/${myLokasiMaximum}`}
                     </span>
                   </div>
                 </div>
