@@ -25,8 +25,9 @@ import {
   Pie,
   PieChart,
   ResponsiveContainer,
-  Scatter,
-  ScatterChart,
+  Legend,
+  Line,
+  LineChart,
   Tooltip,
   XAxis,
   YAxis,
@@ -424,52 +425,34 @@ export default function DataKejadianEnterprise() {
   }, [events, search, location, type, startDate, endDate]);
 
   /*
-   * TEMPORAL DATA
+   * TEMPORAL / DATE DISTRIBUTION
    *
-   * Satu titik = satu tanggal.
-   * Y = jumlah kejadian pada tanggal tersebut.
+   * X = tanggal kejadian
+   * Y = jumlah kejadian
+   * 1 line = total kejadian pada tanggal tersebut
+   *
+   * Dibuat seperti grafik referensi: sederhana, kronologis,
+   * titik kejadian terlihat jelas, dan tetap mengikuti filter aktif.
    */
-  const eventScatter = useMemo(() => {
-    const grouped = new Map<string, EventRow[]>();
+  const eventTrendData = useMemo(() => {
+    const byDate = new Map<string, number>();
 
     filtered.forEach((event) => {
       if (!event.date) return;
-
-      const current = grouped.get(event.date) || [];
-
-      current.push(event);
-
-      grouped.set(event.date, current);
+      byDate.set(event.date, (byDate.get(event.date) || 0) + 1);
     });
 
-    return Array.from(grouped.entries())
+    return Array.from(byDate.entries())
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, dayEvents]) => ({
-        x: new Date(`${date}T00:00:00`).getTime(),
-
+      .map(([date, value]) => ({
         date,
-
-        dateLabel: formatDate(date),
-
-        value: dayEvents.length,
-
-        location:
-          dayEvents.length === 1
-            ? dayEvents[0].location
-            : `${dayEvents.length} lokasi`,
-
-        type:
-          dayEvents.length === 1
-            ? dayEvents[0].type
-            : `${dayEvents.length} jenis/kejadian`,
+        dateLabel: formatShortDate(date),
+        value,
       }));
   }, [filtered]);
 
-  /*
-   * TREND SUMMARY
-   */
   const eventTrendStats = useMemo(() => {
-    if (!eventScatter.length) {
+    if (!eventTrendData.length) {
       return {
         peak: null,
         peakDate: null,
@@ -478,20 +461,20 @@ export default function DataKejadianEnterprise() {
       };
     }
 
-    const peak = eventScatter.reduce(
+    const peak = eventTrendData.reduce(
       (max, item) => (item.value > max.value ? item : max),
-      eventScatter[0],
+      eventTrendData[0],
     );
 
-    const total = eventScatter.reduce((sum, item) => sum + item.value, 0);
+    const total = eventTrendData.reduce((sum, item) => sum + item.value, 0);
 
     return {
       peak: peak.value,
       peakDate: peak.date,
-      activeDays: eventScatter.length,
-      average: total / eventScatter.length,
+      activeDays: eventTrendData.length,
+      average: total / eventTrendData.length,
     };
-  }, [eventScatter]);
+  }, [eventTrendData]);
 
   /*
    * DISASTER TYPE
@@ -802,129 +785,134 @@ export default function DataKejadianEnterprise() {
         {/* TEMPORAL */}
         <Section
           eyebrow="01 • Temporal Intelligence"
-          title="Tren kejadian berdasarkan waktu"
-          description="Setiap titik menunjukkan jumlah kejadian pada tanggal tertentu. Gunakan filter lokasi, jenis bencana, dan periode untuk melihat perubahan pola kejadian."
+          title="Distribusi kejadian berdasarkan tanggal"
+          description="Grafik kronologis menunjukkan jumlah kejadian pada setiap tanggal. Titik data dapat di-hover untuk melihat tanggal dan jumlah kejadian."
           icon={TrendingUp}
         >
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <div className="h-[390px] w-full">
-              {eventScatter.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <ScatterChart
-                    margin={{
-                      top: 20,
-                      right: 25,
-                      bottom: 25,
-                      left: 5,
-                    }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_270px]">
+            <div className="min-w-0">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-bold text-slate-800">
+                    Distribusi kejadian berdasarkan tanggal
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Sumbu X = tanggal • Sumbu Y = jumlah kejadian
+                  </p>
+                </div>
 
-                    <XAxis
-                      type="number"
-                      dataKey="x"
-                      domain={["auto", "auto"]}
-                      tick={{
-                        fontSize: 11,
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold text-slate-600">
+                  {fmt(filtered.length, 0)} kejadian
+                </div>
+              </div>
+
+              <div className="h-[430px] w-full rounded-xl border border-slate-100 bg-slate-50/40 p-2 sm:p-3">
+                {eventTrendData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={eventTrendData}
+                      margin={{
+                        top: 18,
+                        right: 22,
+                        bottom: 18,
+                        left: 4,
                       }}
-                      stroke="#64748b"
-                      tickFormatter={(value) => {
-                        const d = new Date(Number(value));
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="#e2e8f0"
+                        vertical={false}
+                      />
 
-                        if (Number.isNaN(d.getTime())) {
-                          return "";
-                        }
+                      <XAxis
+                        dataKey="dateLabel"
+                        tick={{
+                          fontSize: 11,
+                          fill: "#64748b",
+                        }}
+                        tickLine={false}
+                        axisLine={{ stroke: "#94a3b8" }}
+                        minTickGap={24}
+                      />
 
-                        return new Intl.DateTimeFormat("id-ID", {
-                          day: "2-digit",
-                          month: "short",
-                        }).format(d);
-                      }}
-                    />
+                      <YAxis
+                        allowDecimals={false}
+                        domain={[0, "auto"]}
+                        tick={{
+                          fontSize: 11,
+                          fill: "#64748b",
+                        }}
+                        tickLine={false}
+                        axisLine={false}
+                        width={38}
+                      />
 
-                    <YAxis
-                      type="number"
-                      dataKey="value"
-                      allowDecimals={false}
-                      domain={[0, "auto"]}
-                      tick={{
-                        fontSize: 11,
-                      }}
-                      stroke="#64748b"
-                    />
+                      <Tooltip
+                        cursor={{
+                          stroke: "#94a3b8",
+                          strokeDasharray: "4 4",
+                        }}
+                        content={({ active, payload }) => {
+                          if (!active || !payload || !payload.length) {
+                            return null;
+                          }
 
-                    <Tooltip
-                      cursor={{
-                        stroke: "#94a3b8",
-                        strokeDasharray: "4 4",
-                      }}
-                      content={({ active, payload }) => {
-                        if (!active || !payload || !payload.length) {
-                          return null;
-                        }
+                          const item = payload[0]?.payload as
+                            | {
+                                date?: string;
+                                dateLabel?: string;
+                                value?: number;
+                              }
+                            | undefined;
 
-                        const item = payload[0]?.payload;
+                          if (!item) return null;
 
-                        if (!item) {
-                          return null;
-                        }
+                          return (
+                            <div className="min-w-[190px] rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+                              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">
+                                Tanggal kejadian
+                              </p>
 
-                        return (
-                          <div className="min-w-[240px] rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">
-                              Tanggal
-                            </p>
+                              <p className="mt-1 text-sm font-bold text-slate-800">
+                                {item.date ? formatDate(item.date) : item.dateLabel}
+                              </p>
 
-                            <p className="mt-1 text-sm font-bold text-slate-800">
-                              {item.dateLabel}
-                            </p>
-
-                            <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
-                              <div className="flex items-center justify-between gap-4">
+                              <div className="mt-3 flex items-end justify-between border-t border-slate-100 pt-3">
                                 <span className="text-xs text-slate-500">
                                   Jumlah kejadian
                                 </span>
-
-                                <span className="text-sm font-bold text-emerald-700">
-                                  {item.value}
-                                </span>
-                              </div>
-
-                              <div className="flex items-center justify-between gap-4">
-                                <span className="text-xs text-slate-500">
-                                  Lokasi
-                                </span>
-
-                                <span className="max-w-[150px] text-right text-xs font-semibold text-slate-700">
-                                  {item.location}
-                                </span>
-                              </div>
-
-                              <div className="flex items-center justify-between gap-4">
-                                <span className="text-xs text-slate-500">
-                                  Jenis
-                                </span>
-
-                                <span className="max-w-[150px] text-right text-xs font-semibold text-slate-700">
-                                  {item.type}
+                                <span className="text-lg font-black text-emerald-700">
+                                  {fmt(Number(item.value || 0), 0)}
                                 </span>
                               </div>
                             </div>
-                          </div>
-                        );
-                      }}
-                    />
+                          );
+                        }}
+                      />
 
-                    <Scatter
-                      name="Kejadian"
-                      data={eventScatter}
-                      fill="#10b981"
-                    />
-                  </ScatterChart>
-                </ResponsiveContainer>
-              ) : (
-                <EmptyChart message="Belum ada data kejadian" />
-              )}
+                      <Line
+                        type="monotone"
+                        dataKey="value"
+                        name="Kejadian"
+                        stroke="#ef4444"
+                        strokeWidth={3}
+                        dot={{
+                          r: 4,
+                          strokeWidth: 1.5,
+                          fill: "#ffffff",
+                        }}
+                        activeDot={{
+                          r: 7,
+                          strokeWidth: 2,
+                        }}
+                        connectNulls
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <EmptyChart message="Belum ada data kejadian" />
+                )}
+              </div>
             </div>
 
             {/* TREND INSIGHT */}

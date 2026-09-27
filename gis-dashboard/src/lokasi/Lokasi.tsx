@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 
 import {
   Activity,
@@ -446,6 +449,106 @@ function StatusBadge({ status }: { status: ActivityStatus }) {
 
       {status || "—"}
     </span>
+  );
+}
+
+/* ============================================================
+   PETA INVENTARISASI - DATA DARI API
+============================================================ */
+
+function FitLocations({ locations }: { locations: ActivityRecord[] }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const points = locations
+      .filter((item) =>
+        Number.isFinite(Number(item.latitude)) &&
+        Number.isFinite(Number(item.longitude)) &&
+        item.latitude !== null && item.latitude !== undefined &&
+        item.longitude !== null && item.longitude !== undefined
+      )
+      .map((item) => [Number(item.latitude), Number(item.longitude)] as [number, number]);
+
+    if (points.length === 1) {
+      map.setView(points[0], 13);
+    } else if (points.length > 1) {
+      map.fitBounds(L.latLngBounds(points), { padding: [36, 36], maxZoom: 13 });
+    }
+  }, [locations, map]);
+
+  return null;
+}
+
+function LocationInventoryMap({ locations }: { locations: ActivityRecord[] }) {
+  const mappedLocations = locations.filter((item) =>
+    Number.isFinite(Number(item.latitude)) &&
+    Number.isFinite(Number(item.longitude)) &&
+    item.latitude !== null && item.latitude !== undefined &&
+    item.longitude !== null && item.longitude !== undefined
+  );
+
+  return (
+    <section className="mt-5 overflow-hidden rounded-2xl border bg-white shadow-[0_8px_30px_rgba(15,23,42,0.05)]"
+      style={{ borderColor: THEME.border }}>
+      <div className="flex flex-col gap-2 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+        style={{ borderColor: THEME.border }}>
+        <div>
+          <h2 className="text-sm font-extrabold text-slate-800">Peta Sebaran Lokasi Kegiatan</h2>
+          <p className="mt-1 text-[10px] text-slate-500">
+            Titik peta berasal dari koordinat lokasi yang tersimpan di database.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-[10px] font-semibold text-slate-500">
+          <MapPinned size={14} className="text-teal-700" />
+          {mappedLocations.length} lokasi memiliki koordinat
+        </div>
+      </div>
+
+      {mappedLocations.length ? (
+        <div className="relative h-[420px] w-full">
+          <MapContainer
+            center={[Number(mappedLocations[0].latitude), Number(mappedLocations[0].longitude)]}
+            zoom={5}
+            scrollWheelZoom
+            className="h-full w-full"
+            style={{ minHeight: 420, zIndex: 0 }}
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            <FitLocations locations={mappedLocations} />
+            {mappedLocations.map((item) => (
+              <Marker
+                key={String(item.id)}
+                position={[Number(item.latitude), Number(item.longitude)]}
+              >
+                <Popup>
+                  <div style={{ minWidth: 190 }}>
+                    <strong>{item.name}</strong>
+                    <div style={{ marginTop: 6, fontSize: 12 }}>
+                      <div><b>Jenis:</b> {item.activityType || "—"}</div>
+                      <div><b>Wilayah:</b> {[item.village, item.district, item.province].filter(Boolean).join(", ") || "—"}</div>
+                      <div><b>DAS:</b> {item.das || "—"}</div>
+                      <div><b>Status:</b> {item.status || "—"}</div>
+                      <div><b>Koordinat:</b> {Number(item.latitude).toFixed(6)}, {Number(item.longitude).toFixed(6)}</div>
+                    </div>
+                  </div>
+                </Popup>
+              </Marker>
+            ))}
+          </MapContainer>
+        </div>
+      ) : (
+        <div className="flex min-h-[220px] flex-col items-center justify-center px-5 text-center">
+          <MapPinned size={28} className="text-slate-300" />
+          <div className="mt-3 text-xs font-bold text-slate-700">Belum ada koordinat lokasi</div>
+          <p className="mt-1 max-w-md text-[10px] leading-relaxed text-slate-500">
+            Peta akan menampilkan marker setelah data lokasi dari API memiliki latitude dan longitude yang valid.
+          </p>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1007,6 +1110,9 @@ export default function Lokasi() {
             loading={statisticsLoading}
           />
         </section>
+
+        {/* PETA INVENTARISASI LOKASI */}
+        <LocationInventoryMap locations={records} />
 
         {/* ====================================================
             REGISTRY PANEL

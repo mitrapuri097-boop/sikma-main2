@@ -4,6 +4,40 @@ import { API_URL } from "./api";
 import Header from "./header";
 import Sidebar from "./components/layouts/Sidebar";
 
+type GpsLocationState = {
+  loading: boolean;
+  error: string;
+  latitude: number | null;
+  longitude: number | null;
+  accuracy: number | null;
+  locationName: string;
+  village: string;
+  district: string;
+  city: string;
+  province: string;
+  displayName: string;
+  updatedAt: string | null;
+};
+
+type GpsThreatItem = {
+  key: string;
+  label: string;
+  status: string | null;
+  score: number | null;
+  distanceMeters: number | null;
+  inside: boolean;
+  source: string;
+};
+
+type GpsThreatState = {
+  loading: boolean;
+  error: string;
+  threats: GpsThreatItem[];
+  riskStatus: string | null;
+  riskScore: number | null;
+  updatedAt: string | null;
+};
+
 const Kerawanan = () => {
   // UI-only state; declared before every hook/render reference.
   const [isBottomSummaryOpen, setIsBottomSummaryOpen] = useState(true);
@@ -20,6 +54,7 @@ const Kerawanan = () => {
 
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
+  const mapInitializingRef = useRef(false);
   const mapWeatherMarkerRef = useRef<any>(null);
   const gpsMarkerRef = useRef<any>(null);
   const gpsAccuracyCircleRef = useRef<any>(null);
@@ -28,115 +63,6 @@ const Kerawanan = () => {
   );
   const locationSearchRequestRef = useRef(0);
   const layerGroupsRef = useRef({});
-  const bnpbOverlayRefs = useRef<Record<string, any>>({});
-  const bnpbServiceMetaRef = useRef<Map<string, any>>(new Map());
-
-  // ======================================================
-  // BNPB InaRISK / ArcGIS REST services
-  // Semua service resmi BNPB yang URL-nya sudah tersedia.
-  // Raster MapServer ditampilkan langsung sebagai ImageOverlay
-  // sehingga tidak perlu disalin ke MySQL.
-  // ======================================================
-  const BNPB_INARISK_LAYERS = [
-    {
-      key: "bnpb_risiko_banjir",
-      name: "Risiko Banjir",
-      group: "Risiko",
-      url: "https://gis.bnpb.go.id/server/rest/services/inarisk/INDEKS_RISIKO_BANJIR_JBTBPJ/MapServer",
-      layerId: 0,
-      serviceType: "MapServer",
-    },
-    {
-      key: "bnpb_risiko_kekeringan",
-      name: "Risiko Kekeringan",
-      group: "Risiko",
-      url: "https://gis.bnpb.go.id/server/rest/services/inarisk/layer_risiko_kekeringan/ImageServer",
-      layerId: 0,
-      serviceType: "ImageServer",
-    },
-    {
-      key: "bnpb_risiko_banjir_bandang",
-      name: "Risiko Banjir Bandang",
-      group: "Risiko",
-      url: "https://gis.bnpb.go.id/server/rest/services/inarisk/INDEKS_RISIKO_BANJIRBANDANG_JBTBPJ/MapServer",
-      layerId: 0,
-      serviceType: "MapServer",
-    },
-    {
-      key: "bnpb_risiko_abrasi",
-      name: "Risiko Abrasi",
-      group: "Risiko",
-      url: "https://gis.bnpb.go.id/server/rest/services/inarisk/layer_risiko_gelombang_ekstrim_dan_abrasi/ImageServer",
-      layerId: 0,
-      serviceType: "ImageServer",
-    },
-    {
-      key: "bnpb_risiko_longsor",
-      name: "Risiko Longsor",
-      group: "Risiko",
-      url: "https://gis.bnpb.go.id/server/rest/services/inarisk/INDEKS_RISIKO_TANAHLONGSOR_JBTBPJ/MapServer",
-      layerId: 0,
-      serviceType: "MapServer",
-    },
-    {
-      key: "bnpb_risiko_karhutla",
-      name: "Risiko Karhutla",
-      group: "Risiko",
-      url: "https://gis.bnpb.go.id/server/rest/services/inarisk/layer_risiko_kebakaran_hutan_dan_lahan/ImageServer",
-      layerId: 0,
-      serviceType: "ImageServer",
-    },
-    {
-      key: "bnpb_bahaya_banjir",
-      name: "Bahaya Banjir",
-      group: "Bahaya",
-      url: "https://gis.bnpb.go.id/server/rest/services/inarisk/INDEKS_BAHAYA_BANJIR_JBTBPJ/MapServer",
-      layerId: 0,
-      serviceType: "MapServer",
-    },
-    {
-      key: "bnpb_bahaya_kekeringan",
-      name: "Bahaya Kekeringan",
-      group: "Bahaya",
-      url: "https://gis.bnpb.go.id/server/rest/services/inarisk/layer_bahaya_kekeringan_30/MapServer",
-      layerId: 0,
-      serviceType: "MapServer",
-    },
-    {
-      key: "bnpb_bahaya_banjir_bandang",
-      name: "Bahaya Banjir Bandang",
-      group: "Bahaya",
-      url: "https://gis.bnpb.go.id/server/rest/services/inarisk/INDEKS_BAHAYA_BANJIRBANDANG_JBTBPJ/MapServer",
-      layerId: 0,
-      serviceType: "MapServer",
-    },
-    {
-      key: "bnpb_bahaya_abrasi",
-      name: "Bahaya Abrasi",
-      group: "Bahaya",
-      url: "https://gis.bnpb.go.id/server/rest/services/inarisk/layer_bahaya_gelombang_ekstrim_dan_abrasi_30/MapServer",
-      layerId: 0,
-      serviceType: "MapServer",
-    },
-    {
-      key: "bnpb_bahaya_longsor",
-      name: "Bahaya Longsor",
-      group: "Bahaya",
-      url: "https://gis.bnpb.go.id/server/rest/services/inarisk/INDEKS_BAHAYA_TANAHLONGSOR_JBTBPJ/MapServer",
-      layerId: 0,
-      serviceType: "MapServer",
-    },
-  ] as const;
-
-  type BnpbIdentifyResult = {
-    service: string;
-    url: string;
-    status: "value" | "nodata" | "out_of_coverage" | "error";
-    value?: string;
-    rawValue?: any;
-    message?: string;
-    debug?: any;
-  };
 
   const [enterpriseIdentify, setEnterpriseIdentify] = useState<{
     open: boolean;
@@ -165,21 +91,6 @@ const Kerawanan = () => {
   });
   const enterpriseIdentifyHighlightRef = useRef<any>(null);
 
-  const [bnpbIdentifyPopup, setBnpbIdentifyPopup] = useState<{
-    open: boolean;
-    loading: boolean;
-    error: string;
-    latitude: number | null;
-    longitude: number | null;
-    results: BnpbIdentifyResult[];
-  }>({
-    open: false,
-    loading: false,
-    error: "",
-    latitude: null,
-    longitude: null,
-    results: [],
-  });
   const navigate = useNavigate();
   const [showMenuDropdown, setShowMenuDropdown] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -278,7 +189,6 @@ const Kerawanan = () => {
   const isLayerAuthorized = (name: string) => {
     // Layer dinamis kejadian dan service eksternal tidak berada di layer_metadata.
     if (String(name || "").startsWith("kejadian_")) return true;
-    if (getBnpbKeyForTable(String(name || ""))) return true;
     if (authorizedLayerNames === null) return false;
 
     const normalized = normalizeAuthorizationLayerName(name);
@@ -1096,397 +1006,6 @@ const Kerawanan = () => {
   >(new Map());
   const [kejadianListings, setKejadianListings] = useState<Array<any>>([]);
 
-  const getBnpbLayerConfig = (key: string) =>
-    BNPB_INARISK_LAYERS.find((item) => item.key === key);
-
-  // Nama layer yang dipakai UI/database -> key service BNPB.
-  // Dengan mapping ini, toggle "risiko_banjir" tidak lagi jatuh ke
-  // endpoint PostgreSQL /api/layers/.../geojson.
-  const BNPB_TABLE_TO_KEY: Record<string, string> = {
-    risiko_banjir: "bnpb_risiko_banjir",
-    risiko_kekeringan: "bnpb_risiko_kekeringan",
-    risiko_banjir_bandang: "bnpb_risiko_banjir_bandang",
-    risiko_abrasi: "bnpb_risiko_abrasi",
-    risiko_longsor: "bnpb_risiko_longsor",
-    risiko_karhutla: "bnpb_risiko_karhutla",
-    bahaya_banjir: "bnpb_bahaya_banjir",
-    bahaya_kekeringan: "bnpb_bahaya_kekeringan",
-    bahaya_banjir_bandang: "bnpb_bahaya_banjir_bandang",
-    bahaya_abrasi: "bnpb_bahaya_abrasi",
-    bahaya_longsor: "bnpb_bahaya_longsor",
-  };
-
-  const getBnpbKeyForTable = (tableName: string) =>
-    BNPB_TABLE_TO_KEY[tableName] || null;
-
-  const loadBnpbLayer = async (key: string) => {
-    if (!mapInstanceRef.current || !window.L) return;
-    const config = getBnpbLayerConfig(key);
-    if (!config?.url) {
-      setLayerError(`ℹ️ URL service BNPB untuk "${config?.name || key}" belum tersedia pada daftar sumber.`);
-      setTimeout(() => setLayerError(""), 5000);
-      return;
-    }
-
-    const map = mapInstanceRef.current;
-    const requestId = (layerRequestSeqRef.current[key] || 0) + 1;
-    layerRequestSeqRef.current[key] = requestId;
-
-    try {
-      setLoadingLayerNames((prev) => new Set([...prev, key]));
-      setLayerError("");
-
-      const bounds = map.getBounds();
-      const south = bounds.getSouth();
-      const west = bounds.getWest();
-      const north = bounds.getNorth();
-      const east = bounds.getEast();
-      const zoom = map.getZoom();
-      const size = map.getSize();
-
-      // BNPB source tetap di server; browser menerima image dari backend proxy.
-      // Bounds + zoom ikut dikirim sehingga setiap pan/zoom hanya meminta extent aktif.
-      const params = new URLSearchParams({
-        key,
-        south: String(south),
-        west: String(west),
-        north: String(north),
-        east: String(east),
-        zoom: String(zoom),
-        width: String(Math.min(Math.max(Math.round(size.x), 800), 1600)),
-        height: String(Math.min(Math.max(Math.round(size.y), 600), 1200)),
-      });
-      const imageUrl = `${API_URL}/api/bnpb/layers/${encodeURIComponent(key)}/image?${params.toString()}`;
-      const imageBounds: [[number, number], [number, number]] = [
-        [south, west],
-        [north, east],
-      ];
-
-      const previous = bnpbOverlayRefs.current[key];
-      if (previous) safeRemoveMapLayer(previous);
-
-      if (layerRequestSeqRef.current[key] !== requestId || mapInstanceRef.current !== map) return;
-
-      const overlay = window.L.imageOverlay(imageUrl, imageBounds, {
-        opacity: 0.58,
-        interactive: false,
-        className: "bnpb-inarisk-overlay",
-      });
-      if (!safeAddMapLayer(map, overlay)) return;
-
-      bnpbOverlayRefs.current[key] = overlay;
-      layerGroupsRef.current[key] = overlay;
-      layerCacheRef.current.set(key, overlay);
-      console.log(`✅ BNPB InaRISK aktif: ${config.name} | ${config.serviceType || "ArcGIS"} | zoom ${zoom}`);
-    } catch (error: any) {
-      console.error("❌ Error loading BNPB layer:", error);
-      setLayerError(`❌ Gagal memuat ${config.name}: ${error?.message || "unknown error"}`);
-      setTimeout(() => setLayerError(""), 6000);
-    } finally {
-      setLoadingLayerNames((prev) => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
-    }
-  };
-
-  const removeBnpbLayer = (key: string) => {
-    const overlay = bnpbOverlayRefs.current[key];
-    if (overlay && mapInstanceRef.current) {
-      try {
-        mapInstanceRef.current.removeLayer(overlay);
-      } catch {}
-    }
-    delete bnpbOverlayRefs.current[key];
-    delete layerGroupsRef.current[key];
-    layerCacheRef.current.delete(key);
-  };
-
-  // ======================================================
-  // BNPB Identify — Raster-safe
-  // BNPB MapServer yang kita pakai menggunakan EPSG:3395.
-  // Leaflet memakai EPSG:4326. ArcGIS Identify mengharuskan
-  // geometry + mapExtent konsisten dengan `sr`, jadi keduanya
-  // dikonversi ke EPSG:3395 sebelum request.
-  // ======================================================
-  const WGS84_A = 6378137;
-  const WGS84_E = 0.08181919084262149;
-
-  const wgs84ToEpsg3395 = (latitude: number, longitude: number) => {
-    const lat = Math.max(-89.999999, Math.min(89.999999, latitude));
-    const lonRad = (longitude * Math.PI) / 180;
-    const latRad = (lat * Math.PI) / 180;
-    const sinLat = Math.sin(latRad);
-    const x = WGS84_A * lonRad;
-    const y =
-      WGS84_A *
-      Math.log(
-        Math.tan(Math.PI / 4 + latRad / 2) *
-          Math.pow(
-            (1 - WGS84_E * sinLat) / (1 + WGS84_E * sinLat),
-            WGS84_E / 2,
-          ),
-      );
-    return { x, y };
-  };
-
-  const leafletBoundsToEpsg3395 = (bounds: any) => {
-    const sw = wgs84ToEpsg3395(bounds.getSouth(), bounds.getWest());
-    const ne = wgs84ToEpsg3395(bounds.getNorth(), bounds.getEast());
-    return `${Math.min(sw.x, ne.x)},${Math.min(sw.y, ne.y)},${Math.max(sw.x, ne.x)},${Math.max(sw.y, ne.y)}`;
-  };
-
-  const getBnpbServiceMeta = async (url: string) => {
-    const cached = bnpbServiceMetaRef.current.get(url);
-    if (cached) return cached;
-
-    const response = await fetch(`${url}?f=json`, {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    if (!response.ok) throw new Error(`Metadata HTTP ${response.status}`);
-    const json = await response.json();
-    if (json?.error)
-      throw new Error(json.error.message || "Metadata BNPB gagal");
-    bnpbServiceMetaRef.current.set(url, json);
-    return json;
-  };
-
-  const pointInsideExtent3395 = (x: number, y: number, extent: any) => {
-    if (!extent) return true;
-    return (
-      x >= Number(extent.xmin) &&
-      x <= Number(extent.xmax) &&
-      y >= Number(extent.ymin) &&
-      y <= Number(extent.ymax)
-    );
-  };
-
-  const normalizeBnpbRasterValue = (value: any) => {
-    if (value === null || value === undefined || String(value).trim() === "")
-      return null;
-    const text = String(value).trim();
-    if (/^(nodata|null|nan)$/i.test(text)) return null;
-    return text;
-  };
-
-  const identifyBnpbAtPoint = async (latitude: number, longitude: number) => {
-    const active = BNPB_INARISK_LAYERS.filter((item) => {
-      const tableName = Object.keys(BNPB_TABLE_TO_KEY).find(
-        (name) => BNPB_TABLE_TO_KEY[name] === item.key,
-      );
-      return (
-        !!item.url &&
-        (activeLayersRef.current.has(item.key) ||
-          (!!tableName && activeLayersRef.current.has(tableName)))
-      );
-    });
-    if (!active.length || !mapInstanceRef.current) {
-      setBnpbIdentifyPopup((prev) => ({ ...prev, open: false }));
-      return;
-    }
-    setBnpbIdentifyPopup({
-      open: true,
-      loading: true,
-      error: "",
-      latitude,
-      longitude,
-      results: [],
-    });
-    try {
-      const map = mapInstanceRef.current;
-      const bounds = map.getBounds();
-      const size = map.getSize();
-      const p = wgs84ToEpsg3395(latitude, longitude);
-      const results: BnpbIdentifyResult[] = [];
-      const offsets = [
-        [0, 0],
-        [120, 0],
-        [-120, 0],
-        [0, 120],
-        [0, -120],
-        [250, 0],
-        [-250, 0],
-        [0, 250],
-        [0, -250],
-      ];
-      for (const config of active) {
-        try {
-          const meta = await getBnpbServiceMeta(config.url!);
-          const ext = meta?.fullExtent;
-          if (ext && !pointInsideExtent3395(p.x, p.y, ext)) {
-            results.push({
-              service: config.name,
-              url: config.url!,
-              status: "out_of_coverage",
-              message: "Lokasi berada di luar cakupan layer BNPB ini.",
-              debug: { point3395: p, fullExtent: ext },
-            });
-            continue;
-          }
-          let found: any = null,
-            raw: any = null,
-            lastDebug: any = null,
-            successful = false;
-          for (const [dx, dy] of offsets) {
-            const q = new URLSearchParams({
-              f: "json",
-              geometry: `${p.x + dx},${p.y + dy}`,
-              geometryType: "esriGeometryPoint",
-              sr: "3395",
-              layers: `all:${config.layerId}`,
-              tolerance: "8",
-              mapExtent: leafletBoundsToEpsg3395(bounds),
-              imageDisplay: `${Math.max(size.x, 800)},${Math.max(size.y, 600)},96`,
-              returnGeometry: "false",
-            });
-            const requestUrl = `${config.url}/identify?${q.toString()}`;
-            const response = await fetch(requestUrl, {
-              headers: { Accept: "application/json" },
-              cache: "no-store",
-            });
-            const body = await response.text();
-            if (!response.ok) {
-              lastDebug = {
-                offset: [dx, dy],
-                httpStatus: response.status,
-                requestUrl,
-                responseText: body.slice(0, 4000),
-              };
-              continue;
-            }
-            let json: any;
-            try {
-              json = JSON.parse(body);
-            } catch {
-              lastDebug = {
-                offset: [dx, dy],
-                requestUrl,
-                responseText: body.slice(0, 4000),
-                parseError: true,
-              };
-              continue;
-            }
-            successful = true;
-            const hits = Array.isArray(json?.results) ? json.results : [];
-            const hit = hits.find(
-              (h: any) => normalizeBnpbRasterValue(h?.value) !== null,
-            );
-            const value = normalizeBnpbRasterValue(hit?.value);
-            lastDebug = {
-              offset: [dx, dy],
-              requestUrl,
-              response: json,
-              resultCount: hits.length,
-              hits: hits.slice(0, 10),
-            };
-            if (json?.error) continue;
-            if (value !== null) {
-              found = value;
-              raw = hit?.value;
-              break;
-            }
-          }
-          if (found !== null)
-            results.push({
-              service: config.name,
-              url: config.url!,
-              status: "value",
-              value: String(found),
-              rawValue: raw,
-              debug: {
-                samplingOffsetsMeters: offsets,
-                lastResponse: lastDebug,
-              },
-            });
-          else if (successful)
-            results.push({
-              service: config.name,
-              url: config.url!,
-              status: "nodata",
-              message:
-                "Semua titik sampling tidak mengembalikan nilai raster BNPB.",
-              debug: {
-                samplingOffsetsMeters: offsets,
-                lastResponse: lastDebug,
-              },
-            });
-          else
-            results.push({
-              service: config.name,
-              url: config.url!,
-              status: "error",
-              message:
-                "Tidak mendapat response Identify BNPB yang dapat dibaca.",
-              debug: {
-                samplingOffsetsMeters: offsets,
-                lastResponse: lastDebug,
-              },
-            });
-        } catch (e: any) {
-          results.push({
-            service: config.name,
-            url: config.url!,
-            status: "error",
-            message: e?.message || "Gagal menghubungi service BNPB.",
-            debug: { exception: String(e?.stack || e) },
-          });
-        }
-      }
-      setBnpbIdentifyPopup({
-        open: true,
-        loading: false,
-        error: "",
-        latitude,
-        longitude,
-        results,
-      });
-      console.groupCollapsed("🛰️ BNPB Identify V3");
-      console.log("Point 4326", { latitude, longitude });
-      console.log("Point 3395", p);
-      console.log("Results", results);
-      console.groupEnd();
-    } catch (e: any) {
-      setBnpbIdentifyPopup((prev) => ({
-        ...prev,
-        loading: false,
-        error: e?.message || "Gagal melakukan Identify BNPB.",
-      }));
-    }
-  };
-
-  const handleBnpbToggle = async (key: string, checked: boolean) => {
-    const config = getBnpbLayerConfig(key);
-    if (!config?.url) {
-      setLayerError(`ℹ️ ${config?.name || key}: endpoint BNPB belum tersedia.`);
-      setTimeout(() => setLayerError(""), 5000);
-      return;
-    }
-    setActiveLayers((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(key);
-      else next.delete(key);
-      return next;
-    });
-    if (checked) await loadBnpbLayer(key);
-    else removeBnpbLayer(key);
-  };
-
-  const refreshActiveBnpbLayers = async () => {
-    for (const config of BNPB_INARISK_LAYERS) {
-      const tableName = Object.keys(BNPB_TABLE_TO_KEY).find(
-        (name) => BNPB_TABLE_TO_KEY[name] === config.key,
-      );
-      if (
-        config.url &&
-        (activeLayers.has(config.key) ||
-          (!!tableName && activeLayers.has(tableName)))
-      ) {
-        await loadBnpbLayer(config.key);
-      }
-    }
-  };
 
   // Guard untuk mencegah race condition ketika beberapa request GeoJSON
   // selesai bersamaan (mis. toggle + pan/zoom). Hanya request terbaru
@@ -2102,75 +1621,43 @@ const Kerawanan = () => {
           colorMappingRef.current.lahanKritis.set(item.kritis, item.color!);
         });
       } else if (tableName === "rawan_erosi") {
-        const keteranganMap = new Map<string, number>();
-
-        console.log(
-          "🔍 [RAWAN EROSI] Processing features:",
-          geojsonData.features.length,
-        );
-
-        if (geojsonData.features.length > 0) {
-          console.log(
-            "📋 [RAWAN EROSI] Sample feature properties:",
-            geojsonData.features[0].properties,
-          );
-        }
+        // Samakan pembacaan data dengan kerawanan-ori.tsx:
+        // kategori dibaca dari properties.tingkat dan luas dari properties.n_a.
+        const tingkatMap = new Map<string, number>();
 
         geojsonData.features.forEach((feature: any) => {
-          const kls_a = feature.properties.kls_a || "";
-          const keterangan = feature.properties.keterangan || "";
-          const n_a = parseFloat(feature.properties.n_a) || 0;
+          const tingkat = feature.properties?.tingkat || "";
+          const luas = parseFloat(feature.properties?.n_a) || 0;
 
-          if (keterangan && kls_a) {
-            // Sum n_a berdasarkan keterangan yang sama
-            keteranganMap.set(
-              keterangan,
-              (keteranganMap.get(keterangan) || 0) + n_a,
+          if (tingkat) {
+            tingkatMap.set(
+              tingkat,
+              (tingkatMap.get(tingkat) || 0) + luas,
             );
           }
         });
 
-        console.log(
-          "📊 [RAWAN EROSI] Keterangan found:",
-          Array.from(keteranganMap.keys()),
-        );
-        console.log(
-          "📊 [RAWAN EROSI] Sum n_a per keterangan:",
-          Array.from(keteranganMap.entries()),
-        );
-
-        const erosiArray = Array.from(keteranganMap.entries()).map(
-          ([keterangan, n_a]) => {
-            const color = rawanErosiColors[keterangan] || "#808080";
-            console.log(
-              `🎨 [RAWAN EROSI] Keterangan: "${keterangan}" -> n_a: ${n_a.toFixed(2)} -> Color: ${color}`,
-            );
-
-            return {
-              tingkat: keterangan,
-              luas_ha: n_a, // Menggunakan n_a sebagai luas
-              color: color,
-            };
-          },
+        const erosiArray = Array.from(tingkatMap.entries()).map(
+          ([tingkat, luas_ha]) => ({
+            tingkat,
+            luas_ha,
+            color: rawanErosiColors[tingkat] || "#808080",
+          }),
         );
 
-        // Sort berdasarkan urutan severity (dari tinggi ke rendah)
-        const keteranganOrder = [
-          "> 480 Ton/Ha/Tahun",
-          "> 180 - 480 Ton/Ha/Tahun",
-          "> 60 - 180 Ton/Ha/Tahun",
-          "> 15 - 60 Ton/Ha/Tahun",
-          "<= 15 Ton/Ha/Tahun",
+        const tingkatOrder = [
+          "Sangat Tinggi",
+          "Tinggi",
+          "Sedang",
+          "Rendah",
+          "Sangat Rendah",
         ];
 
         erosiArray.sort((a, b) => {
-          return (
-            keteranganOrder.indexOf(a.tingkat) -
-            keteranganOrder.indexOf(b.tingkat)
-          );
+          const aIdx = tingkatOrder.indexOf(a.tingkat);
+          const bIdx = tingkatOrder.indexOf(b.tingkat);
+          return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
         });
-
-        console.log("✅ [RAWAN EROSI] Final data:", erosiArray);
 
         setRawanErosiData(erosiArray);
 
@@ -2226,7 +1713,10 @@ const Kerawanan = () => {
 
         geojsonData.features.forEach((feature: any) => {
           const limpasan = feature.properties.limpasan || "";
-          const luas = parseFloat(feature.properties.shape_leng) || 0;
+          const luas =
+            parseFloat(feature.properties.shape_area) ||
+            parseFloat(feature.properties.shape_leng) ||
+            0;
 
           if (limpasan) {
             limpasanMap.set(limpasan, (limpasanMap.get(limpasan) || 0) + luas);
@@ -2631,7 +2121,10 @@ const Kerawanan = () => {
         const risikoColorMap = new Map<string, string>();
         geojsonData.features.forEach((feature: any) => {
           const kelas = feature.properties.kelas || "";
-          const luas = parseFloat(feature.properties.shape_leng) || 0;
+          const luas =
+            parseFloat(feature.properties.shape_area) ||
+            parseFloat(feature.properties.shape_leng) ||
+            0;
           if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
         });
         const arr = Array.from(kelasMap.entries()).map(([kelas, luas]) => ({
@@ -3019,13 +2512,34 @@ const Kerawanan = () => {
         };
       }
 
-      // Buat layer group
+      // Buat layer group. GeoJSON Point yang koordinatnya rusak harus dilewati
+      // agar satu feature invalid tidak membuat renderer Leaflet crash saat pan/resize/export PDF.
       const layerGroup = window.L.geoJSON(geojsonData, {
         pane: "overlayPane",
         style: styleFunction,
+        filter: function (feature: any) {
+          const geometry = feature?.geometry;
+          if (!geometry) return false;
+          if (geometry.type === "Point") {
+            const coords = geometry.coordinates;
+            const lng = Number(coords?.[0]);
+            const lat = Number(coords?.[1]);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+              console.warn("SIMITI: skipping invalid Point geometry", { tableName, feature });
+              return false;
+            }
+          }
+          return true;
+        },
         pointToLayer: function (feature, latlng) {
+          const lat = Number(latlng?.lat);
+          const lng = Number(latlng?.lng);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+            console.warn("SIMITI: skipping invalid Leaflet LatLng", { tableName, feature, latlng });
+            return window.L.layerGroup();
+          }
           const tableColor = getColorForTable(tableName);
-          return window.L.circleMarker(latlng, {
+          return window.L.circleMarker([lat, lng], {
             radius: zoom > 10 ? 6 : 4,
             fillColor: tableColor,
             color: "#000",
@@ -4633,6 +4147,16 @@ const Kerawanan = () => {
     }
   };
 
+  // Validasi bounds dari API sebelum diberikan ke Leaflet.
+  const isValidMapBounds = (bounds: any) => {
+    if (!Array.isArray(bounds) || bounds.length < 2 || !Array.isArray(bounds[0]) || !Array.isArray(bounds[1])) return null;
+    const pairs = bounds.slice(0, 2).map((pair: any) => [Number(pair?.[0]), Number(pair?.[1])]);
+    if (pairs.some(([lat, lng]: number[]) => !Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180)) return null;
+    const [[south, west], [north, east]] = pairs as [[number, number], [number, number]];
+    if (south > north || west > east) return null;
+    return pairs as [[number, number], [number, number]];
+  };
+
   // Function untuk update map bounds based on selected DAS
   const updateMapBoundsDas = async (dasList: Array<any>) => {
     if (dasList.length === 0 || !mapInstanceRef.current) return;
@@ -4650,8 +4174,13 @@ const Kerawanan = () => {
 
       if (data.bounds) {
         // Set bounds dulu
-        setCurrentBounds(data.bounds);
-        mapInstanceRef.current.fitBounds(data.bounds, { padding: [50, 50] });
+        const validBounds = isValidMapBounds(data.bounds);
+        if (!validBounds) {
+          console.warn("SIMITI: API returned invalid map bounds", data.bounds);
+          return;
+        }
+        setCurrentBounds(validBounds);
+        mapInstanceRef.current.fitBounds(validBounds, { padding: [50, 50] });
 
         // Check available layers in these bounds
         await checkLayerAvailability(data.bounds);
@@ -4845,8 +4374,13 @@ const Kerawanan = () => {
 
       if (data.bounds) {
         // Set bounds dulu
-        setCurrentBounds(data.bounds);
-        mapInstanceRef.current.fitBounds(data.bounds, { padding: [50, 50] });
+        const validBounds = isValidMapBounds(data.bounds);
+        if (!validBounds) {
+          console.warn("SIMITI: API returned invalid map bounds", data.bounds);
+          return;
+        }
+        setCurrentBounds(validBounds);
+        mapInstanceRef.current.fitBounds(validBounds, { padding: [50, 50] });
 
         // Check available layers in these bounds
         await checkLayerAvailability(data.bounds);
@@ -5009,18 +4543,12 @@ const Kerawanan = () => {
       }
 
       // Authorization tetap diterapkan setelah availability check sebagai defense-in-depth.
-      const authorizedGrouped = {
-        ...grouped,
-        kerawanan: filterAuthorizedLayerList(grouped.kerawanan),
-        mitigasiAdaptasi: filterAuthorizedLayerList(grouped.mitigasiAdaptasi),
-        lainnya: filterAuthorizedLayerList(grouped.lainnya),
-        kejadian: grouped.kejadian.filter((item: any) =>
-          item?.isAutoGenerated || isLayerAuthorized(item?.name ?? item?.id),
-        ),
-      };
-
-      console.log("Grouped available layers (authorized):", authorizedGrouped);
-      setAvailableLayers(authorizedGrouped);
+      // Ikuti alur kerawanan-ori: availability hanya menentukan layer yang
+      // tersedia pada wilayah terpilih; authorization tidak boleh mengosongkan
+      // checkbox katalog di panel ini. Authorization tetap dipakai pada endpoint
+      // backend saat layer benar-benar dimuat.
+      console.log("Grouped available layers:", grouped);
+      setAvailableLayers(grouped);
     } catch (error) {
       console.error("Error checking layer availability:", error);
       // Fallback: preserve current kejadian layers if error
@@ -5717,7 +5245,9 @@ const Kerawanan = () => {
     script.onload = () => {
       if (!mapRef.current || !window.L) return;
 
-      // Jangan pernah membuat Leaflet map kedua
+      // React StrictMode / hot-reload dapat menjalankan lifecycle berulang.
+      // Kunci init supaya dua callback script tidak pernah membuat map bersamaan.
+      if (mapInitializingRef.current) return;
       if (mapInstanceRef.current) {
         console.log("🗺️ Leaflet map sudah ada, skip initialization");
         return;
@@ -5729,10 +5259,15 @@ const Kerawanan = () => {
       };
 
       if (container._leaflet_id) {
-        console.log("🗺️ Map container sudah diinisialisasi Leaflet, skip");
-        return;
+        console.log("🗺️ Map container sudah diinisialisasi Leaflet, bersihkan marker lama");
+        try {
+          const oldMap = (window.L as any).map._instances?.[container._leaflet_id];
+          oldMap?.remove?.();
+        } catch {}
+        delete container._leaflet_id;
       }
 
+      mapInitializingRef.current = true;
       const map = window.L.map(container).setView([-2.5, 118.0], 5);
 
       // Klik peta -> ambil cuaca titik tersebut dari Open-Meteo.
@@ -5741,14 +5276,11 @@ const Kerawanan = () => {
         const identified = identifyEnterpriseAtPoint(event.latlng);
         if (!identified) {
           fetchMapWeather(Number(lat), Number(lng));
-          identifyBnpbAtPoint(Number(lat), Number(lng));
         }
       });
 
       map.on("moveend", () => {
         if (activeLayersRef.current) {
-          // Overlay BNPB mengikuti extent peta setelah pan/zoom.
-          void refreshActiveBnpbLayers();
           // Kawasan Hutan SIGAP mengikuti extent peta setelah pan/zoom.
           void refreshActiveSigapLayers();
         }
@@ -5756,9 +5288,11 @@ const Kerawanan = () => {
 
       window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "&copy; OpenStreetMap contributors",
+        crossOrigin: true,
       }).addTo(map);
 
       mapInstanceRef.current = map;
+      mapInitializingRef.current = false;
       setMapReady(true);
 
       console.log("✅ Leaflet map initialized once");
@@ -5776,18 +5310,11 @@ const Kerawanan = () => {
       script.remove();
       chartScript.remove();
 
-      // Cleanup BNPB overlays and map
-      Object.keys(bnpbOverlayRefs.current).forEach((key) => {
-        try {
-          safeRemoveMapLayer(bnpbOverlayRefs.current[key]);
-        } catch {}
-      });
-      bnpbOverlayRefs.current = {};
-
       // Invalidate semua request async yang masih berjalan sebelum map dihancurkan.
       Object.keys(layerRequestSeqRef.current).forEach((key) => {
         layerRequestSeqRef.current[key] += 1;
       });
+      mapInitializingRef.current = false;
       if (mapInstanceRef.current) {
         try {
           mapInstanceRef.current.remove();
@@ -5795,6 +5322,10 @@ const Kerawanan = () => {
           console.warn("⚠️ Leaflet cleanup warning:", error);
         }
         mapInstanceRef.current = null;
+      }
+      if (mapRef.current) {
+        const container = mapRef.current as HTMLElement & { _leaflet_id?: number };
+        delete container._leaflet_id;
       }
     };
   }, []);
@@ -5960,7 +5491,6 @@ const Kerawanan = () => {
       ...(layerData?.mitigasiAdaptasi || []),
       ...(layerData?.lainnya || []),
       ...(layerData?.kejadian || []),
-      ...BNPB_INARISK_LAYERS.map((x) => ({ id: x.key, name: x.name, source: "BNPB InaRISK", url: x.url })),
     ] as any[];
     return all.find((x) => String(x.id) === layerName || String(x.name) === layerName) || { id: layerName, name: layerName };
   };
@@ -6246,7 +5776,6 @@ const Kerawanan = () => {
         ...(layerData?.mitigasiAdaptasi || []).filter((x: any) => isLayerAuthorized(x?.name ?? x?.id)).map((x: any) => ({ ...x, group: "Mitigasi & Adaptasi" })),
         ...(layerData?.lainnya || []).filter((x: any) => isLayerAuthorized(x?.name ?? x?.id)).map((x: any) => ({ ...x, group: "Lainnya" })),
         ...(layerData?.kejadian || []).map((x: any) => ({ ...x, group: "Kejadian" })),
-        ...BNPB_INARISK_LAYERS.map((x: any) => ({ id: x.key, name: x.name, group: "BNPB InaRISK" })),
       ];
       const seen = new Set<string>();
       allLayers.filter((layer: any) => {
@@ -9396,7 +8925,7 @@ const Kerawanan = () => {
                         className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
                         style={{ width: "140px" }}
                       >
-                        Luas (Shape Leng)
+                        Luas (Shape Area)
                       </th>
                     </tr>
                   </thead>
@@ -10013,21 +9542,6 @@ const Kerawanan = () => {
     return () => window.clearInterval(interval);
   }, []);
 
-  type GpsLocationState = {
-    loading: boolean;
-    error: string;
-    latitude: number | null;
-    longitude: number | null;
-    accuracy: number | null;
-    locationName: string;
-    village: string;
-    district: string;
-    city: string;
-    province: string;
-    displayName: string;
-    updatedAt: string | null;
-  };
-
   const [gpsLocation, setGpsLocation] = useState<GpsLocationState>({
     loading: false,
     error: "",
@@ -10043,6 +9557,101 @@ const Kerawanan = () => {
     updatedAt: null,
   });
   const [gpsPopupOpen, setGpsPopupOpen] = useState(true);
+  const [gpsThreats, setGpsThreats] = useState<GpsThreatState>({
+    loading: false,
+    error: "",
+    threats: [],
+    riskStatus: null,
+    riskScore: null,
+    updatedAt: null,
+  });
+
+  const fetchGpsThreats = async (latitude: number, longitude: number) => {
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+
+    setGpsThreats((prev) => ({
+      ...prev,
+      loading: true,
+      error: "",
+    }));
+
+    try {
+      // Sumber ancaman = data kerawanan SIMITI/PostGIS melalui endpoint
+      // location-proximity. Frontend tidak menghitung point-in-polygon.
+      const params = new URLSearchParams({
+        latitude: String(latitude),
+        longitude: String(longitude),
+        threatLimit: "20",
+        mitigationLimit: "1",
+        incidentLimit: "1",
+      });
+
+      const response = await fetch(
+        `${API_URL}/api/location-proximity?${params.toString()}`,
+        {
+          headers: {
+            Accept: "application/json",
+            ...(getAuthToken()
+              ? { Authorization: `Bearer ${getAuthToken()}` }
+              : {}),
+          },
+          cache: "no-store",
+        },
+      );
+
+      const json = await response.json().catch(() => ({}));
+
+      if (!response.ok || json?.success === false) {
+        throw new Error(
+          json?.message || `Analisis ancaman HTTP ${response.status}`,
+        );
+      }
+
+      // Hanya tampilkan ancaman yang benar-benar mencakup titik GPS.
+      // Threat yang hanya "terdekat" tidak disebut sebagai ancaman di lokasi.
+      const threats = (Array.isArray(json?.threats) ? json.threats : [])
+        .filter((item: any) => item?.inside === true)
+        .map((item: any) => ({
+          key: String(item?.key || ""),
+          label: String(item?.label || item?.key || "Ancaman"),
+          status:
+            item?.status !== null && item?.status !== undefined
+              ? String(item.status)
+              : null,
+          score:
+            item?.score !== null && item?.score !== undefined &&
+            Number.isFinite(Number(item.score))
+              ? Number(item.score)
+              : null,
+          distanceMeters: 0,
+          inside: true,
+          source: String(item?.source || "data kerawanan"),
+        }))
+        .filter((item: GpsThreatItem) => item.key || item.label);
+
+      setGpsThreats({
+        loading: false,
+        error: "",
+        threats,
+        riskStatus: json?.risk?.status ?? null,
+        riskScore:
+          json?.risk?.score !== null && json?.risk?.score !== undefined
+            ? Number(json.risk.score)
+            : null,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      console.error("Gagal membaca ancaman bencana dari data kerawanan:", error);
+      setGpsThreats((prev) => ({
+        ...prev,
+        loading: false,
+        error:
+          error?.message ||
+          "Data ancaman bencana untuk titik GPS gagal dimuat.",
+        updatedAt: new Date().toISOString(),
+      }));
+    }
+  };
 
   const detectCurrentGpsLocation = () => {
     if (!navigator.geolocation) {
@@ -10073,6 +9682,10 @@ const Kerawanan = () => {
           accuracy,
           updatedAt: new Date().toISOString(),
         }));
+
+        // Begitu GPS mendapatkan koordinat, langsung cek ancaman dari
+        // data kerawanan SIMITI/PostGIS untuk titik tersebut.
+        void fetchGpsThreats(latitude, longitude);
 
         try {
           const response = await fetch(
@@ -10145,65 +9758,21 @@ const Kerawanan = () => {
                 });
               }
 
-              // Guarded Leaflet lifecycle: jangan pakai instance layer yang sudah
-              // terlepas dari map / map instance yang sudah berubah saat GPS update.
-              const currentMap = mapInstanceRef.current;
-              const gpsLatLng: [number, number] = [Number(latitude), Number(longitude)];
-              const gpsAccuracy = Math.max(Number(accuracy) || 0, 5);
-
-              if (
-                currentMap &&
-                window.L &&
-                Number.isFinite(gpsLatLng[0]) &&
-                Number.isFinite(gpsLatLng[1]) &&
-                Number.isFinite(gpsAccuracy)
-              ) {
-                const circle = gpsAccuracyCircleRef.current;
-
-                if (circle && typeof circle.setLatLng === "function") {
-                  try {
-                    const layerMap =
-                      typeof circle._map !== "undefined" ? circle._map : currentMap;
-
-                    if (layerMap === currentMap) {
-                      circle.setLatLng(gpsLatLng);
-                      if (typeof circle.setRadius === "function") {
-                        circle.setRadius(gpsAccuracy);
-                      }
-                    } else {
-                      // Instance lama sudah tidak terpasang pada map aktif.
-                      gpsAccuracyCircleRef.current = null;
-                    }
-                  } catch (circleError) {
-                    console.warn(
-                      "GPS accuracy circle stale; membuat ulang layer:",
-                      circleError,
-                    );
-                    gpsAccuracyCircleRef.current = null;
-                  }
-                }
-
-                if (!gpsAccuracyCircleRef.current) {
-                  try {
-                    const circle = window.L.circle(gpsLatLng, gpsAccuracy, {
-                      color: "#16a34a",
-                      weight: 1,
-                      opacity: 0.35,
-                      fillColor: "#22c55e",
-                      fillOpacity: 0.08,
-                      interactive: false,
-                    });
-
-                    circle.addTo(currentMap);
-                    gpsAccuracyCircleRef.current = circle;
-                  } catch (circleError) {
-                    console.warn(
-                      "Gagal membuat GPS accuracy circle:",
-                      circleError,
-                    );
-                    gpsAccuracyCircleRef.current = null;
-                  }
-                }
+              if (gpsAccuracyCircleRef.current) {
+                gpsAccuracyCircleRef.current
+                  .setLatLng([latitude, longitude])
+                  .setRadius(Math.max(Number(accuracy) || 0, 5));
+              } else {
+                gpsAccuracyCircleRef.current = window.L
+                  .circle([latitude, longitude], Math.max(Number(accuracy) || 0, 5), {
+                    color: "#16a34a",
+                    weight: 1,
+                    opacity: 0.35,
+                    fillColor: "#22c55e",
+                    fillOpacity: 0.08,
+                    interactive: false,
+                  })
+                  .addTo(mapInstanceRef.current);
               }
             } catch (mapError) {
               console.warn("Gagal menampilkan marker lokasi GPS:", mapError);
@@ -10241,9 +9810,299 @@ const Kerawanan = () => {
   const totalEvents = kejadianListings.length || kejadianPhotos.length || 0;
   const activeLayerCount = activeLayers.size;
 
+  // ======================================================
+  // EXPORT PETA KE PDF — DOWNLOAD LANGSUNG
+  // Mengambil snapshot area peta yang sedang terlihat lalu
+  // memasukkannya ke PDF A4 landscape tanpa dialog Print.
+  // Library dimuat saat tombol pertama kali digunakan sehingga
+  // tidak perlu mengubah backend.
+  // ======================================================
+  const loadExternalScript = (src: string, globalName: string): Promise<any> => {
+    const existing = (window as any)[globalName];
+    if (existing) return Promise.resolve(existing);
+
+    return new Promise((resolve, reject) => {
+      const found = document.querySelector(`script[data-sikma-pdf="${globalName}"]`) as HTMLScriptElement | null;
+      if (found) {
+        found.addEventListener("load", () => resolve((window as any)[globalName]));
+        found.addEventListener("error", () => reject(new Error(`Gagal memuat ${globalName}`)));
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = src;
+      script.async = true;
+      script.dataset.sikmaPdf = globalName;
+      script.onload = () => {
+        const lib = (window as any)[globalName];
+        if (lib) resolve(lib);
+        else reject(new Error(`${globalName} tidak tersedia setelah script dimuat`));
+      };
+      script.onerror = () => reject(new Error(`Gagal memuat library PDF: ${src}`));
+      document.head.appendChild(script);
+    });
+  };
+
+  const handleDownloadMapPdf = async () => {
+    const map = mapInstanceRef.current;
+    const mapElement = mapRef.current;
+
+    if (!map || !mapElement) {
+      alert("Peta belum siap. Silakan tunggu sampai peta selesai dimuat.");
+      return;
+    }
+
+    if (selectedAreas.length === 0 && selectedDas.length === 0) {
+      alert("Pilih wilayah administrasi atau DAS terlebih dahulu sebelum mengunduh peta PDF.");
+      return;
+    }
+
+    const areaNames = selectedAreas.map((area: any) => area.label).filter(Boolean);
+    const dasNames = selectedDas.map((das: any) => das.nama_das).filter(Boolean);
+    const exportName = [...areaNames, ...dasNames].join(", ") || "Wilayah Terpilih";
+    const safeFileName = exportName
+      .replace(/[^a-zA-Z0-9À-ÿ\s_-]/g, "")
+      .replace(/\s+/g, "_")
+      .slice(0, 100) || "Wilayah_Terpilih";
+
+    const mapSection = mapElement.closest(".kerawanan-map") as HTMLElement | null;
+    const titleOverlay = mapSection?.querySelector(".print-map-title") as HTMLElement | null;
+    const controls = mapSection
+      ? Array.from(mapSection.querySelectorAll(".leaflet-control-container")) as HTMLElement[]
+      : [];
+    const originalTitleDisplay = titleOverlay?.style.display || "";
+    const originalControlDisplays = controls.map((el) => el.style.display);
+
+    try {
+      const button = document.activeElement as HTMLButtonElement | null;
+      if (button) button.blur();
+
+      // Jangan memanggil invalidateSize/pan saat export. Operasi tersebut dapat memaksa
+      // Leaflet merender ulang CircleMarker dan memicu crash bila ada feature lama yang invalid.
+      // Export memakai viewport yang sedang terlihat. Jangan memanggil fitBounds,
+      // panBy, invalidateSize, atau operasi animasi: ini memicu render ulang path
+      // Leaflet dan dapat menjatuhkan renderer bila ada layer legacy yang korup.
+      const exportBounds = isValidMapBounds(currentBounds);
+      if (!exportBounds) {
+        console.warn("SIMITI: bounds filter tidak valid; snapshot memakai viewport saat ini tanpa menggerakkan peta.");
+      }
+
+      // Pastikan overlay judul terlihat dan kontrol Leaflet tidak ikut masuk PDF.
+      if (titleOverlay) titleOverlay.style.display = "block";
+      controls.forEach((el) => { el.style.display = "none"; });
+
+      // Tunggu render peta + tile selesai.
+      await new Promise((resolve) => window.setTimeout(resolve, 700));
+      if (document.fonts?.ready) await document.fonts.ready;
+
+      const html2canvas = await loadExternalScript(
+        "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js",
+        "html2canvas",
+      );
+      const jspdfNamespace = await loadExternalScript(
+        "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
+        "jspdf",
+      );
+
+      const canvas = await html2canvas(mapElement, {
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: "#eaf4f8",
+        scale: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
+        logging: false,
+        imageTimeout: 15000,
+        removeContainer: true,
+        // html2canvas 1.4.1 tidak mendukung fungsi warna oklch(). Di dokumen
+        // clone saja, salin properti warna dari computed style browser (RGB/RGBA),
+        // sehingga CSS aplikasi asli tidak berubah.
+        onclone: (clonedDocument: Document) => {
+          // html2canvas 1.4.1 gagal mem-parse fungsi warna CSS modern (oklch/oklab/color()).
+          // Sanitasi seluruh stylesheet pada dokumen clone, bukan hanya elemen peta, karena
+          // parser html2canvas membaca stylesheet global aplikasi meskipun node berada di luar peta.
+          const unsupportedColorFunction = /(?:oklch|oklab|color)\(\s*[^)]*\)/gi;
+          // Vite production/development dapat memuat CSS lewat <link rel="stylesheet">.
+          // Salin CSSOM same-origin yang bisa dibaca ke style tag aman, lalu lepas link clone
+          // asalnya agar html2canvas tidak membaca ulang deklarasi oklch dari file CSS tersebut.
+          let copiedCss = "";
+          const sameOriginStylesheets = new Set<string>();
+          Array.from(document.styleSheets).forEach((sheet) => {
+            try {
+              const href = (sheet as CSSStyleSheet).href;
+              const rules = Array.from(sheet.cssRules || []).map((rule) => rule.cssText).join("\n");
+              copiedCss += rules + "\n";
+              if (href && new URL(href, document.baseURI).origin === window.location.origin) {
+                sameOriginStylesheets.add(new URL(href, document.baseURI).href);
+              }
+            } catch {
+              // Stylesheet lintas-origin (mis. CDN Leaflet) dibiarkan; biasanya tidak memakai oklch.
+            }
+          });
+          clonedDocument.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]').forEach((link) => {
+            try {
+              const href = new URL(link.href, clonedDocument.baseURI).href;
+              if (sameOriginStylesheets.has(href)) link.remove();
+            } catch { /* abaikan URL stylesheet yang tidak valid */ }
+          });
+          if (copiedCss) {
+            const safeStyle = clonedDocument.createElement("style");
+            safeStyle.textContent = copiedCss.replace(unsupportedColorFunction, "rgba(0, 0, 0, 0)");
+            clonedDocument.head.appendChild(safeStyle);
+          }
+          clonedDocument.querySelectorAll("style").forEach((styleNode) => {
+            styleNode.textContent = (styleNode.textContent || "").replace(
+              unsupportedColorFunction,
+              "rgba(0, 0, 0, 0)"
+            );
+          });
+          clonedDocument.querySelectorAll<HTMLElement>("[style]").forEach((element) => {
+            const inlineStyle = element.getAttribute("style");
+            if (inlineStyle && unsupportedColorFunction.test(inlineStyle)) {
+              unsupportedColorFunction.lastIndex = 0;
+              element.setAttribute("style", inlineStyle.replace(unsupportedColorFunction, "rgba(0, 0, 0, 0)"));
+            }
+            unsupportedColorFunction.lastIndex = 0;
+          });
+
+          const clonedRoot = clonedDocument.querySelector(".leaflet-container") as HTMLElement | null;
+          if (!clonedRoot) return;
+          const originalElements = [mapElement, ...Array.from(mapElement.querySelectorAll<HTMLElement>("*"))];
+          const clonedElements = [clonedRoot, ...Array.from(clonedRoot.querySelectorAll<HTMLElement>("*"))];
+          const colorProperties = ["color", "backgroundColor", "borderTopColor", "borderRightColor", "borderBottomColor", "borderLeftColor", "outlineColor", "textDecorationColor", "fill", "stroke"] as const;
+          originalElements.forEach((original, index) => {
+            const cloned = clonedElements[index];
+            if (!cloned) return;
+            const computed = window.getComputedStyle(original);
+            colorProperties.forEach((property) => {
+              const cssProperty = property.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
+              const value = computed.getPropertyValue(cssProperty);
+              if (value && !/(?:oklch|oklab|color)\(/i.test(value)) {
+                (cloned.style as any)[property] = value;
+              }
+            });
+          });
+        },
+      });
+
+      const JsPDF = jspdfNamespace.jsPDF || (window as any).jspdf?.jsPDF;
+      if (!JsPDF) throw new Error("Library jsPDF tidak tersedia.");
+
+      const pdf = new JsPDF({
+        orientation: "landscape",
+        unit: "mm",
+        format: "a4",
+        compress: true,
+      });
+
+      const pageWidth = 297;
+      const pageHeight = 210;
+      const margin = 8;
+      const titleHeight = 18;
+      const availableWidth = pageWidth - margin * 2;
+      const availableHeight = pageHeight - margin * 2 - titleHeight;
+      const imageRatio = canvas.width / canvas.height;
+      let imageWidth = availableWidth;
+      let imageHeight = imageWidth / imageRatio;
+      if (imageHeight > availableHeight) {
+        imageHeight = availableHeight;
+        imageWidth = imageHeight * imageRatio;
+      }
+
+      const imageX = (pageWidth - imageWidth) / 2;
+      const imageY = margin + titleHeight;
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(13);
+      pdf.text("SIMITI • Peta Kawasan Rawan", margin, margin + 5);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8);
+      pdf.text(`Wilayah: ${exportName}`, margin, margin + 10, { maxWidth: availableWidth });
+      pdf.setFontSize(7);
+      pdf.text(`Dicetak dari SIMITI GIS • ${new Date().toLocaleString("id-ID")}`, margin, margin + 14);
+
+      pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", imageX, imageY, imageWidth, imageHeight, undefined, "FAST");
+      pdf.save(`Peta_SIMITI_${safeFileName}.pdf`);
+    } catch (error: any) {
+      console.error("Gagal membuat PDF peta:", error);
+      alert(error?.message || "Gagal membuat PDF. Pastikan peta sudah selesai dimuat dan koneksi internet tersedia.");
+    } finally {
+      if (titleOverlay) titleOverlay.style.display = originalTitleDisplay;
+      controls.forEach((el, index) => { el.style.display = originalControlDisplays[index] || ""; });
+    }
+  };
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#f4f7f6] text-slate-800">
       <style>{`
+        @media print {
+          @page {
+            size: A4 landscape;
+            margin: 8mm;
+          }
+
+          html, body {
+            width: 100% !important;
+            height: 100% !important;
+            overflow: visible !important;
+            background: #fff !important;
+          }
+
+          body * {
+            visibility: hidden !important;
+          }
+
+          .kerawanan-map,
+          .kerawanan-map * {
+            visibility: visible !important;
+          }
+
+          .kerawanan-map {
+            position: fixed !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100vw !important;
+            height: calc(100vh - 16mm) !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            overflow: hidden !important;
+            background: #fff !important;
+          }
+
+          .kerawanan-map .leaflet-control-container,
+          .kerawanan-map .leaflet-control,
+          .kerawanan-map button,
+          .kerawanan-map input,
+          .kerawanan-map .mockup-map-search {
+            display: none !important;
+          }
+
+          .kerawanan-map .leaflet-tile,
+          .kerawanan-map .leaflet-marker-icon,
+          .kerawanan-map .leaflet-overlay-pane,
+          .kerawanan-map .leaflet-shadow-pane,
+          .kerawanan-map .leaflet-marker-pane,
+          .kerawanan-map .leaflet-tooltip-pane,
+          .kerawanan-map .leaflet-popup-pane {
+            visibility: visible !important;
+          }
+
+          .kerawanan-map .leaflet-container {
+            background: #eaf4f8 !important;
+            width: 100% !important;
+            height: 100% !important;
+          }
+
+          .kerawanan-map .print-map-title {
+            display: block !important;
+          }
+        }
+
+        .print-map-title {
+          display: none;
+        }
+
         .custom-kejadian-marker { background:none; border:none; }
         .gps-current-location-marker {
           background: transparent !important;
@@ -10503,6 +10362,24 @@ const Kerawanan = () => {
         </div>
 
         <main className="relative flex-1 min-h-0 p-2 md:p-3 overflow-y-auto xl:overflow-hidden">
+          {/* Toolbar aksi peta — sengaja di luar section Leaflet agar tombol tidak hilang/tertutup saat map rerender */}
+          <div className="mb-2 flex items-center justify-end gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+            <span className="mr-auto text-[10px] text-slate-500">
+              {selectedAreas.length > 0 || selectedDas.length > 0
+                ? "Peta wilayah terpilih siap dicetak"
+                : "Pilih wilayah admin atau DAS terlebih dahulu"}
+            </span>
+            <button
+              type="button"
+              onClick={handleDownloadMapPdf}
+              disabled={selectedAreas.length === 0 && selectedDas.length === 0}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+              title="Download peta wilayah terpilih sebagai PDF"
+            >
+              <span aria-hidden="true">📄</span>
+              Download Peta PDF
+            </button>
+          </div>
           <div
             className={`kerawanan-workspace min-h-0 h-full grid grid-cols-1 ${
               isRightLayerPanelOpen
@@ -10525,6 +10402,16 @@ const Kerawanan = () => {
                 }`}
               >
               <div ref={mapRef} className="absolute inset-0" />
+
+              <div className="print-map-title absolute top-3 left-3 z-[3000] rounded-lg bg-white/95 border border-slate-200 px-3 py-2 shadow-sm">
+                <div className="text-[15px] font-bold text-slate-800">SIMITI • Peta Kawasan Rawan</div>
+                <div className="mt-0.5 text-[10px] text-slate-600">
+                  Wilayah: {selectedAreas.length > 0
+                    ? selectedAreas.map((area: any) => area.label).filter(Boolean).join(", ")
+                    : selectedDas.map((das: any) => das.nama_das).filter(Boolean).join(", ")}
+                </div>
+                <div className="mt-0.5 text-[9px] text-slate-400">Dicetak dari SIMITI GIS</div>
+              </div>
 
               {/* Toggle panel bawah — selalu menempel di garis bawah peta */}
               <button
@@ -10623,75 +10510,6 @@ const Kerawanan = () => {
                 </div>
               )}
 
-              {bnpbIdentifyPopup.open && (
-                <div className="absolute right-3 bottom-14 z-[1900] w-[360px] max-w-[calc(100%-24px)]">
-                  <div className="rounded-xl bg-white border border-slate-200 shadow-xl overflow-hidden">
-                    <div className="bg-[#0b4d3c] text-white px-4 py-3 flex justify-between">
-                      <div>
-                        <div className="text-[8px] text-emerald-200 uppercase">
-                          BNPB InaRISK • IDENTIFY
-                        </div>
-                        <div className="text-sm font-bold">
-                          Informasi Risiko / Bahaya
-                        </div>
-                      </div>
-                      <button
-                        onClick={() =>
-                          setBnpbIdentifyPopup((p) => ({ ...p, open: false }))
-                        }
-                      >
-                        ×
-                      </button>
-                    </div>
-                    <div className="p-4 text-[10px] max-h-[320px] overflow-y-auto">
-                      <div className="mb-3 rounded-lg bg-slate-50 border border-slate-100 p-2 text-[9px] text-slate-500">
-                        Titik: {bnpbIdentifyPopup.latitude?.toFixed(6)},{" "}
-                        {bnpbIdentifyPopup.longitude?.toFixed(6)}
-                      </div>
-                      {bnpbIdentifyPopup.loading
-                        ? "Memeriksa data raster BNPB..."
-                        : bnpbIdentifyPopup.error
-                          ? bnpbIdentifyPopup.error
-                          : bnpbIdentifyPopup.results.map((r, i) => (
-                              <div
-                                key={i}
-                                className="py-2.5 border-b last:border-0"
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <b>{r.service}</b>
-                                  <span
-                                    className={`text-[8px] font-bold px-2 py-0.5 rounded-full ${r.status === "value" ? "bg-emerald-50 text-emerald-700" : r.status === "out_of_coverage" ? "bg-amber-50 text-amber-700" : r.status === "nodata" ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-700"}`}
-                                  >
-                                    {r.status === "value"
-                                      ? "TERSEDIA"
-                                      : r.status === "out_of_coverage"
-                                        ? "DI LUAR CAKUPAN"
-                                        : r.status === "nodata"
-                                          ? "NODATA"
-                                          : "ERROR"}
-                                  </span>
-                                </div>
-                                <div className="mt-1 text-slate-600 font-semibold">
-                                  {r.status === "value"
-                                    ? `Nilai API: ${r.value}`
-                                    : r.message}
-                                </div>
-                                {r.debug && (
-                                  <details className="mt-2">
-                                    <summary className="cursor-pointer text-[8px] font-semibold text-slate-500">
-                                      Lihat response BNPB (debug)
-                                    </summary>
-                                    <pre className="mt-1 max-h-48 overflow-auto rounded bg-slate-950 text-emerald-200 p-2 text-[7px] leading-3 whitespace-pre-wrap break-all">
-                                      {JSON.stringify(r.debug, null, 2)}
-                                    </pre>
-                                  </details>
-                                )}
-                              </div>
-                            ))}
-                    </div>
-                  </div>
-                </div>
-              )}
             </section>
 
             {/* =====================================================
@@ -11001,7 +10819,7 @@ const Kerawanan = () => {
                         (selectedAreas.length > 0 || selectedDas.length > 0)
                           ? availableLayers.kerawanan
                           : layerData.kerawanan
-                        ).filter(enterpriseMatchesLayer).filter((layer) => isLayerAuthorized(layer?.name ?? layer?.id)).map((layer) => (
+                        ).filter(enterpriseMatchesLayer).map((layer) => (
                           <label
                             key={layer.id}
                             className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer"
@@ -11023,6 +10841,7 @@ const Kerawanan = () => {
                         ))}
                       </div>}
                     </div>
+
                     {(["mitigasiAdaptasi", "lainnya", "kejadian"] as const).map(
                       (section) => {
                         const source: any =
@@ -11052,7 +10871,7 @@ const Kerawanan = () => {
                               )}
                             </div>
                             {!enterpriseCollapsedGroups.has(section) && <div className="space-y-1">
-                              {(source || []).filter(enterpriseMatchesLayer).filter((layer: any) => layer?.isAutoGenerated || isLayerAuthorized(layer?.name ?? layer?.id)).map((layer: any) => (
+                              {(source || []).filter(enterpriseMatchesLayer).map((layer: any) => (
                                 <label
                                   key={layer.id}
                                   className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer"
@@ -11084,37 +10903,6 @@ const Kerawanan = () => {
                         );
                       },
                     )}
-                    <div className="mb-4">
-                      <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-200">
-                        <button onClick={() => enterpriseToggleGroup("bnpb")} className="text-[11px] font-bold flex-1 text-left">{enterpriseCollapsedGroups.has("bnpb") ? "▸" : "▾"} BNPB InaRISK</button>
-                        <span className="text-[8px] font-bold text-emerald-700">
-                          LIVE
-                        </span>
-                      </div>
-                      {!enterpriseCollapsedGroups.has("bnpb") && <div className="space-y-1">
-                        {BNPB_INARISK_LAYERS.filter(enterpriseMatchesLayer).map((layer) => (
-                          <label
-                            key={layer.key}
-                            className={`flex items-center gap-2 px-2 py-1.5 rounded-lg ${layer.url ? "hover:bg-blue-50 cursor-pointer" : "opacity-45 cursor-not-allowed"}`}
-                          >
-                            <input
-                              type="checkbox"
-                              className="w-3.5 h-3.5 accent-emerald-700"
-                              checked={activeLayers.has(layer.key)}
-                              onChange={(e) =>
-                                handleBnpbToggle(layer.key, e.target.checked)
-                              }
-                              disabled={
-                                !layer.url || loadingLayerNames.has(layer.key)
-                              }
-                            />
-                            <span className="text-[10px] flex-1 truncate">
-                              {layer.name}
-                            </span>
-                          </label>
-                        ))}
-                      </div>}
-                    </div>
                   </div>
                 </div>
              </aside>
@@ -11140,7 +10928,83 @@ const Kerawanan = () => {
                   </div>
                   <span className="text-[8px] text-slate-400">Semua Jenis</span>
                 </div>
-                <div className="h-[112px] mt-2 flex items-end gap-3 px-2">
+                {/* LEGEND KERAWANAN — berada di kartu Jumlah Kejadian.
+                    Setiap checkbox risiko aktif tampil berderet ke kanan. */}
+                {(() => {
+                  const legendLayerNames = [
+                    "risiko_banjir",
+                    "risiko_banjir_bandang",
+                    "risiko_kekeringan",
+                    "risiko_abrasi",
+                    "risiko_longsor",
+                    "risiko_karhutla",
+                  ] as const;
+
+                  const activeRiskLayers = legendLayerNames
+                    .filter((name) => activeLayers.has(name))
+                    .map((name) => ({
+                      name,
+                      items: risikoData[name] || [],
+                    }))
+                    .filter((group) => group.items.length > 0);
+
+                  if (activeRiskLayers.length === 0) return null;
+
+                  return (
+                    <div className="mt-2 pt-1.5 border-t border-slate-100">
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <div className="text-[7px] uppercase tracking-wide text-slate-400 font-bold">
+                          Legend Kerawanan
+                        </div>
+                        <div className="text-[7px] text-slate-400">
+                          Risiko aktif
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                        {activeRiskLayers.map((group) => (
+                          <div
+                            key={group.name}
+                            className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-2 py-1"
+                          >
+                            <div className="text-[7px] font-extrabold text-slate-700 mb-0.5 whitespace-nowrap">
+                              {formatTableName(group.name)}
+                            </div>
+
+                            <div className="flex items-center gap-2 whitespace-nowrap">
+                              {group.items.map((item, idx) => (
+                                <div
+                                  key={`${group.name}-${item.kelas}-${idx}`}
+                                  className="flex items-center gap-1 cursor-default"
+                                  onMouseEnter={() =>
+                                    handleRowMouseEnter(
+                                      item.kelas,
+                                      group.name,
+                                      item.color || "#808080",
+                                    )
+                                  }
+                                  onMouseLeave={handleRowMouseLeave}
+                                >
+                                  <span
+                                    className="w-2.5 h-2.5 rounded-sm border border-slate-300 shrink-0"
+                                    style={{
+                                      backgroundColor: item.color || "#808080",
+                                    }}
+                                  />
+                                  <span className="text-[7px] text-slate-600">
+                                    {item.kelas || "-"}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="h-[68px] mt-1 flex items-end gap-3 px-2">
                   {[2021, 2022, 2023, 2024, 2025].map((year, i) => {
                     const v =
                       [
@@ -11150,7 +11014,7 @@ const Kerawanan = () => {
                         kejadianListings.length,
                         totalEvents,
                       ][i] || 0;
-                    const h = Math.max(5, Math.min(88, v * 8));
+                    const h = Math.max(4, Math.min(52, v * 5));
                     return (
                       <div
                         key={year}
@@ -12195,12 +12059,86 @@ const Kerawanan = () => {
                     {gpsLocation.error}
                   </div>
                 )}
+
+                {/* Ancaman Bencana dari data Kerawanan SIMITI */}
+                <div className="rounded-xl border border-red-100 bg-gradient-to-b from-red-50 to-white p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-red-700">
+                        Ancaman Bencana di Lokasi
+                      </div>
+                      <div className="mt-0.5 text-[9px] text-slate-500">
+                        Berdasarkan data Kerawanan SIMITI/PostGIS
+                      </div>
+                    </div>
+                    {gpsThreats.riskStatus && (
+                      <span className="rounded-full bg-white px-2 py-1 text-[9px] font-bold text-red-700 ring-1 ring-red-100">
+                        {gpsThreats.riskStatus}
+                      </span>
+                    )}
+                  </div>
+
+                  {gpsThreats.loading ? (
+                    <div className="mt-3 flex items-center gap-2 text-[10px] text-slate-500">
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-red-500 border-t-transparent" />
+                      Memeriksa seluruh layer kerawanan pada titik GPS...
+                    </div>
+                  ) : gpsThreats.error ? (
+                    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] leading-4 text-amber-700">
+                      {gpsThreats.error}
+                    </div>
+                  ) : gpsThreats.threats.length === 0 ? (
+                    <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50 px-2.5 py-2 text-[10px] leading-4 text-emerald-700">
+                      Tidak ditemukan ancaman bencana pada titik GPS berdasarkan
+                      data kerawanan yang tersedia.
+                    </div>
+                  ) : (
+                    <div className="mt-3 space-y-1.5">
+                      {gpsThreats.threats.map((threat, index) => (
+                        <div
+                          key={`${threat.key}-${index}`}
+                          className="flex items-center justify-between gap-2 rounded-lg border border-white bg-white px-2.5 py-2 shadow-sm"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-[10px] font-bold text-slate-800">
+                              {threat.label}
+                            </div>
+                            <div className="mt-0.5 text-[9px] text-slate-500">
+                              Layer: {threat.source}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <div className="text-[9px] font-extrabold text-red-700">
+                              {threat.status || "Terdeteksi"}
+                            </div>
+                            {threat.score !== null && (
+                              <div className="text-[8px] text-slate-400">
+                                Skor {threat.score}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {gpsThreats.riskScore !== null && (
+                    <div className="mt-2 border-t border-red-100 pt-2 text-[9px] text-slate-500">
+                      Skor risiko lokasi:{" "}
+                      <span className="font-bold text-slate-700">
+                        {gpsThreats.riskScore}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
             <button
               type="button"
-              onClick={detectCurrentGpsLocation}
+              onClick={() => {
+                detectCurrentGpsLocation();
+              }}
               disabled={gpsLocation.loading}
               className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-3 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
             >

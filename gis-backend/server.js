@@ -9003,10 +9003,9 @@ pool
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
 const ADMIN_PASSWORD_HASH =
-  process.env.ADMIN_PASSWORD_HASH ||
-  "ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f"; // Hash dari 'password123'
+  process.env.ADMIN_PASSWORD_HASH;
 const JWT_SECRET =
-  process.env.JWT_SECRET || "your_secret_key_change_in_production";
+  process.env.JWT_SECRET;
 
 // Helper function untuk hash password
 const hashPassword = (password) => {

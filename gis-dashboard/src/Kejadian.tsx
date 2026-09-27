@@ -2119,6 +2119,35 @@ const Kebencanaan: React.FC = () => {
                 </div>
               </div>
 
+              {/* Informasi DAS terkait kejadian — nilai berasal dari record/API DAS */}
+              <section className="mt-4 overflow-hidden rounded-2xl border border-cyan-100 bg-gradient-to-br from-cyan-50 to-white">
+                <div className="flex items-center gap-3 border-b border-cyan-100 px-4 py-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-600 text-white">
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                      <path d="M3 7c3-2 5 2 8 0s5-2 10 0M3 12c3-2 5 2 8 0s5-2 10 0M3 17c3-2 5 2 8 0s5-2 10 0" strokeLinecap="round" />
+                    </svg>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[9px] font-black uppercase tracking-[.16em] text-cyan-700">Informasi Daerah Aliran Sungai</div>
+                    <div className="mt-1 truncate text-sm font-black text-slate-900">{selected.das || "DAS belum teridentifikasi"}</div>
+                  </div>
+                  <span className={`rounded-full px-2 py-1 text-[8px] font-black ${selected.das ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                    {selected.das ? "TERDATA" : "BELUM TERSEDIA"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 p-4">
+                  <div>
+                    <div className="text-[8px] font-bold uppercase tracking-wider text-slate-400">Nama DAS</div>
+                    <div className="mt-1 break-words text-[11px] font-bold text-slate-700">{selected.das || "Belum ada data DAS dari API"}</div>
+                  </div>
+                  <div>
+                    <div className="text-[8px] font-bold uppercase tracking-wider text-slate-400">Sumber identifikasi</div>
+                    <div className="mt-1 text-[11px] font-bold text-slate-700">Koordinat kejadian</div>
+                  </div>
+                </div>
+                {!selected.das && <div className="border-t border-amber-100 bg-amber-50 px-4 py-2 text-[9px] leading-4 text-amber-800">Nama DAS belum tersimpan pada data kejadian. Periksa koordinat atau lengkapi melalui form edit setelah layanan pencarian DAS tersedia.</div>}
+              </section>
+
               <div className="mt-4 rounded-2xl bg-slate-950 p-4 font-mono text-[10px] text-emerald-300">
                 {selected.coordinates[0].toFixed(7)},{" "}
                 {selected.coordinates[1].toFixed(7)}
@@ -2344,8 +2373,11 @@ const Kebencanaan: React.FC = () => {
                     value={form.das}
                     onChange={onFormChange}
                     className="smiti-field"
-                    placeholder={dasLoading ? "Mencari DAS..." : "DAS otomatis"}
+                    placeholder={dasLoading ? "Mencari DAS..." : "DAS dari koordinat kejadian"}
                   />
+                  <p className="mt-1 text-[9px] leading-4 text-slate-400">
+                    {dasLoading ? "Mengambil informasi DAS berdasarkan koordinat..." : "Nama DAS diisi dari layanan API berdasarkan titik koordinat. Bisa dikoreksi jika data resmi menunjukkan nama berbeda."}
+                  </p>
                 </div>
 
                 <div>

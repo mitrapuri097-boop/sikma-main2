@@ -37,3 +37,7 @@ venv/
 # Runtime uploads
 uploads/
 **/uploads/
+# Local backup files
+**/*-old*.tsx
+**/*-old*.js
+**/*.bak*
