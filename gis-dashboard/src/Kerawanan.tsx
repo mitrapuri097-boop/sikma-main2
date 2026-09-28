@@ -39,13 +39,145 @@ type GpsThreatState = {
 };
 
 const Kerawanan = () => {
+  // ============================================================
+  // SIMITI Leaflet safety:
+  // Bersihkan CircleMarker legacy/stale dari layer bencana.
+  // CircleMarker tidak digunakan untuk layer bencana polygon.
+  // ============================================================
+  const cleanupLegacyBencanaCircleMarkers = () => {
+    try {
+      const map: any = mapInstanceRef.current;
+
+      if (!map || typeof map.eachLayer !== "function") return;
+
+      const remove: any[] = [];
+
+      map.eachLayer((layer: any) => {
+        if (!layer) return;
+
+        // CircleMarker / Circle memiliki _latlng dan _radius.
+        const isCircleMarker =
+          layer instanceof window.L.CircleMarker ||
+          (
+            layer._latlng &&
+            typeof layer._radius === "number" &&
+            typeof layer.setRadius === "function"
+          );
+
+        if (!isCircleMarker) return;
+
+        const feature = layer.feature;
+        const tableName =
+          feature?.properties?.table_name ||
+          feature?.properties?.layer_name ||
+          feature?.properties?.layer ||
+          feature?.properties?.source_layer ||
+          layer?.options?.__simitibencanaTable;
+
+        if (
+          tableName &&
+          BENCANA_FOCUS_LAYERS.has(String(tableName))
+        ) {
+          remove.push(layer);
+        }
+      });
+
+      remove.forEach((layer) => {
+        try {
+          map.removeLayer(layer);
+        } catch (error) {
+          console.warn(
+            "SIMITI: gagal remove legacy bencana CircleMarker:",
+            error,
+          );
+        }
+      });
+
+      if (remove.length > 0) {
+        console.warn(
+          `SIMITI: removed ${remove.length} legacy bencana CircleMarker`,
+        );
+      }
+    } catch (error) {
+      console.warn(
+        "SIMITI: cleanup legacy bencana CircleMarker gagal:",
+        error,
+      );
+    }
+  };
+  // ============================================================
+  // SIMITI Leaflet resize safety
+  //
+  // L.circle() untuk GPS accuracy adalah subclass CircleMarker
+  // secara internal. Saat invalidateSize(), Leaflet dapat mencoba
+  // me-render ulang circle tersebut ketika renderer/path belum siap.
+  //
+  // GPS position + radius TIDAK diubah.
+  // Circle hanya dilepas sementara selama invalidateSize().
+  // ============================================================
+  const safeInvalidateMapSize = () => {
+    const map: any = mapInstanceRef.current;
+
+    if (
+      !map ||
+      typeof map.invalidateSize !== "function" ||
+      typeof map.getContainer !== "function" ||
+      !map.getContainer() ||
+      !map._loaded
+    ) {
+      return;
+    }
+
+    const gpsCircle: any = gpsAccuracyCircleRef.current;
+    const gpsCircleIsOnMap =
+      !!gpsCircle &&
+      typeof map.hasLayer === "function" &&
+      map.hasLayer(gpsCircle);
+
+    try {
+      // GPS circle tidak diubah; hanya dikeluarkan sementara
+      // dari renderer saat resize.
+      if (gpsCircleIsOnMap) {
+        map.removeLayer(gpsCircle);
+      }
+
+      map.invalidateSize({
+        pan: false,
+        animate: false,
+      });
+    } catch (error) {
+      console.warn(
+        "SIMITI: invalidateSize ResizeObserver dilewati:",
+        error,
+      );
+    } finally {
+      // Pasang kembali circle GPS yang sama.
+      if (
+        gpsCircleIsOnMap &&
+        gpsCircle &&
+        map &&
+        map._loaded &&
+        typeof map.addLayer === "function"
+      ) {
+        try {
+          map.addLayer(gpsCircle);
+        } catch (restoreError) {
+          console.warn(
+            "SIMITI: gagal restore GPS accuracy circle setelah resize:",
+            restoreError,
+          );
+        }
+      }
+    }
+  };
+
   // UI-only state; declared before every hook/render reference.
   const [isBottomSummaryOpen, setIsBottomSummaryOpen] = useState(true);
 
   // Leaflet needs a size recalculation after the bottom grid row collapses/expands.
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      (mapInstanceRef.current as any)?.invalidateSize?.();
+      safeInvalidateMapSize();
     });
     return () => cancelAnimationFrame(frame);
   }, [isBottomSummaryOpen]);
@@ -58,6 +190,8 @@ const Kerawanan = () => {
   const mapWeatherMarkerRef = useRef<any>(null);
   const gpsMarkerRef = useRef<any>(null);
   const gpsAccuracyCircleRef = useRef<any>(null);
+  const gpsRequestSeqRef = useRef(0);
+  const gpsRenderFrameRef = useRef<number | null>(null);
   const locationSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -114,23 +248,55 @@ const Kerawanan = () => {
   const [selectedSigapKawasanHutanClass, setSelectedSigapKawasanHutanClass] =
     useState<string | null>(null);
   const selectedSigapKawasanHutanClassRef = useRef<string | null>(null);
-
   // UI-only: synchronize Leaflet with the map container after panel resize.
   useEffect(() => {
     const el = mapRef.current;
     if (!el) return;
 
     const refresh = () => {
-      const map = mapInstanceRef.current;
-      if (map && typeof map.invalidateSize === "function") {
-        map.invalidateSize({ pan: false, animate: false });
+      try {
+        cleanupLegacyBencanaCircleMarkers();
+
+        const map = mapInstanceRef.current as any;
+
+        if (
+          !map ||
+          typeof map.invalidateSize !== "function" ||
+          typeof map.getContainer !== "function" ||
+          !map.getContainer() ||
+          !map._loaded
+        ) {
+          return;
+        }
+
+        requestAnimationFrame(() => {
+          try {
+            safeInvalidateMapSize();
+          } catch (error) {
+            console.warn(
+              "SIMITI: safeInvalidateMapSize dilewati:",
+              error,
+            );
+          }
+        });
+      } catch (error) {
+        console.warn(
+          "SIMITI: refresh ukuran map dilewati:",
+          error,
+        );
       }
     };
 
-    const observer = new ResizeObserver(() => requestAnimationFrame(refresh));
+    const observer = new ResizeObserver(() => {
+      requestAnimationFrame(refresh);
+    });
+
     observer.observe(el);
 
-    const timers = [50, 350, 700].map((ms) => window.setTimeout(refresh, ms));
+    const timers = [50, 350, 700].map((ms) =>
+      window.setTimeout(refresh, ms),
+    );
+
     window.addEventListener("resize", refresh);
 
     return () => {
@@ -139,6 +305,7 @@ const Kerawanan = () => {
       window.removeEventListener("resize", refresh);
     };
   }, [isRightLayerPanelOpen]);
+
 
   useEffect(() => {
     selectedSigapKawasanHutanClassRef.current = selectedSigapKawasanHutanClass;
@@ -1037,6 +1204,293 @@ const Kerawanan = () => {
     }
   };
 
+
+  // ======================================================
+  // SELECTED AREA BENCANA CLIP
+  // Hanya geometry layer bencana yang dipotong mengikuti
+  // area terpilih. Layer/daerah lain tetap tampil normal.
+  // ======================================================
+  const selectedAreaBencanaClipIdRef = useRef<string>(
+    `simitibencanaClip_${Math.random().toString(36).slice(2, 10)}`,
+  );
+  const selectedAreaBencanaClipPathRef = useRef<any>(null);
+  const selectedAreaBencanaClipListenersRef = useRef<any[]>([]);
+
+  const BENCANA_FOCUS_LAYERS = new Set([
+    "bahaya_kekeringan",
+    "bahaya_abrasi_dan_gelombang_ekstrim",
+    "bahaya_banjir",
+    "bahaya_banjir_bandang",
+    "risiko_banjir",
+    "risiko_banjir_bandang",
+    "risiko_kekeringan",
+    "risiko_abrasi",
+    "risiko_longsor",
+    "risiko_karhutla",
+    "rawan_longsor",
+    "rawan_karhutla",
+    "rawan_erosi",
+    "rawan_limpasan",
+  ]);
+
+  // Warna enterprise per JENIS BENCANA.
+  // Warna ini dipakai ketika layer bencana ditampilkan pada area terpilih,
+  // sehingga pengguna langsung dapat membedakan jenis ancamannya.
+  const BENCANA_LAYER_COLORS: Record<string, string> = {
+    // Karhutla = merah
+    rawan_karhutla: "#DC2626",
+    risiko_karhutla: "#DC2626",
+
+    // Banjir = hijau
+    bahaya_banjir: "#16A34A",
+    risiko_banjir: "#16A34A",
+
+    // Banjir bandang = hijau kebiruan
+    bahaya_banjir_bandang: "#0F766E",
+    risiko_banjir_bandang: "#0F766E",
+
+    // Longsor = oranye
+    rawan_longsor: "#EA580C",
+    risiko_longsor: "#EA580C",
+
+    // Kekeringan = kuning/amber
+    bahaya_kekeringan: "#D97706",
+    risiko_kekeringan: "#D97706",
+
+    // Abrasi/gelombang = biru
+    bahaya_abrasi_dan_gelombang_ekstrim: "#2563EB",
+    risiko_abrasi: "#2563EB",
+
+    // Erosi = cokelat
+    rawan_erosi: "#92400E",
+
+    // Limpasan = ungu
+    rawan_limpasan: "#7C3AED",
+  };
+
+  const getBencanaLayerColor = (tableName: string): string =>
+    BENCANA_LAYER_COLORS[String(tableName)] || "#64748B";
+
+  const areaGeomToLatLngRings = (geom: any): number[][][] => {
+    if (!geom) return [];
+
+    const normalizeRing = (ring: any[]) =>
+      Array.isArray(ring)
+        ? ring
+            .map((point: any) => {
+              const lng = Number(point?.[0]);
+              const lat = Number(point?.[1]);
+              return Number.isFinite(lat) && Number.isFinite(lng)
+                ? [lat, lng]
+                : null;
+            })
+            .filter(Boolean) as number[][]
+        : [];
+
+    if (geom.type === "Feature") {
+      return areaGeomToLatLngRings(geom.geometry);
+    }
+
+    if (geom.type === "Polygon") {
+      const ring = normalizeRing(geom.coordinates?.[0]);
+      return ring.length >= 3 ? [ring] : [];
+    }
+
+    if (geom.type === "MultiPolygon") {
+      return (geom.coordinates || [])
+        .map((polygon: any) => normalizeRing(polygon?.[0]))
+        .filter((ring: number[][]) => ring.length >= 3);
+    }
+
+    if (geom.type === "GeometryCollection") {
+      return (geom.geometries || []).flatMap((item: any) =>
+        areaGeomToLatLngRings(item),
+      );
+    }
+
+    return [];
+  };
+
+  const getBencanaClipSvg = (map: any) => {
+    const overlayPane = map?.getPanes?.()?.overlayPane;
+    if (!overlayPane) return null;
+    return overlayPane.querySelector("svg") as SVGSVGElement | null;
+  };
+
+  const getOrCreateBencanaClipPath = (map: any) => {
+    const svg = getBencanaClipSvg(map);
+    if (!svg) return null;
+
+    const id = selectedAreaBencanaClipIdRef.current;
+    let defs = svg.querySelector("defs") as SVGDefsElement | null;
+    if (!defs) {
+      defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+      svg.insertBefore(defs, svg.firstChild);
+    }
+
+    let clipPath = document.getElementById(id) as SVGClipPathElement | null;
+    if (!clipPath) {
+      clipPath = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "clipPath",
+      );
+      clipPath.setAttribute("id", id);
+      clipPath.setAttribute("clipPathUnits", "userSpaceOnUse");
+      defs.appendChild(clipPath);
+    }
+
+    return clipPath;
+  };
+
+  const buildBencanaClipD = (map: any, areas: Array<any>) => {
+    const rings = areas.flatMap((area: any) =>
+      areaGeomToLatLngRings(area?.geom),
+    );
+
+    return rings
+      .map((ring: number[][]) => {
+        const points = ring
+          .map(([lat, lng]) => map.latLngToLayerPoint([lat, lng]))
+          .filter((point: any) =>
+            Number.isFinite(point?.x) && Number.isFinite(point?.y),
+          );
+
+        if (points.length < 3) return "";
+
+        return (
+          `M ${points[0].x} ${points[0].y} ` +
+          points
+            .slice(1)
+            .map((point: any) => `L ${point.x} ${point.y}`)
+            .join(" ") +
+          " Z"
+        );
+      })
+      .filter(Boolean)
+      .join(" ");
+  };
+
+  const applyBencanaClipToLayer = (tableName: string) => {
+    if (!BENCANA_FOCUS_LAYERS.has(String(tableName))) return;
+    const layerGroup = layerGroupsRef.current[tableName];
+    const clipPath = selectedAreaBencanaClipPathRef.current;
+    if (!layerGroup || !clipPath) return;
+
+    const clipUrl = `url(#${selectedAreaBencanaClipIdRef.current})`;
+    try {
+      layerGroup.eachLayer((layer: any) => {
+        if (layer?._path?.setAttribute) {
+          layer._path.setAttribute("clip-path", clipUrl);
+        }
+      });
+    } catch (error) {
+      console.warn("SIMITI: gagal memasang clip bencana:", error);
+    }
+  };
+
+  const removeBencanaClipFromLayers = () => {
+    BENCANA_FOCUS_LAYERS.forEach((tableName) => {
+      const layerGroup = layerGroupsRef.current[tableName];
+      if (!layerGroup) return;
+      try {
+        layerGroup.eachLayer((layer: any) => {
+          if (layer?._path?.removeAttribute) {
+            layer._path.removeAttribute("clip-path");
+          }
+        });
+      } catch {}
+    });
+  };
+
+  const clearSelectedAreaBencanaClip = () => {
+    const map = mapInstanceRef.current;
+
+    selectedAreaBencanaClipListenersRef.current.forEach(
+      ({ event, handler }: any) => {
+        try {
+          map?.off?.(event, handler);
+        } catch {}
+      },
+    );
+    selectedAreaBencanaClipListenersRef.current = [];
+
+    removeBencanaClipFromLayers();
+
+    const clipPath = selectedAreaBencanaClipPathRef.current;
+    if (clipPath?.parentNode) {
+      try {
+        clipPath.parentNode.removeChild(clipPath);
+      } catch {}
+    }
+    selectedAreaBencanaClipPathRef.current = null;
+  };
+
+  const syncSelectedAreaBencanaClip = (areas: Array<any>, forceLayerNames: string[] = []) => {
+    const map = mapInstanceRef.current;
+    if (!map || !window.L) return;
+
+    clearSelectedAreaBencanaClip();
+
+    if (!areas.length) return;
+
+    const activeBencanaNames = new Set([
+      ...Array.from(activeLayersRef.current).map((name) => String(name)),
+      ...forceLayerNames.map((name) => String(name)),
+    ]);
+
+    const hasBencana =
+      Array.from(activeBencanaNames).some((name) =>
+        BENCANA_FOCUS_LAYERS.has(String(name)),
+      ) ||
+      Array.from(BENCANA_FOCUS_LAYERS).some(
+        (name) => !!layerGroupsRef.current[name],
+      );
+    if (!hasBencana) return;
+
+    try {
+      const clipPath = getOrCreateBencanaClipPath(map);
+      if (!clipPath) return;
+
+      const updateClip = () => {
+        if (!selectedAreaBencanaClipPathRef.current) return;
+        try {
+          const d = buildBencanaClipD(map, areas);
+          if (!d) return;
+          selectedAreaBencanaClipPathRef.current.setAttribute("d", d);
+          selectedAreaBencanaClipPathRef.current.setAttribute(
+            "clip-rule",
+            "evenodd",
+          );
+          selectedAreaBencanaClipPathRef.current.style.clipRule = "evenodd";
+        } catch (error) {
+          console.warn("SIMITI: gagal update clip bencana:", error);
+        }
+      };
+
+      selectedAreaBencanaClipPathRef.current = clipPath;
+      updateClip();
+
+      ["zoom", "move", "resize", "zoomend", "moveend"].forEach((event) => {
+        const handler = updateClip;
+        map.on(event, handler);
+        selectedAreaBencanaClipListenersRef.current.push({ event, handler });
+      });
+
+      BENCANA_FOCUS_LAYERS.forEach((tableName) => {
+        if (activeBencanaNames.has(String(tableName))) {
+          applyBencanaClipToLayer(tableName);
+        }
+      });
+
+      console.log("🎯 SIMITI bencana clip aktif:", {
+        areas: areas.map((area: any) => area?.label),
+      });
+    } catch (error) {
+      console.warn("SIMITI: gagal membuat clip bencana:", error);
+      clearSelectedAreaBencanaClip();
+    }
+  };
+
   // ======================================================
   // SIGAP Kementerian Kehutanan - Kawasan Hutan
   // ======================================================
@@ -1279,6 +1733,23 @@ const Kerawanan = () => {
     return aliases[tableName] || tableName;
   };
 
+  const resolveUiLayerName = (tableName: string): string => {
+    const key = String(tableName);
+    const sources: any[][] = [
+      availableLayers.kerawanan || [], availableLayers.mitigasiAdaptasi || [],
+      availableLayers.lainnya || [], availableLayers.kejadian || [],
+      layerData.kerawanan || [], layerData.mitigasiAdaptasi || [],
+      layerData.lainnya || [], layerData.kejadian || [],
+    ];
+    for (const items of sources) {
+      const found = items.find((item: any) =>
+        String(item?.id ?? "") === key || String(item?.name ?? "") === key,
+      );
+      if (found?.name) return String(found.name);
+    }
+    return key;
+  };
+
   const loadLayerInBounds = async (
     tableName: string,
     customBounds?: [[number, number], [number, number]],
@@ -1289,6 +1760,11 @@ const Kerawanan = () => {
     }
 
     const originalLayerName = tableName;
+    const resolvedLayerName = resolveUiLayerName(tableName);
+    if (resolvedLayerName !== tableName) {
+      console.log(`🔎 Resolve layer UI: ${tableName} -> ${resolvedLayerName}`);
+    }
+    tableName = resolvedLayerName;
     const apiLayerName = normalizeLayerApiName(tableName);
     if (apiLayerName !== tableName) {
       console.log(`🔗 Layer alias: ${tableName} -> ${apiLayerName}`);
@@ -2185,7 +2661,20 @@ const Kerawanan = () => {
       // Styling function
       let styleFunction;
 
-      if (tableName === "tutupan_lahan") {
+      // BENCANA: warna ditentukan oleh JENIS BENCANA.
+      // Dengan begitu karhutla selalu merah, banjir selalu hijau, dst.
+      if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
+        const bencanaColor = getBencanaLayerColor(String(tableName));
+        styleFunction = function (_feature: any) {
+          return {
+            color: bencanaColor,
+            fillColor: bencanaColor,
+            weight: zoom > 10 ? 1.8 : 1.2,
+            opacity: 0.95,
+            fillOpacity: 0.48,
+          };
+        };
+      } else if (tableName === "tutupan_lahan") {
         styleFunction = function (feature: any) {
           const pl2024_id = String(feature.properties.pl2024_id);
           const fillColor = colorMap.get(pl2024_id) || "#EF4444";
@@ -2538,7 +3027,22 @@ const Kerawanan = () => {
             console.warn("SIMITI: skipping invalid Leaflet LatLng", { tableName, feature, latlng });
             return window.L.layerGroup();
           }
-          const tableColor = getColorForTable(tableName);
+          const isBencanaLayer = BENCANA_FOCUS_LAYERS.has(String(tableName));
+          const tableColor = isBencanaLayer
+            ? getBencanaLayerColor(String(tableName))
+            : getColorForTable(tableName);
+
+          // Layer bencana adalah layer area/polygon.
+          // Jangan pernah membuat CircleMarker untuk bencana.
+          if (isBencanaLayer) {
+            console.warn(
+              "SIMITI: Point bencana diabaikan:",
+              tableName,
+            );
+
+            return window.L.layerGroup();
+          }
+
           return window.L.circleMarker([lat, lng], {
             radius: zoom > 10 ? 6 : 4,
             fillColor: tableColor,
@@ -2579,6 +3083,13 @@ const Kerawanan = () => {
 
       if (!safeAddMapLayer(mapAtRequest, layerGroup)) {
         throw new Error(`Leaflet gagal menambahkan layer ${tableName}`);
+      }
+
+      // Pasang clipping HANYA ke path SVG layer bencana.
+      // Layer/daerah lain tidak ditutup atau diredupkan.
+      if (BENCANA_FOCUS_LAYERS.has(String(tableName)) && selectedAreas.length > 0) {
+        syncSelectedAreaBencanaClip(selectedAreas);
+        requestAnimationFrame(() => applyBencanaClipToLayer(tableName));
       }
 
       layerCacheRef.current.set(tableName, layerGroup);
@@ -2624,6 +3135,46 @@ const Kerawanan = () => {
       if (layerRequestSeqRef.current[tableName] !== requestId) {
         safeRemoveMapLayer(layerGroup);
         return;
+      }
+
+      cleanupLegacyBencanaCircleMarkers();
+
+// FORCE BENCANA STYLE
+      // Pastikan warna jenis bencana tetap dipakai walaupun ada
+      // proses refresh/setStyle lain setelah layer dibuat.
+      if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
+        const forcedBencanaColor = getBencanaLayerColor(String(tableName));
+
+        layerGroup.eachLayer((layer: any) => {
+          try {
+            if (layer?.setStyle) {
+              layer.setStyle({
+                color: forcedBencanaColor,
+                fillColor: forcedBencanaColor,
+                weight: zoom > 10 ? 2.2 : 1.5,
+                opacity: 1,
+                fillOpacity: 0.65,
+              });
+            }
+
+            if (layer?.options) {
+              layer.options.color = forcedBencanaColor;
+              layer.options.fillColor = forcedBencanaColor;
+              layer.options.opacity = 1;
+              layer.options.fillOpacity = 0.65;
+            }
+          } catch (styleError) {
+            console.warn(
+              "SIMITI: gagal force style bencana:",
+              tableName,
+              styleError
+            );
+          }
+        });
+
+        console.log(
+          `🎨 SIMITI FORCE BENCANA COLOR: ${tableName} → ${forcedBencanaColor}`
+        );
       }
 
       layerGroupsRef.current[tableName] = layerGroup;
@@ -2796,7 +3347,11 @@ const Kerawanan = () => {
               // Reset polygon ke warna aslinya
               let originalColor = "#3b82f6";
 
-              if (hoveredLayerType === "tutupan_lahan") {
+              if (BENCANA_FOCUS_LAYERS.has(String(hoveredLayerType))) {
+                originalColor = getBencanaLayerColor(
+                  String(hoveredLayerType),
+                );
+              } else if (hoveredLayerType === "tutupan_lahan") {
                 const pl2024_id = String(layer.feature.properties.pl2024_id);
                 originalColor =
                   colorMappingRef.current.tutupanLahan.get(pl2024_id) ||
@@ -4292,6 +4847,8 @@ const Kerawanan = () => {
       }
 
       updateMapBounds(newSelectedAreas);
+      // Focus bencana ke area administrasi yang baru dipilih.
+      syncSelectedAreaBencanaClip(newSelectedAreas);
     }
 
     setAreaSearchQuery("");
@@ -4315,7 +4872,9 @@ const Kerawanan = () => {
 
     if (newSelectedAreas.length > 0) {
       await updateMapBounds(newSelectedAreas);
+      syncSelectedAreaBencanaClip(newSelectedAreas);
     } else {
+      clearSelectedAreaBencanaClip();
       setCurrentBounds(null);
       setSelectedDas([]);
 
@@ -4645,10 +5204,13 @@ const Kerawanan = () => {
   }, [selectedAreas, selectedDas, currentBounds]);
 
   const handleLayerToggle = async (tableName: string, isChecked: boolean, year?: number, category?: string, isShapefile?: boolean) => {
-  console.log('Toggle layer clicked:', tableName, 'isChecked:', isChecked, 'year:', year, 'category:', category, 'isShapefile:', isShapefile);
+  const uiLayerKey = String(tableName);
+  const resolvedTableName = resolveUiLayerName(uiLayerKey);
+  console.log('Toggle layer clicked:', uiLayerKey, '=>', resolvedTableName, 'isChecked:', isChecked, 'year:', year, 'category:', category, 'isShapefile:', isShapefile);
   console.log('Current active layers:', Array.from(activeLayers));
   
   if (isChecked) {
+    tableName = resolvedTableName;
     // Tambahkan layer ke active layers
     setActiveLayers(prev => new Set([...prev, tableName]));
     
@@ -4672,8 +5234,45 @@ const Kerawanan = () => {
       // Load layer biasa
       await loadLayerInBounds(tableName);
     }
+
+    if (BENCANA_FOCUS_LAYERS.has(String(tableName)) && selectedAreas.length > 0) {
+      try {
+        const map = mapInstanceRef.current;
+        if (map && window.L) {
+          let focusBounds: any = null;
+          for (const area of selectedAreas) {
+            if (!area?.geom) continue;
+            const areaLayer = window.L.geoJSON({ type: "Feature", geometry: area.geom, properties: {} });
+            const bounds = areaLayer.getBounds();
+            if (!bounds?.isValid?.()) continue;
+            focusBounds = focusBounds ? focusBounds.extend(bounds) : bounds;
+          }
+          if (focusBounds?.isValid?.()) {
+            try {
+              if (focusBounds?.isValid?.()) {
+                map.fitBounds(focusBounds, {
+                  padding: [40, 40],
+                  maxZoom: 14,
+                  animate: true,
+                });
+              }
+            } catch (fitError) {
+              console.warn(
+                "SIMITI: fitBounds bencana dilewati:",
+                fitError
+              );
+            }
+          }
+        }
+      } catch (focusError) {
+        console.warn("SIMITI: gagal focus ke area bencana:", focusError);
+      }
+      syncSelectedAreaBencanaClip(selectedAreas, [String(tableName)]);
+      requestAnimationFrame(() => applyBencanaClipToLayer(String(tableName)));
+    }
     
   } else {
+    tableName = resolvedTableName;
     // Hapus layer dari active layers DULU
     setActiveLayers(prev => {
       const newSet = new Set(prev);
@@ -4688,6 +5287,15 @@ const Kerawanan = () => {
       mapInstanceRef.current.removeLayer(layerGroupsRef.current[tableName]);
       delete layerGroupsRef.current[tableName];
       console.log('Layer removed from map');
+
+      if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
+        const remainingBencana = Array.from(activeLayers).filter(
+          (name) => name !== tableName && BENCANA_FOCUS_LAYERS.has(String(name)),
+        );
+        if (remainingBencana.length === 0) {
+          clearSelectedAreaBencanaClip();
+        }
+      }
       
       // Hapus metadata kejadian layer
       if (tableName.startsWith('kejadian_')) {
@@ -4795,7 +5403,12 @@ const Kerawanan = () => {
 
     layerGroup.eachLayer((layer: any) => {
       if (!layer.setStyle || !layer.feature) return;
-      let color = "#3b82f6";
+
+      const isBencanaLayer = BENCANA_FOCUS_LAYERS.has(String(layerId));
+
+      let color = isBencanaLayer
+        ? getBencanaLayerColor(String(layerId))
+        : "#3b82f6";
       const p = layer.feature.properties;
       const cm = colorMappingRef.current;
       if (layerId === "tutupan_lahan")
@@ -4867,12 +5480,43 @@ const Kerawanan = () => {
       } else if (layerId === "khdtk")
         color = cm.khdtk.get(p.namobj || "") || "#808080";
 
+      if (isBencanaLayer) {
+        // ======================================================
+        // SIMITI FINAL BENCANA COLOR LOCK
+        // Jangan biarkan mapping kelas/risk menimpa warna
+        // berdasarkan JENIS BENCANA.
+        // ======================================================
+        color = getBencanaLayerColor(String(layerId));
+
+        layer.setStyle({
+          color,
+          weight: zoom > 10 ? 2.2 : 1.5,
+          opacity: 1,
+          fillColor: color,
+          fillOpacity: 0.65,
+        });
+
+        // Sinkronkan juga options Leaflet supaya style berikutnya
+        // tetap menggunakan warna bencana.
+        if (layer.options) {
+          layer.options.color = color;
+          layer.options.fillColor = color;
+          layer.options.opacity = 1;
+          layer.options.fillOpacity = 0.65;
+        }
+
+        return;
+      }
+
+      const isBencanaStyle =
+        BENCANA_FOCUS_LAYERS.has(String(layerId));
+
       layer.setStyle({
         color,
-        weight: zoom > 10 ? 2 : 1,
-        opacity: 0.8,
+        weight: isBencanaStyle ? (zoom > 10 ? 2.2 : 1.5) : (zoom > 10 ? 2 : 1),
+        opacity: isBencanaStyle ? 1 : 0.8,
         fillColor: color,
-        fillOpacity: zoom > 10 ? 0.4 : 0.3,
+        fillOpacity: isBencanaStyle ? 0.65 : (zoom > 10 ? 0.4 : 0.3),
       });
     });
   };
@@ -5259,16 +5903,20 @@ const Kerawanan = () => {
       };
 
       if (container._leaflet_id) {
-        console.log("🗺️ Map container sudah diinisialisasi Leaflet, bersihkan marker lama");
-        try {
-          const oldMap = (window.L as any).map._instances?.[container._leaflet_id];
-          oldMap?.remove?.();
-        } catch {}
+        console.log("🗺️ Map container masih memiliki instance Leaflet sebelumnya.");
+        if (mapInstanceRef.current) {
+          try {
+            mapInstanceRef.current.remove();
+          } catch (error) {
+            console.warn("⚠️ Gagal membersihkan instance Leaflet lama:", error);
+          }
+          mapInstanceRef.current = null;
+        }
         delete container._leaflet_id;
       }
 
       mapInitializingRef.current = true;
-      const map = window.L.map(container).setView([-2.5, 118.0], 5);
+      const map = window.L.map(container, { zoomControl: false }).setView([-2.5, 118.0], 5);
 
       // Klik peta -> ambil cuaca titik tersebut dari Open-Meteo.
       map.on("click", (event: any) => {
@@ -5314,6 +5962,24 @@ const Kerawanan = () => {
       Object.keys(layerRequestSeqRef.current).forEach((key) => {
         layerRequestSeqRef.current[key] += 1;
       });
+
+      // Batalkan callback GPS/render GPS yang masih pending.
+      gpsRequestSeqRef.current += 1;
+      if (gpsRenderFrameRef.current !== null) {
+        cancelAnimationFrame(gpsRenderFrameRef.current);
+        gpsRenderFrameRef.current = null;
+      }
+
+      try {
+        gpsMarkerRef.current?.remove?.();
+      } catch {}
+      gpsMarkerRef.current = null;
+
+      try {
+        gpsAccuracyCircleRef.current?.remove?.();
+      } catch {}
+      gpsAccuracyCircleRef.current = null;
+
       mapInitializingRef.current = false;
       if (mapInstanceRef.current) {
         try {
@@ -5327,6 +5993,7 @@ const Kerawanan = () => {
         const container = mapRef.current as HTMLElement & { _leaflet_id?: number };
         delete container._leaflet_id;
       }
+      setMapReady(false);
     };
   }, []);
 
@@ -9723,60 +10390,105 @@ const Kerawanan = () => {
           });
 
           // Tampilkan posisi GPS tanpa mengubah viewport peta Indonesia.
-          // Marker dibuat terpisah dari marker hasil pencarian agar keduanya tidak saling menimpa.
-          if (mapInstanceRef.current && window.L) {
-            try {
-              const gpsIcon = window.L.divIcon({
-                className: "gps-current-location-marker",
-                html: `
-                  <div class="gps-marker-pulse"></div>
-                  <div class="gps-marker-core">
-                    <div class="gps-marker-arrow"></div>
-                  </div>
-                `,
-                iconSize: [42, 42],
-                iconAnchor: [21, 21],
-              });
+          // Render dipisahkan dari marker dan accuracy circle agar kegagalan
+          // renderer Circle tidak mengganggu marker/WebGIS lainnya.
+          if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+              latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+            console.warn("⚠️ Koordinat GPS tidak valid:", { latitude, longitude, accuracy });
+          } else {
+            const gpsSeq = ++gpsRequestSeqRef.current;
 
-              if (gpsMarkerRef.current) {
-                gpsMarkerRef.current.setLatLng([latitude, longitude]);
-                gpsMarkerRef.current.setIcon(gpsIcon);
-              } else {
-                gpsMarkerRef.current = window.L
-                  .marker([latitude, longitude], {
-                    icon: gpsIcon,
-                    zIndexOffset: 1200,
-                    keyboard: false,
-                    title: "Lokasi saya saat ini",
-                  })
-                  .addTo(mapInstanceRef.current);
-
-                gpsMarkerRef.current.bindTooltip("Lokasi saya saat ini", {
-                  direction: "top",
-                  offset: [0, -18],
-                  className: "gps-location-tooltip",
-                });
-              }
-
-              if (gpsAccuracyCircleRef.current) {
-                gpsAccuracyCircleRef.current
-                  .setLatLng([latitude, longitude])
-                  .setRadius(Math.max(Number(accuracy) || 0, 5));
-              } else {
-                gpsAccuracyCircleRef.current = window.L
-                  .circle([latitude, longitude], Math.max(Number(accuracy) || 0, 5), {
-                    color: "#16a34a",
-                    weight: 1,
-                    opacity: 0.35,
-                    fillColor: "#22c55e",
-                    fillOpacity: 0.08,
-                    interactive: false,
-                  })
-                  .addTo(mapInstanceRef.current);
-              }
-            } catch (mapError) {
-              console.warn("Gagal menampilkan marker lokasi GPS:", mapError);
+            if (gpsRenderFrameRef.current !== null) {
+              cancelAnimationFrame(gpsRenderFrameRef.current);
             }
+
+            gpsRenderFrameRef.current = requestAnimationFrame(() => {
+              gpsRenderFrameRef.current = null;
+
+              try {
+                const map = mapInstanceRef.current;
+                const L = window.L;
+                if (!map || !L || !(map as any)._loaded) return;
+                if (gpsSeq !== gpsRequestSeqRef.current) return;
+
+                const latLng = L.latLng(Number(latitude), Number(longitude));
+
+                // GPS marker: failure here must not affect the accuracy circle.
+                try {
+                  const gpsIcon = L.divIcon({
+                    className: "gps-current-location-marker",
+                    html: `
+                      <img
+                        src="/images/current-location.png"
+                        alt="Lokasi saya saat ini"
+                        class="gps-current-location-image"
+                      />
+                    `,
+                    iconSize: [50, 50],
+                    iconAnchor: [25, 41],
+                  });
+
+                  if (gpsMarkerRef.current && gpsMarkerRef.current._map !== map) {
+                    try { gpsMarkerRef.current.remove(); } catch {}
+                    gpsMarkerRef.current = null;
+                  }
+
+                  if (gpsMarkerRef.current) {
+                    gpsMarkerRef.current.setLatLng(latLng);
+                    gpsMarkerRef.current.setIcon(gpsIcon);
+                  } else {
+                    gpsMarkerRef.current = L.marker(latLng, {
+                      icon: gpsIcon,
+                      zIndexOffset: 1200,
+                      keyboard: false,
+                      title: "Lokasi saya saat ini",
+                    }).addTo(map);
+
+                    gpsMarkerRef.current.bindTooltip("Lokasi saya saat ini", {
+                      direction: "top",
+                      offset: [0, -18],
+                      className: "gps-location-tooltip",
+                    });
+                  }
+                } catch (markerError) {
+                  console.warn("⚠️ GPS marker gagal ditampilkan:", markerError);
+                }
+
+                // Accuracy circle: isolated so a Leaflet SVG bounds error cannot
+                // break the GPS marker or any existing WebGIS layer.
+                try {
+                  const radius = Math.max(
+                    Number.isFinite(Number(accuracy)) ? Number(accuracy) : 5,
+                    5,
+                  );
+
+                  if (gpsAccuracyCircleRef.current && gpsAccuracyCircleRef.current._map !== map) {
+                    try { gpsAccuracyCircleRef.current.remove(); } catch {}
+                    gpsAccuracyCircleRef.current = null;
+                  }
+
+                  if (gpsAccuracyCircleRef.current) {
+                    gpsAccuracyCircleRef.current.setLatLng(latLng);
+                    gpsAccuracyCircleRef.current.setRadius(radius);
+                  } else {
+                    gpsAccuracyCircleRef.current = L.circle(latLng, {
+                      radius,
+                      color: "#16a34a",
+                      weight: 1,
+                      opacity: 0.35,
+                      fillColor: "#22c55e",
+                      fillOpacity: 0.08,
+                      interactive: false,
+                    }).addTo(map);
+                  }
+                } catch (circleError) {
+                  console.warn("⚠️ GPS accuracy circle gagal ditampilkan:", circleError);
+                  gpsAccuracyCircleRef.current = null;
+                }
+              } catch (mapError) {
+                console.warn("⚠️ Gagal merender lokasi GPS ke Leaflet:", mapError);
+              }
+            });
           }
         } catch (error: any) {
           setGpsLocation((prev) => ({
@@ -9861,7 +10573,7 @@ const Kerawanan = () => {
     const dasNames = selectedDas.map((das: any) => das.nama_das).filter(Boolean);
     const exportName = [...areaNames, ...dasNames].join(", ") || "Wilayah Terpilih";
     const safeFileName = exportName
-      .replace(/[^a-zA-Z0-9À-ÿ\s_-]/g, "")
+      .replace(/[^a-zA-Z0-9�-�\s_-]/g, "")
       .replace(/\s+/g, "_")
       .slice(0, 100) || "Wilayah_Terpilih";
 
@@ -10107,34 +10819,18 @@ const Kerawanan = () => {
         .gps-current-location-marker {
           background: transparent !important;
           border: 0 !important;
+          width: 50px !important;
+          height: 50px !important;
+          overflow: visible !important;
         }
-        .gps-marker-pulse {
-          position: absolute;
-          inset: 3px;
-          border-radius: 9999px;
-          background: rgba(34,197,94,.22);
-          box-shadow: 0 0 0 8px rgba(34,197,94,.10);
-          animation: gpsPulse 1.8s ease-out infinite;
-        }
-        .gps-marker-core {
-          position: absolute;
-          left: 8px;
-          top: 8px;
-          width: 26px;
-          height: 26px;
-          border-radius: 9999px;
-          background: #16a34a;
-          border: 3px solid #fff;
-          box-shadow: 0 3px 12px rgba(15,23,42,.32);
-          display: grid;
-          place-items: center;
-        }
-        .gps-marker-arrow {
-          width: 8px;
-          height: 8px;
-          border-radius: 9999px;
-          background: #fff;
-          box-shadow: 0 0 0 2px rgba(255,255,255,.28);
+        .gps-current-location-image {
+          display: block;
+          width: 50px;
+          height: 50px;
+          object-fit: contain;
+          user-select: none;
+          -webkit-user-drag: none;
+          filter: drop-shadow(0 4px 7px rgba(15,23,42,.30));
         }
         .gps-location-tooltip {
           border: 0 !important;
@@ -10147,11 +10843,6 @@ const Kerawanan = () => {
           box-shadow: 0 5px 18px rgba(15,23,42,.18) !important;
         }
         .gps-location-tooltip:before { border-top-color: #064e3b !important; }
-        @keyframes gpsPulse {
-          0% { transform: scale(.65); opacity: .85; }
-          70% { transform: scale(1.25); opacity: 0; }
-          100% { transform: scale(1.25); opacity: 0; }
-        }
         .marker-container:hover .marker-bg { fill:#ef4444 !important; }
         .custom-kejadian-popup .leaflet-popup-content-wrapper { border-radius:12px; padding:0; box-shadow:0 8px 30px rgba(15,23,42,.16); }
         .custom-kejadian-popup .leaflet-popup-content { margin:0; width:280px !important; }
@@ -10313,6 +11004,100 @@ const Kerawanan = () => {
         @media (min-width: 1280px) {
           .mobile-menu-button { display:none; }
         }
+
+        /* =========================================================
+           SIMITI Enterprise Visual System — typography & density
+           UI presentation only; no API/data/business logic changes.
+           ========================================================= */
+        .kerawanan-workspace,
+        .kerawanan-workspace * {
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Bring micro-copy up to a readable enterprise baseline. */
+        .kerawanan-workspace [class~="text-[7px]"] { font-size: 10px !important; line-height: 1.35 !important; }
+        .kerawanan-workspace [class~="text-[8px]"] { font-size: 10.5px !important; line-height: 1.4 !important; }
+        .kerawanan-workspace [class~="text-[9px]"] { font-size: 11px !important; line-height: 1.45 !important; }
+        .kerawanan-workspace [class~="text-[10px]"] { font-size: 12px !important; line-height: 1.45 !important; }
+        .kerawanan-workspace [class~="text-[11px]"] { font-size: 12.5px !important; line-height: 1.45 !important; }
+        .kerawanan-workspace [class~="text-xs"] { font-size: 12px !important; line-height: 1.45 !important; }
+        .kerawanan-workspace [class~="text-sm"] { font-size: 13px !important; line-height: 1.5 !important; }
+
+        /* Consistent controls: compact, but comfortable for desktop use. */
+        .kerawanan-workspace input,
+        .kerawanan-workspace select {
+          font-size: 12px;
+          line-height: 1.35;
+        }
+        .kerawanan-workspace input::placeholder {
+          font-size: 11.5px;
+        }
+        .kerawanan-workspace button {
+          letter-spacing: .005em;
+        }
+
+        /* Enterprise cards / panels. */
+        .kerawanan-workspace .rounded-lg,
+        .kerawanan-workspace .rounded-xl,
+        .kerawanan-workspace .rounded-2xl {
+          --tw-ring-offset-shadow: 0 0 #0000;
+        }
+        .kerawanan-workspace .shadow-sm {
+          box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 4px 14px rgba(15,23,42,.035) !important;
+        }
+        .kerawanan-workspace .border-slate-200 {
+          border-color: #dbe3e8 !important;
+        }
+
+        /* Better section headers without making the interface oversized. */
+        .kerawanan-workspace h3 {
+          line-height: 1.3;
+          letter-spacing: -.01em;
+        }
+        .kerawanan-workspace h4 {
+          line-height: 1.35;
+          letter-spacing: .01em;
+        }
+
+        /* Layer manager: readable density and clear hierarchy. */
+        .kerawanan-layer-panel {
+          font-size: 12px;
+        }
+        .kerawanan-layer-panel .font-extrabold,
+        .kerawanan-layer-panel .font-bold {
+          letter-spacing: .005em;
+        }
+
+        /* Search and toolbar surfaces. */
+        .mockup-map-search input {
+          font-size: 12px !important;
+          font-weight: 500;
+        }
+        .mockup-map-search {
+          filter: drop-shadow(0 6px 16px rgba(15,23,42,.08));
+        }
+
+        /* Data labels: avoid the old tiny “dashboard” look. */
+        .kerawanan-workspace .uppercase {
+          letter-spacing: .07em;
+        }
+
+        @media (max-width: 1279px) {
+          .kerawanan-workspace [class~="text-[7px]"] { font-size: 9.5px !important; }
+          .kerawanan-workspace [class~="text-[8px]"] { font-size: 10px !important; }
+          .kerawanan-workspace [class~="text-[9px]"] { font-size: 10.5px !important; }
+          .kerawanan-workspace [class~="text-[10px]"] { font-size: 11.5px !important; }
+        }
+
+        @media (max-width: 767px) {
+          .kerawanan-workspace [class~="text-[7px]"] { font-size: 9px !important; }
+          .kerawanan-workspace [class~="text-[8px]"] { font-size: 9.5px !important; }
+          .kerawanan-workspace [class~="text-[9px]"] { font-size: 10px !important; }
+          .kerawanan-workspace [class~="text-[10px]"] { font-size: 11px !important; }
+          .kerawanan-workspace input,
+          .kerawanan-workspace select { font-size: 11.5px; }
+        }
       `}</style>
 
       {/* =========================================================
@@ -10444,20 +11229,6 @@ const Kerawanan = () => {
 
               {/* Enterprise Search */}
               <div className="absolute top-[58px] left-3 right-3 sm:right-auto z-[1900] w-auto sm:w-[390px] mockup-map-search">
-                <div className="h-10 bg-white/97 rounded-xl shadow-[0_8px_25px_rgba(15,23,42,.16)] border border-slate-200 flex items-center px-3 gap-2">
-                  <span className="text-emerald-700 text-sm">🔎</span>
-                  <input
-                    value={enterpriseSearchQuery}
-                    onFocus={() => setEnterpriseSearchOpen(true)}
-                    onChange={(e) => { const value = e.target.value; setEnterpriseSearchQuery(value); setEnterpriseSearchOpen(true); void buildEnterpriseSearchResults(value); }}
-                    onKeyDown={(e) => { if (e.key === "Escape") setEnterpriseSearchOpen(false); if (e.key === "Enter" && enterpriseSearchResults[0]) void handleEnterpriseSearchSelect(enterpriseSearchResults[0]); }}
-                    className="flex-1 outline-none text-[10px] bg-transparent"
-                    placeholder="Cari lokasi / layer / objek..."
-                    aria-label="Enterprise Search lokasi layer dan objek"
-                  />
-                  {enterpriseSearchLoading && <span className="text-[8px] text-slate-400 animate-pulse">Mencari...</span>}
-                  {enterpriseSearchQuery && <button onClick={() => { setEnterpriseSearchQuery(""); setEnterpriseSearchResults([]); clearEnterpriseSearchHighlight(); }} className="text-slate-400 text-sm">×</button>}
-                </div>
                 {enterpriseSearchOpen && enterpriseSearchQuery.trim().length >= 2 && (
                   <div className="mt-1 bg-white rounded-xl border border-slate-200 shadow-[0_16px_45px_rgba(15,23,42,.2)] overflow-hidden">
                     {enterpriseSearchResults.length > 0 ? enterpriseSearchResults.map((result, idx) => (
@@ -10477,7 +11248,7 @@ const Kerawanan = () => {
               </div>
 
               {/* Quick map controls */}
-              <div className="absolute left-3 top-[105px] z-[1600] flex flex-col rounded-lg overflow-hidden border border-slate-200 shadow-md bg-white">
+              <div className="absolute right-3 top-3 z-[1600] flex flex-col rounded-lg overflow-hidden border border-slate-200 shadow-md bg-white">
                 <button
                   onClick={() => mapInstanceRef.current?.zoomIn()}
                   className="w-9 h-9 text-slate-700 text-lg hover:bg-slate-50"
@@ -10879,9 +11650,10 @@ const Kerawanan = () => {
                                   <input
                                     type="checkbox"
                                     className="w-3.5 h-3.5 accent-emerald-700"
-                                    checked={activeLayers.has(
-                                      layer.isManual ? layer.name : layer.id,
-                                    )}
+                                    checked={
+                                      activeLayers.has(String(layer.isManual ? layer.name : layer.id)) ||
+                                      activeLayers.has(String(layer.name))
+                                    }
                                     onChange={(e) =>
                                       handleLayerToggle(
                                         layer.isManual ? layer.name : layer.id,
@@ -12312,3 +13084,5 @@ const Kerawanan = () => {
 };
 
 export default Kerawanan;
+
+
