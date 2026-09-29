@@ -1311,37 +1311,12 @@ const Kerawanan = () => {
     return [];
   };
 
-  const getBencanaClipSvg = (map: any) => {
-    const overlayPane = map?.getPanes?.()?.overlayPane;
-    if (!overlayPane) return null;
-    return overlayPane.querySelector("svg") as SVGSVGElement | null;
-  };
-
-  const getOrCreateBencanaClipPath = (map: any) => {
-    const svg = getBencanaClipSvg(map);
-    if (!svg) return null;
-
-    const id = selectedAreaBencanaClipIdRef.current;
-    let defs = svg.querySelector("defs") as SVGDefsElement | null;
-    if (!defs) {
-      defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-      svg.insertBefore(defs, svg.firstChild);
-    }
-
-    let clipPath = document.getElementById(id) as SVGClipPathElement | null;
-    if (!clipPath) {
-      clipPath = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "clipPath",
-      );
-      clipPath.setAttribute("id", id);
-      clipPath.setAttribute("clipPathUnits", "userSpaceOnUse");
-      defs.appendChild(clipPath);
-    }
-
-    return clipPath;
-  };
-
+  // ======================================================
+  // BENCANA CLIP — renderer-safe per SVG
+  // Clip dibuat di SVG renderer yang benar-benar memiliki path
+  // bencana. Ini mencegah warna/geometri bencana bocor ke daerah
+  // tetangga ketika area administrasi dipilih.
+  // ======================================================
   const buildBencanaClipD = (map: any, areas: Array<any>) => {
     const rings = areas.flatMap((area: any) =>
       areaGeomToLatLngRings(area?.geom),
@@ -1370,18 +1345,71 @@ const Kerawanan = () => {
       .join(" ");
   };
 
-  const applyBencanaClipToLayer = (tableName: string) => {
+  const getOrCreateClipForSvg = (
+    svg: SVGSVGElement,
+    clipId: string,
+    d: string,
+  ) => {
+    if (!svg || !d) return null;
+
+    let defs = svg.querySelector("defs") as SVGDefsElement | null;
+    if (!defs) {
+      defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+      svg.insertBefore(defs, svg.firstChild);
+    }
+
+    let clipPath = defs.querySelector(`#${clipId}`) as SVGClipPathElement | null;
+    if (!clipPath) {
+      clipPath = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "clipPath",
+      );
+      clipPath.setAttribute("id", clipId);
+      clipPath.setAttribute("clipPathUnits", "userSpaceOnUse");
+      defs.appendChild(clipPath);
+    }
+
+    clipPath.setAttribute("clip-rule", "evenodd");
+    clipPath.style.clipRule = "evenodd";
+
+    while (clipPath.firstChild) clipPath.removeChild(clipPath.firstChild);
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", d);
+    path.setAttribute("fill-rule", "evenodd");
+    path.setAttribute("clip-rule", "evenodd");
+    clipPath.appendChild(path);
+
+    return clipPath;
+  };
+
+  const applyBencanaClipToLayer = (
+    tableName: string,
+    areas: Array<any> = selectedAreas,
+  ) => {
     if (!BENCANA_FOCUS_LAYERS.has(String(tableName))) return;
     const layerGroup = layerGroupsRef.current[tableName];
-    const clipPath = selectedAreaBencanaClipPathRef.current;
-    if (!layerGroup || !clipPath) return;
+    const map = mapInstanceRef.current;
+    if (!layerGroup || !map || !areas.length) return;
 
-    const clipUrl = `url(#${selectedAreaBencanaClipIdRef.current})`;
+    const d = buildBencanaClipD(map, areas);
+    if (!d) return;
+
     try {
       layerGroup.eachLayer((layer: any) => {
-        if (layer?._path?.setAttribute) {
-          layer._path.setAttribute("clip-path", clipUrl);
-        }
+        const path = layer?._path as SVGPathElement | undefined;
+        const svg = path?.ownerSVGElement;
+        if (!path || !svg) return;
+
+        // ID unik per SVG renderer + layer, sehingga clip tidak pernah
+        // menunjuk ke <svg> milik layer lain.
+        const safeId = String(
+          layer?._leaflet_id || `${tableName}_${Math.random().toString(36).slice(2, 8)}`,
+        ).replace(/[^a-zA-Z0-9_-]/g, "_");
+        const clipId = `${selectedAreaBencanaClipIdRef.current}_${safeId}`;
+        const clipPath = getOrCreateClipForSvg(svg, clipId, d);
+        if (!clipPath) return;
+
+        path.setAttribute("clip-path", `url(#${clipId})`);
       });
     } catch (error) {
       console.warn("SIMITI: gagal memasang clip bencana:", error);
@@ -1416,16 +1444,22 @@ const Kerawanan = () => {
 
     removeBencanaClipFromLayers();
 
-    const clipPath = selectedAreaBencanaClipPathRef.current;
-    if (clipPath?.parentNode) {
-      try {
-        clipPath.parentNode.removeChild(clipPath);
-      } catch {}
-    }
+    // Hapus clipPath SIMITI dari semua SVG renderer yang digunakan map.
+    try {
+      const overlayPane = map?.getPanes?.()?.overlayPane;
+      overlayPane?.querySelectorAll?.("svg defs").forEach((defs: any) => {
+        defs.querySelectorAll?.(`clipPath[id^="${selectedAreaBencanaClipIdRef.current}_"]`)
+          .forEach((node: any) => node.remove());
+      });
+    } catch {}
+
     selectedAreaBencanaClipPathRef.current = null;
   };
 
-  const syncSelectedAreaBencanaClip = (areas: Array<any>, forceLayerNames: string[] = []) => {
+  const syncSelectedAreaBencanaClip = (
+    areas: Array<any>,
+    forceLayerNames: string[] = [],
+  ) => {
     const map = mapInstanceRef.current;
     if (!map || !window.L) return;
 
@@ -1438,57 +1472,35 @@ const Kerawanan = () => {
       ...forceLayerNames.map((name) => String(name)),
     ]);
 
-    const hasBencana =
-      Array.from(activeBencanaNames).some((name) =>
-        BENCANA_FOCUS_LAYERS.has(String(name)),
-      ) ||
-      Array.from(BENCANA_FOCUS_LAYERS).some(
-        (name) => !!layerGroupsRef.current[name],
-      );
+    const hasBencana = Array.from(activeBencanaNames).some((name) =>
+      BENCANA_FOCUS_LAYERS.has(String(name)),
+    );
+
     if (!hasBencana) return;
 
-    try {
-      const clipPath = getOrCreateBencanaClipPath(map);
-      if (!clipPath) return;
-
-      const updateClip = () => {
-        if (!selectedAreaBencanaClipPathRef.current) return;
-        try {
-          const d = buildBencanaClipD(map, areas);
-          if (!d) return;
-          selectedAreaBencanaClipPathRef.current.setAttribute("d", d);
-          selectedAreaBencanaClipPathRef.current.setAttribute(
-            "clip-rule",
-            "evenodd",
-          );
-          selectedAreaBencanaClipPathRef.current.style.clipRule = "evenodd";
-        } catch (error) {
-          console.warn("SIMITI: gagal update clip bencana:", error);
-        }
-      };
-
-      selectedAreaBencanaClipPathRef.current = clipPath;
-      updateClip();
-
-      ["zoom", "move", "resize", "zoomend", "moveend"].forEach((event) => {
-        const handler = updateClip;
-        map.on(event, handler);
-        selectedAreaBencanaClipListenersRef.current.push({ event, handler });
-      });
-
+    const updateClip = () => {
       BENCANA_FOCUS_LAYERS.forEach((tableName) => {
         if (activeBencanaNames.has(String(tableName))) {
-          applyBencanaClipToLayer(tableName);
+          applyBencanaClipToLayer(tableName, areas);
         }
       });
+    };
 
-      console.log("🎯 SIMITI bencana clip aktif:", {
-        areas: areas.map((area: any) => area?.label),
-      });
-    } catch (error) {
-      console.warn("SIMITI: gagal membuat clip bencana:", error);
-      clearSelectedAreaBencanaClip();
-    }
+    selectedAreaBencanaClipPathRef.current = {
+      areas,
+      updateClip,
+    };
+
+    updateClip();
+
+    ["zoom", "move", "resize", "zoomend", "moveend"].forEach((event) => {
+      map.on(event, updateClip);
+      selectedAreaBencanaClipListenersRef.current.push({ event, handler: updateClip });
+    });
+
+    console.log("🎯 SIMITI bencana clip renderer-safe aktif:", {
+      areas: areas.map((area: any) => area?.label),
+    });
   };
 
   // ======================================================
@@ -2671,7 +2683,10 @@ const Kerawanan = () => {
             fillColor: bencanaColor,
             weight: zoom > 10 ? 1.8 : 1.2,
             opacity: 0.95,
-            fillOpacity: 0.48,
+            // Lebih transparan agar dua layer bencana yang benar-benar
+            // beririsan menghasilkan warna campuran, bukan saling menutup.
+            // Geometry tetap persis polygon sumber; tidak ada buffer/pelebaran.
+            fillOpacity: 0.34,
           };
         };
       } else if (tableName === "tutupan_lahan") {
@@ -3032,17 +3047,9 @@ const Kerawanan = () => {
             ? getBencanaLayerColor(String(tableName))
             : getColorForTable(tableName);
 
-          // Layer bencana adalah layer area/polygon.
-          // Jangan pernah membuat CircleMarker untuk bencana.
-          if (isBencanaLayer) {
-            console.warn(
-              "SIMITI: Point bencana diabaikan:",
-              tableName,
-            );
-
-            return window.L.layerGroup();
-          }
-
+          // Point pada layer bencana tetap ditampilkan. Beberapa sumber bencana
+          // menyimpan kejadian sebagai Point, jadi jangan dibuang karena itu membuat
+          // tanda bencana hilang ketika area dipilih.
           return window.L.circleMarker([lat, lng], {
             radius: zoom > 10 ? 6 : 4,
             fillColor: tableColor,
@@ -3085,12 +3092,8 @@ const Kerawanan = () => {
         throw new Error(`Leaflet gagal menambahkan layer ${tableName}`);
       }
 
-      // Pasang clipping HANYA ke path SVG layer bencana.
-      // Layer/daerah lain tidak ditutup atau diredupkan.
-      if (BENCANA_FOCUS_LAYERS.has(String(tableName)) && selectedAreas.length > 0) {
-        syncSelectedAreaBencanaClip(selectedAreas);
-        requestAnimationFrame(() => applyBencanaClipToLayer(tableName));
-      }
+      // Bencana sudah difilter oleh API berdasarkan selectedAreas/adminFilter.
+      // Jangan pasang SVG clip-path lagi karena dapat membuat polygon/marker hilang.
 
       layerCacheRef.current.set(tableName, layerGroup);
 
@@ -5267,8 +5270,15 @@ const Kerawanan = () => {
       } catch (focusError) {
         console.warn("SIMITI: gagal focus ke area bencana:", focusError);
       }
+      // API/adminFilter tetap dipakai sebagai filter data.
+      // Setelah layer selesai dibuat, lakukan clip renderer-safe agar
+      // polygon bencana yang memotong batas administrasi tidak melebar
+      // ke wilayah tetangga.
       syncSelectedAreaBencanaClip(selectedAreas, [String(tableName)]);
-      requestAnimationFrame(() => applyBencanaClipToLayer(String(tableName)));
+      requestAnimationFrame(() =>
+        applyBencanaClipToLayer(String(tableName), selectedAreas),
+      );
+
     }
     
   } else {
