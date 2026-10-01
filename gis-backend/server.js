@@ -1,4 +1,4 @@
-// server.js - Updated with new schema and Excel processing + REFERENCE_MAPPING
+﻿// server.js - Updated with new schema and Excel processing + REFERENCE_MAPPING
 require("dotenv").config();
 
 const express = require("express");
@@ -115,6 +115,1115 @@ const dbConfig = {
 };
 
 const pool = new PgPool(dbConfig);
+/* ============================================================
+ * LAPORAN PENGGUNA - IP GEOLOCATION
+ * Real visitor geography. No demo coordinates.
+ * ============================================================ */
+
+const reportIpGeoCache = new Map();
+
+function isReportPrivateOrLocalIp(ip) {
+  const value = String(ip || "").trim();
+
+  if (!value) return true;
+
+  return (
+    /^127\./.test(value) ||
+    /^10\./.test(value) ||
+    /^192\.168\./.test(value) ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(value) ||
+    /^::1$/.test(value) ||
+    /^fc/i.test(value) ||
+    /^fd/i.test(value) ||
+    /^fe80:/i.test(value)
+  );
+}
+
+function normalizeReportProvince(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/^provinsi\s+/i, "");
+}
+
+async function geolocateReportIp(ip) {
+  const normalizedIp = String(ip || "").trim();
+
+  if (!normalizedIp || isReportPrivateOrLocalIp(normalizedIp)) {
+    return null;
+  }
+
+  if (reportIpGeoCache.has(normalizedIp)) {
+    return reportIpGeoCache.get(normalizedIp);
+  }
+
+  try {
+    const response = await fetch(
+      `https://ipapi.co/${encodeURIComponent(normalizedIp)}/json/`,
+      {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "SIMITI-User-Report/1.0",
+        },
+      },
+    );
+
+    if (!response.ok) {
+      reportIpGeoCache.set(normalizedIp, null);
+      return null;
+    }
+
+    const payload = await response.json();
+
+    const result = {
+      ip: normalizedIp,
+      countryCode: payload.country_code || null,
+      country: payload.country_name || null,
+      province: payload.region || null,
+      city: payload.city || null,
+      latitude: Number.isFinite(Number(payload.latitude))
+        ? Number(payload.latitude)
+        : null,
+      longitude: Number.isFinite(Number(payload.longitude))
+        ? Number(payload.longitude)
+        : null,
+    };
+
+    reportIpGeoCache.set(normalizedIp, result);
+
+    return result;
+  } catch (error) {
+    console.warn(
+      `[LAPORAN PENGGUNA] IP geolocation gagal untuk ${normalizedIp}:`,
+      error?.message || error,
+    );
+
+    reportIpGeoCache.set(normalizedIp, null);
+    return null;
+  }
+}
+
+
+// ============================================================
+// SIMITI ACCESS TRACKING V1
+// Public visitor + authenticated user activity
+// ============================================================
+
+function getClientIp(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+
+  if (forwarded) {
+    return String(forwarded).split(",")[0].trim();
+  }
+
+  return (
+    req.headers["x-real-ip"] ||
+    req.socket?.remoteAddress ||
+    req.ip ||
+    null
+  );
+}
+
+function detectDeviceType(userAgent = "") {
+  const ua = String(userAgent).toLowerCase();
+
+  if (/tablet|ipad|android(?!.*mobile)/i.test(ua)) {
+    return "Tablet";
+  }
+
+  if (/mobile|iphone|ipod|android|blackberry|windows phone/i.test(ua)) {
+    return "Mobile";
+  }
+
+  return "Desktop";
+}
+
+function createAnonymousVisitorId(req) {
+  const ip = getClientIp(req) || "unknown";
+  const userAgent = req.headers["user-agent"] || "unknown";
+
+  return crypto
+    .createHash("sha256")
+    .update(`${ip}|${userAgent}`)
+    .digest("hex")
+    .slice(0, 40);
+}
+
+function getTrackingUser(req) {
+  try {
+    const decoded = getDecodedToken(req);
+
+    if (!decoded) return null;
+
+    const userId = Number(
+      decoded.id ??
+      decoded.user_id ??
+      decoded.userId,
+    );
+
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return null;
+    }
+
+    return {
+      id: userId,
+      username: decoded.username || null,
+      role_name: decoded.role_name || decoded.role || null,
+      organization_id: decoded.organization_id || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function insertAccessLog({
+  req,
+  accessType = "PUBLIC",
+  userId = null,
+  visitorId = null,
+  sessionId = null,
+  module = null,
+  action = null,
+  pathValue = null,
+}) {
+  try {
+    const ip = getClientIp(req);
+    const userAgent = req.headers["user-agent"] || null;
+    const deviceType = detectDeviceType(userAgent || "");
+
+    await pool.query(
+      `
+      INSERT INTO system_access_log (
+        visitor_id,
+        user_id,
+        access_type,
+        session_id,
+        ip_address,
+        user_agent,
+        device_type,
+        path,
+        module,
+        action,
+        created_at
+      )
+      VALUES (
+        $1, $2, $3, $4, $5::inet,
+        $6, $7, $8, $9, $10, NOW()
+      )
+      `,
+      [
+        visitorId,
+        userId,
+        accessType,
+        sessionId,
+        ip,
+        userAgent,
+        deviceType,
+        pathValue || req.originalUrl || req.path || null,
+        module,
+        action,
+      ],
+    );
+
+    return true;
+  } catch (error) {
+    console.error(
+      "ACCESS TRACKING ERROR:",
+      error.message,
+    );
+
+    return false;
+  }
+}
+
+// ============================================================
+// LAPORAN PENGGUNA â€” REAL DATA FROM SYSTEM ACCESS LOG
+// ============================================================
+app.get("/api/laporan-pengguna", (req, res, next) => {
+  const authHeader = req.headers.authorization || "";
+
+  const token = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7)
+    : null;
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      message: "Access token required",
+    });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({
+        success: false,
+        message: "Invalid or expired token",
+      });
+    }
+
+    const role = String(
+      decoded?.role_name ||
+      decoded?.role ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+    const isAdminRole =
+      role === "admin" ||
+      role === "administrator" ||
+      role === "superadmin" ||
+      role.includes("admin");
+
+    if (!isAdminRole) {
+      console.warn(
+        "LAPORAN PENGGUNA 403 - role JWT:",
+        role
+      );
+
+      return res.status(403).json({
+        success: false,
+        message: "Admin access required",
+        role: role || null,
+      });
+    }
+
+    req.user = decoded;
+    next();
+  });
+}, async (req, res) => {
+  try {
+    const year = Number.parseInt(
+      String(
+        req.query.year ||
+        new Date().getFullYear()
+      ),
+      10
+    );
+
+    if (
+      !Number.isInteger(year) ||
+      year < 2000 ||
+      year > 2100
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Parameter year tidak valid.",
+      });
+    }
+
+    const start = `${year}-01-01`;
+    const end = `${year + 1}-01-01`;
+
+    /*
+     * ============================================================
+     * SIMITI - LAPORAN PENGGUNA
+     *
+     * REAL DATA FROM POSTGRESQL
+     *
+     * Tidak ada KPI / chart / device / user demo.
+     * ============================================================
+     */
+
+    const [
+      kpi,
+      trend,
+      institutions,
+      provinces,
+      devices,
+      activities,
+      summary,
+      authorizations,
+    ] = await Promise.all([
+
+      // ==========================================================
+      // KPI
+      // ==========================================================
+
+      pool.query(`
+        SELECT
+          (
+            SELECT COUNT(*)
+            FROM users
+            WHERE created_at < $2::timestamp
+          )::int AS total_users,
+
+          (
+            SELECT COUNT(*)
+            FROM users
+            WHERE created_at < $2::timestamp
+              AND LOWER(COALESCE(status, '')) = 'active'
+          )::int AS active_users,
+
+          (
+            SELECT COUNT(*)
+            FROM member_organizations
+            WHERE created_at < $2::timestamp
+              AND LOWER(COALESCE(status, '')) <> 'deleted'
+          )::int AS institutions,
+
+          (
+            SELECT COUNT(*)
+            FROM system_access_log
+            WHERE created_at >= $1::timestamp
+              AND created_at < $2::timestamp
+          )::int AS total_access
+      `, [start, end]),
+
+      // ==========================================================
+      // USER BARU PER BULAN
+      // ==========================================================
+
+      pool.query(`
+        WITH months AS (
+          SELECT generate_series(
+            $1::date,
+            ($2::date - interval '1 month'),
+            interval '1 month'
+          ) AS month_start
+        )
+        SELECT
+          EXTRACT(MONTH FROM m.month_start)::int AS month,
+          COUNT(u.id)::int AS value
+        FROM months m
+        LEFT JOIN users u
+          ON u.created_at >= m.month_start
+         AND u.created_at < m.month_start + interval '1 month'
+        GROUP BY m.month_start
+        ORDER BY m.month_start
+      `, [start, end]),
+
+      // ==========================================================
+      // USER BERDASARKAN INSTANSI
+      // ==========================================================
+
+      pool.query(`
+        SELECT
+          COALESCE(o.name, 'Tanpa Instansi') AS name,
+          COUNT(u.id)::int AS value
+        FROM users u
+        LEFT JOIN member_organizations o
+          ON o.id = u.organization_id
+        WHERE u.created_at < $1::timestamp
+        GROUP BY o.name
+        ORDER BY value DESC
+      `, [end]),
+
+      // ==========================================================
+      // USER BERDASARKAN PROVINSI
+      // ==========================================================
+
+      pool.query(`
+        SELECT
+          COALESCE(
+            NULLIF(TRIM(o.province), ''),
+            'Tidak diketahui'
+          ) AS name,
+          COUNT(u.id)::int AS value
+        FROM users u
+        LEFT JOIN member_organizations o
+          ON o.id = u.organization_id
+        WHERE u.created_at < $1::timestamp
+        GROUP BY
+          COALESCE(
+            NULLIF(TRIM(o.province), ''),
+            'Tidak diketahui'
+          )
+        ORDER BY value DESC
+      `, [end]),
+
+      // ==========================================================
+      // DEVICE
+      // ==========================================================
+
+      pool.query(`
+        SELECT
+          COALESCE(
+            NULLIF(TRIM(device_type), ''),
+            'Tidak diketahui'
+          ) AS name,
+          COUNT(*)::int AS value
+        FROM system_access_log
+        WHERE created_at >= $1::timestamp
+          AND created_at < $2::timestamp
+        GROUP BY
+          COALESCE(
+            NULLIF(TRIM(device_type), ''),
+            'Tidak diketahui'
+          )
+        ORDER BY value DESC
+      `, [start, end]),
+
+      // ==========================================================
+      // AKTIVITAS TERBARU
+      // ==========================================================
+
+      pool.query(`
+        SELECT
+          l.id,
+          l.created_at,
+          l.user_id,
+
+          COALESCE(
+            u.username,
+            'Publik'
+          ) AS username,
+
+          COALESCE(
+            u.full_name,
+            u.username,
+            'Publik'
+          ) AS full_name,
+
+          COALESCE(
+            o.name,
+            '-'
+          ) AS organization,
+
+          COALESCE(
+            mu.name,
+            '-'
+          ) AS unit,
+
+          COALESCE(
+            mr.name,
+            '-'
+          ) AS role_name,
+
+          COALESCE(
+            l.access_type,
+            '-'
+          ) AS access_type,
+
+          COALESCE(
+            l.module,
+            '-'
+          ) AS module,
+
+          COALESCE(
+            l.action,
+            '-'
+          ) AS action,
+
+          COALESCE(
+            l.path,
+            '-'
+          ) AS path,
+
+          COALESCE(
+            l.device_type,
+            '-'
+          ) AS device_type,
+
+          COALESCE(
+            l.ip_address::text,
+            '-'
+          ) AS ip_address
+
+        FROM system_access_log l
+
+        LEFT JOIN users u
+          ON u.id = l.user_id
+
+        LEFT JOIN member_organizations o
+          ON o.id = u.organization_id
+
+        LEFT JOIN master_units mu
+          ON mu.id = u.unit_id
+
+        LEFT JOIN master_role mr
+          ON mr.id = u.role_id
+
+        WHERE l.created_at >= $1::timestamp
+          AND l.created_at < $2::timestamp
+
+        ORDER BY l.created_at DESC
+
+        LIMIT 50
+      `, [start, end]),
+
+      // ==========================================================
+      // SUMMARY
+      // ==========================================================
+
+      pool.query(`
+        SELECT
+
+          (
+            SELECT COUNT(*)
+            FROM users
+            WHERE created_at >= $1::timestamp
+              AND created_at < $2::timestamp
+          )::int AS new_users,
+
+          (
+            SELECT COUNT(*)
+            FROM user_login_logs
+            WHERE login_time >= $1::timestamptz
+              AND login_time < $2::timestamptz
+              AND success = TRUE
+          )::int AS successful_logins,
+
+          (
+            SELECT COUNT(*)
+            FROM user_download_logs
+            WHERE download_time >= $1::timestamptz
+              AND download_time < $2::timestamptz
+          )::int AS total_downloads,
+
+          (
+            SELECT COUNT(*)
+            FROM user_activity_logs
+            WHERE activity_time >= $1::timestamptz
+              AND activity_time < $2::timestamptz
+          )::int AS total_user_activities
+
+      `, [start, end]),
+
+      // ==========================================================
+      // LAYER AUTHORIZATION
+      // ==========================================================
+
+      pool.query(`
+        SELECT
+          COUNT(*)::int AS total,
+
+          COUNT(*) FILTER (
+            WHERE can_view = TRUE
+          )::int AS can_view,
+
+          COUNT(*) FILTER (
+            WHERE can_query = TRUE
+          )::int AS can_query,
+
+          COUNT(*) FILTER (
+            WHERE can_export = TRUE
+          )::int AS can_export,
+
+          COUNT(*) FILTER (
+            WHERE can_download = TRUE
+          )::int AS can_download,
+
+          COUNT(*) FILTER (
+            WHERE can_manage = TRUE
+          )::int AS can_manage
+
+        FROM user_layer_authorizations
+      `),
+    ]);
+
+    // ==========================================================
+    // NORMALIZE TREND
+    // ==========================================================
+
+    const trendValues = Array(12).fill(0);
+
+    trend.rows.forEach((row) => {
+      const month = Number(row.month);
+
+      if (
+        month >= 1 &&
+        month <= 12
+      ) {
+        trendValues[month - 1] =
+          Number(row.value || 0);
+      }
+    });
+
+    // ==========================================================
+    // RESPONSE
+    // ==========================================================
+
+
+    // ============================================================
+    // PROVINSI USER LOGIN
+    // ============================================================
+    const loggedInProvinceAccess = await pool.query(
+      `
+        SELECT
+          COALESCE(NULLIF(TRIM(o.province), ''), 'Tidak diketahui') AS province,
+          COUNT(DISTINCT l.user_id)::int AS user_count,
+          COUNT(*)::int AS access_count
+        FROM system_access_log l
+        INNER JOIN users u
+          ON u.id = l.user_id
+        LEFT JOIN member_organizations o
+          ON o.id = u.organization_id
+        WHERE l.created_at >= $1::timestamp
+          AND l.created_at < $2::timestamp
+        GROUP BY
+          COALESCE(NULLIF(TRIM(o.province), ''), 'Tidak diketahui')
+        ORDER BY user_count DESC
+      `,
+      [start, end],
+    );
+
+    // ============================================================
+    // VISITOR ANONIM
+    // Hanya IP publik unik.
+    // 1 IP != 1 orang.
+    // ============================================================
+    const anonymousIpAccess = await pool.query(
+      `
+        SELECT
+          host(l.ip_address) AS ip_address,
+          COUNT(*)::int AS access_count
+        FROM system_access_log l
+        WHERE l.created_at >= $1::timestamp
+          AND l.created_at < $2::timestamp
+          AND l.user_id IS NULL
+          AND l.ip_address IS NOT NULL
+        GROUP BY host(l.ip_address)
+        ORDER BY access_count DESC
+      `,
+      [start, end],
+    );
+
+    const anonymousGeoRows = (
+      await Promise.all(
+        anonymousIpAccess.rows.map(async (row) => {
+          const geo = await geolocateReportIp(row.ip_address);
+
+          if (!geo) return null;
+
+          if (
+            geo.countryCode &&
+            String(geo.countryCode).toUpperCase() !== "ID"
+          ) {
+            return null;
+          }
+
+          return {
+            ...geo,
+            accessCount: Number(row.access_count || 0),
+          };
+        }),
+      )
+    ).filter(Boolean);
+
+    // ============================================================
+    // AGREGASI PROVINSI
+    // ============================================================
+    const provinceStats = new Map();
+
+    for (const row of loggedInProvinceAccess.rows) {
+      const key = normalizeReportProvince(row.province);
+
+      if (!key || key === "tidak diketahui") continue;
+
+      const current = provinceStats.get(key) || {
+        loggedInUsers: 0,
+        loggedInAccesses: 0,
+        anonymousVisitors: 0,
+        anonymousAccesses: 0,
+      };
+
+      current.loggedInUsers += Number(row.user_count || 0);
+      current.loggedInAccesses += Number(row.access_count || 0);
+
+      provinceStats.set(key, current);
+    }
+
+    for (const row of anonymousGeoRows) {
+      const key = normalizeReportProvince(row.province);
+
+      if (!key) continue;
+
+      const current = provinceStats.get(key) || {
+        loggedInUsers: 0,
+        loggedInAccesses: 0,
+        anonymousVisitors: 0,
+        anonymousAccesses: 0,
+      };
+
+      current.anonymousVisitors += 1;
+      current.anonymousAccesses += Number(row.accessCount || 0);
+
+      provinceStats.set(key, current);
+    }
+
+    // ============================================================
+    // GEOMETRY PROVINSI DARI POSTGIS
+    // ============================================================
+    const provinceGeometry = await pool.query(
+      `
+        SELECT
+          kode_prov,
+          provinsi AS name,
+          ST_AsGeoJSON(
+            CASE
+              WHEN ST_SRID(geom) = 0
+                THEN ST_SetSRID(geom, 4326)
+              WHEN ST_SRID(geom) = 4326
+                THEN geom
+              ELSE ST_Transform(geom, 4326)
+            END
+          ) AS geometry_json
+        FROM public.provinsi
+        WHERE geom IS NOT NULL
+          AND NULLIF(TRIM(provinsi::text), '') IS NOT NULL
+        ORDER BY provinsi
+      `,
+    );
+
+    const provinceMap = provinceGeometry.rows.map((row) => {
+      const key = normalizeReportProvince(row.name);
+
+      const stats = provinceStats.get(key) || {
+        loggedInUsers: 0,
+        loggedInAccesses: 0,
+        anonymousVisitors: 0,
+        anonymousAccesses: 0,
+      };
+
+      let geometry = null;
+
+      try {
+        geometry =
+          typeof row.geometry_json === "string"
+            ? JSON.parse(row.geometry_json)
+            : row.geometry_json;
+      } catch {
+        geometry = null;
+      }
+
+      return {
+        kodeProv: row.kode_prov,
+        name: row.name,
+        loggedInUsers: stats.loggedInUsers,
+        loggedInAccesses: stats.loggedInAccesses,
+        anonymousVisitors: stats.anonymousVisitors,
+        anonymousAccesses: stats.anonymousAccesses,
+        total: stats.loggedInUsers + stats.anonymousVisitors,
+        geometry,
+      };
+    });
+
+    const visitorStats = {
+      uniqueAnonymousIps: anonymousIpAccess.rows.length,
+      geolocatedAnonymousIps: anonymousGeoRows.length,
+      note: "1 IP tidak selalu mewakili 1 orang.",
+    };
+
+    const data = {
+
+      kpi: {
+        totalUsers:
+          Number(
+            kpi.rows[0]?.total_users || 0
+          ),
+
+        activeUsers:
+          Number(
+            kpi.rows[0]?.active_users || 0
+          ),
+
+        institutions:
+          Number(
+            kpi.rows[0]?.institutions || 0
+          ),
+
+        totalAccess:
+          Number(
+            kpi.rows[0]?.total_access || 0
+          ),
+      },
+
+      trend: trendValues,
+
+      institutions:
+        institutions.rows.map((row) => ({
+          name:
+            String(
+              row.name ||
+              "Tanpa Instansi"
+            ),
+
+          value:
+            Number(
+              row.value || 0
+            ),
+        })),
+
+      provinces:
+        provinces.rows.map((row) => ({
+          name:
+            String(
+              row.name ||
+              "Tidak diketahui"
+            ),
+
+          value:
+            Number(
+              row.value || 0
+            ),
+        })),
+
+      devices:
+        devices.rows.map((row) => ({
+          name:
+            String(
+              row.name ||
+              "Tidak diketahui"
+            ),
+
+          value:
+            Number(
+              row.value || 0
+            ),
+        })),
+
+      activities:
+        activities.rows.map((row) => ({
+          id:
+            Number(row.id),
+
+          date:
+            row.created_at,
+
+          userId:
+            row.user_id === null ||
+            row.user_id === undefined
+              ? null
+              : Number(row.user_id),
+
+          user:
+            row.full_name ||
+            row.username ||
+            "Publik",
+
+          username:
+            row.username ||
+            null,
+
+          organization:
+            row.organization ||
+            "-",
+
+          unit:
+            row.unit ||
+            "-",
+
+          role:
+            row.role_name ||
+            "-",
+
+          accessType:
+            row.access_type ||
+            "-",
+
+          module:
+            row.module ||
+            "-",
+
+          action:
+            row.action ||
+            "-",
+
+          path:
+            row.path ||
+            "-",
+
+          device:
+            row.device_type ||
+            "-",
+
+          ipAddress:
+            row.ip_address ||
+            "-",
+        })),
+
+      summary: {
+        newUsers:
+          Number(
+            summary.rows[0]?.new_users || 0
+          ),
+
+        successfulLogins:
+          Number(
+            summary.rows[0]?.successful_logins || 0
+          ),
+
+        totalDownloads:
+          Number(
+            summary.rows[0]?.total_downloads || 0
+          ),
+
+        totalUserActivities:
+          Number(
+            summary.rows[0]?.total_user_activities || 0
+          ),
+      },
+
+      authorizations: {
+        total:
+          Number(
+            authorizations.rows[0]?.total || 0
+          ),
+
+        canView:
+          Number(
+            authorizations.rows[0]?.can_view || 0
+          ),
+
+        canQuery:
+          Number(
+            authorizations.rows[0]?.can_query || 0
+          ),
+
+        canExport:
+          Number(
+            authorizations.rows[0]?.can_export || 0
+          ),
+
+        canDownload:
+          Number(
+            authorizations.rows[0]?.can_download || 0
+          ),
+
+        canManage:
+          Number(
+            authorizations.rows[0]?.can_manage || 0
+          ),
+      },
+
+      provinceMap,
+      visitorStats,
+      dataStatus: {
+        source: "PostgreSQL",
+
+        users:
+          "users",
+
+        organizations:
+          "member_organizations",
+
+        units:
+          "master_units",
+
+        roles:
+          "master_role",
+
+        accessLogs:
+          "system_access_log",
+
+        activityLogs:
+          "user_activity_logs",
+
+        loginLogs:
+          "user_login_logs",
+
+        downloadLogs:
+          "user_download_logs",
+
+        layerAuthorizations:
+          "user_layer_authorizations",
+      },
+    };
+
+    return res.json({
+      success: true,
+
+      year,
+
+      period: {
+        start,
+        end,
+      },
+
+      data,
+
+      generatedAt:
+        new Date().toISOString(),
+    });
+
+  } catch (error) {
+
+    console.error(
+      "GET /api/laporan-pengguna ERROR:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+// ------------------------------------------------------------
+// PUBLIC ACCESS TRACKING
+// ------------------------------------------------------------
+app.post("/api/access/track", async (req, res) => {
+  try {
+    const {
+      visitorId,
+      sessionId,
+      path: requestedPath,
+      module,
+      action,
+    } = req.body || {};
+
+    const user = getTrackingUser(req);
+
+    await insertAccessLog({
+      req,
+      accessType: user ? "LOGIN" : "PUBLIC",
+      userId: user?.id || null,
+      visitorId:
+        visitorId ||
+        createAnonymousVisitorId(req),
+      sessionId: sessionId || null,
+      module: module || null,
+      action: action || "PAGE_VIEW",
+      pathValue:
+        requestedPath ||
+        req.originalUrl ||
+        req.path ||
+        null,
+    });
+
+    return res.json({
+      success: true,
+      tracked: true,
+      access_type: user ? "LOGIN" : "PUBLIC",
+    });
+  } catch (error) {
+    console.error(
+      "POST /api/access/track ERROR:",
+      error.message,
+    );
+
+    return res.json({
+      success: true,
+      tracked: false,
+    });
+  }
+});
+
+// ------------------------------------------------------------
+// Tracking LOGIN SUCCESS
+// ------------------------------------------------------------
+async function trackLoginSuccess(req, user) {
+  try {
+    await insertAccessLog({
+      req,
+      accessType: "LOGIN",
+      userId: Number(user.id),
+      visitorId: createAnonymousVisitorId(req),
+      sessionId: null,
+      module: "Authentication",
+      action: "LOGIN",
+      pathValue: "/api/login",
+    });
+  } catch (error) {
+    console.error(
+      "LOGIN TRACKING ERROR:",
+      error.message,
+    );
+  }
+}
 
 // ============================================================
 // SIMITI AI MITIGATION RECOMMENDATION V3.1
@@ -9003,9 +10112,10 @@ pool
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
 const ADMIN_PASSWORD_HASH =
-  process.env.ADMIN_PASSWORD_HASH;
+  process.env.ADMIN_PASSWORD_HASH ||
+  "ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f"; // Hash dari 'password123'
 const JWT_SECRET =
-  process.env.JWT_SECRET;
+  process.env.JWT_SECRET || "your_secret_key_change_in_production";
 
 // Helper function untuk hash password
 const hashPassword = (password) => {
@@ -9073,22 +10183,14 @@ function getDecodedToken(req) {
 
 function isPrivilegedLayerToken(user) {
   if (!user) return false;
-
-  const role = String(user.role || "").trim().toLowerCase();
-  const roleName = String(user.role_name || "").trim().toLowerCase();
+  const role = String(user.role || "").toLowerCase();
+  const roleName = String(user.role_name || "").toLowerCase();
   const roleId = Number(user.role_id);
-
   return (
     role === "admin" ||
-    role === "administrator" ||
     role === "super admin" ||
-    role === "super administrator" ||
-    roleName === "admin" ||
-    roleName === "administrator" ||
     roleName === "super admin" ||
-    roleName === "super administrator" ||
-    roleId === 1 ||
-    roleId === 2
+    roleId === 1
   );
 }
 
@@ -9402,7 +10504,9 @@ app.post("/api/login", async (req, res) => {
       },
     );
 
-    console.log("13. JWT generated");
+    await trackLoginSuccess(req, user);
+
+console.log("13. JWT generated");
 
     // --------------------------------------------------------
     // RESPONSE
@@ -16160,107 +17264,7 @@ async function reverseGeocodeWithNominatim(latitude, longitude) {
     throw err;
   }
 
-  const data = await response.json();
-
-  // Jangan meneruskan response kosong/malformed sebagai lokasi yang valid.
-  if (!data || typeof data !== "object" || !data.display_name) {
-    throw new Error("Nominatim reverse response kosong/tidak valid.");
-  }
-
-  return {
-    ...data,
-    source: "nominatim",
-  };
-}
-
-async function reverseGeocodeWithPhoton(latitude, longitude) {
-  const params = new URLSearchParams({
-    lat: String(latitude),
-    lon: String(longitude),
-  });
-
-  const response = await fetchWithTimeout(
-    `https://photon.komoot.io/reverse?${params.toString()}`,
-    {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "SIMITIGASI-GIS/1.1 (+http://localhost:5173)",
-      },
-    },
-    8000,
-  );
-
-  if (!response.ok) {
-    throw new Error(`Photon reverse HTTP ${response.status}`);
-  }
-
-  const payload = await response.json();
-  const feature = payload?.features?.[0];
-
-  if (!feature) {
-    throw new Error("Photon reverse tidak menemukan lokasi.");
-  }
-
-  const props = feature?.properties || {};
-  const coords = feature?.geometry?.coordinates || [];
-  const lon = Number(coords[0]);
-  const lat = Number(coords[1]);
-
-  const city = props.city || props.town || props.village || props.municipality;
-  const county = props.county || props.district;
-  const state = props.state;
-  const country = props.country || "Indonesia";
-  const postcode = props.postcode;
-
-  const displayName = [
-    props.name,
-    props.street && props.housenumber
-      ? `${props.street} ${props.housenumber}`
-      : props.street,
-    city,
-    county,
-    state,
-    country,
-  ]
-    .filter(Boolean)
-    .filter((value, index, array) => array.indexOf(value) === index)
-    .join(", ");
-
-  if (!displayName) {
-    throw new Error("Photon reverse response tidak memiliki nama lokasi.");
-  }
-
-  // Normalisasi Photon ke bentuk yang dipakai frontend:
-  // display_name + address, tanpa mengubah koordinat/view peta.
-  const address = {
-    house_number: props.housenumber || undefined,
-    road: props.street || undefined,
-    neighbourhood: props.locality || props.neighbourhood || undefined,
-    village: props.village || undefined,
-    town: props.town || undefined,
-    city: props.city || undefined,
-    municipality: props.municipality || undefined,
-    county: props.county || undefined,
-    state_district: props.district || undefined,
-    state: props.state || undefined,
-    postcode: postcode || undefined,
-    country: country || undefined,
-    country_code: props.countrycode || "id",
-  };
-
-  Object.keys(address).forEach((key) => {
-    if (address[key] === undefined || address[key] === null || address[key] === "") {
-      delete address[key];
-    }
-  });
-
-  return {
-    lat: Number.isFinite(lat) ? String(lat) : String(latitude),
-    lon: Number.isFinite(lon) ? String(lon) : String(longitude),
-    display_name: displayName,
-    address,
-    source: "photon",
-  };
+  return await response.json();
 }
 
 app.get("/api/geocode/reverse", async (req, res) => {
@@ -16282,69 +17286,40 @@ app.get("/api/geocode/reverse", async (req, res) => {
   }
 
   // Cache per titik sampai 6 digit desimal agar GPS yang sama tidak
-  // memukul provider geocoding berulang kali.
+  // memukul Nominatim berulang kali.
   const cacheKey = `reverse:${latitude.toFixed(6)}:${longitude.toFixed(6)}`;
   const cached = geocodeCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return res.json(cached.data);
   }
 
-  // Satu antrean untuk provider geocoding supaya tidak membanjiri Nominatim.
   geocodeQueue = geocodeQueue
     .then(async () => {
-      let data = null;
-      let primaryError = null;
-
-      // 1) Primary: Nominatim
       try {
-        data = await reverseGeocodeWithNominatim(latitude, longitude);
-        console.log(
-          `âœ… Nominatim reverse geocoding: ${latitude}, ${longitude}`,
-        );
-      } catch (error) {
-        primaryError = error;
-        console.warn(
-          "âš ï¸ Nominatim reverse geocoding unavailable:",
-          error?.message || error,
-        );
+        const data = await reverseGeocodeWithNominatim(latitude, longitude);
 
-        // Jika provider meminta retry, tunggu sebelum fallback.
+        geocodeCache.set(cacheKey, {
+          data,
+          expiresAt: Date.now() + 10 * 60 * 1000,
+        });
+
+        if (!res.headersSent) {
+          return res.json(data);
+        }
+      } catch (error) {
+        console.error("âŒ Nominatim reverse geocoding error:", error);
+
         if (error?.retryAfterMs) {
           await sleep(error.retryAfterMs);
         }
-      }
 
-      // 2) Fallback: Photon
-      if (!data) {
-        try {
-          data = await reverseGeocodeWithPhoton(latitude, longitude);
-          console.log(
-            `âœ… Photon reverse geocoding fallback: ${latitude}, ${longitude}`,
-          );
-        } catch (fallbackError) {
-          console.error(
-            "âŒ Reverse geocoding fallback Photon gagal:",
-            fallbackError,
-          );
-
-          if (primaryError) {
-            throw new Error(
-              `${primaryError.message}; fallback Photon: ${fallbackError.message}`,
-            );
-          }
-
-          throw fallbackError;
+        if (!res.headersSent) {
+          return res.status(502).json({
+            success: false,
+            error: "Gagal mendapatkan nama lokasi dari reverse geocoding.",
+            detail: error instanceof Error ? error.message : String(error),
+          });
         }
-      }
-
-      // Simpan hasil provider apa pun ke cache.
-      geocodeCache.set(cacheKey, {
-        data,
-        expiresAt: Date.now() + 10 * 60 * 1000,
-      });
-
-      if (!res.headersSent) {
-        return res.json(data);
       }
     })
     .catch((error) => {
@@ -16352,7 +17327,7 @@ app.get("/api/geocode/reverse", async (req, res) => {
       if (!res.headersSent) {
         return res.status(502).json({
           success: false,
-          error: "Gagal mendapatkan nama lokasi dari reverse geocoding.",
+          error: "Gagal memproses reverse geocoding.",
           detail: error instanceof Error ? error.message : String(error),
         });
       }
@@ -17180,48 +18155,110 @@ app.get("/api/location-assessment", async (req, res) => {
         (
           SELECT p.provinsi
           FROM public.provinsi p
-          WHERE p.geom_valid IS NOT NULL
-            AND p.geom_valid && ${point}
-            AND ST_Covers(p.geom_valid, ${point})
+          WHERE p.geom IS NOT NULL
+            AND (
+              (ST_SRID(p.geom) = 0 AND p.geom && ST_Expand(ST_SetSRID(ST_MakePoint($2, $1), 0), 0.25))
+              OR
+              (ST_SRID(p.geom) = 4326 AND p.geom && ST_Expand(${point}, 0.25))
+              OR
+              (ST_SRID(p.geom) NOT IN (0, 4326) AND ST_Covers(
+                (CASE WHEN ST_SRID(p.geom) = 0 THEN ST_SetSRID(p.geom, 4326) WHEN ST_SRID(p.geom) = 4326 THEN p.geom ELSE ST_Transform(p.geom, 4326) END),
+                ${point}
+              ))
+            )
+            AND ST_Covers(
+              (CASE WHEN ST_SRID(p.geom) = 0 THEN ST_SetSRID(p.geom, 4326) WHEN ST_SRID(p.geom) = 4326 THEN p.geom ELSE ST_Transform(p.geom, 4326) END),
+              ${point}
+            )
           LIMIT 1
         ) AS provinsi,
 
         (
           SELECT k.kab_kota
           FROM public.kab_kota k
-          WHERE k.geom_valid IS NOT NULL
-            AND k.geom_valid && ${point}
-            AND ST_Covers(k.geom_valid, ${point})
+          WHERE k.geom IS NOT NULL
+            AND (
+              (ST_SRID(k.geom) = 0 AND k.geom && ST_Expand(ST_SetSRID(ST_MakePoint($2, $1), 0), 0.25))
+              OR
+              (ST_SRID(k.geom) = 4326 AND k.geom && ST_Expand(${point}, 0.25))
+              OR
+              (ST_SRID(k.geom) NOT IN (0, 4326) AND ST_Covers(
+                (CASE WHEN ST_SRID(k.geom) = 0 THEN ST_SetSRID(k.geom, 4326) WHEN ST_SRID(k.geom) = 4326 THEN k.geom ELSE ST_Transform(k.geom, 4326) END),
+                ${point}
+              ))
+            )
+            AND (
+              (ST_SRID(k.geom) = 0 AND k.geom && ST_Expand(ST_SetSRID(ST_MakePoint($2, $1), 0), 0.25))
+              OR
+              (ST_SRID(k.geom) = 4326 AND k.geom && ST_Expand(${point}, 0.25))
+              OR
+              (ST_SRID(k.geom) NOT IN (0, 4326) AND ST_Covers(
+                (CASE WHEN ST_SRID(k.geom) = 0 THEN ST_SetSRID(k.geom, 4326) WHEN ST_SRID(k.geom) = 4326 THEN k.geom ELSE ST_Transform(k.geom, 4326) END),
+                ${point}
+              ))
+            )
+            AND (
+              (ST_SRID(k.geom) = 0 AND k.geom && ST_Expand(ST_SetSRID(ST_MakePoint($2, $1), 0), 0.25))
+              OR
+              (ST_SRID(k.geom) = 4326 AND k.geom && ST_Expand(${point}, 0.25))
+              OR
+              (ST_SRID(k.geom) NOT IN (0, 4326) AND ST_Covers(
+                (CASE WHEN ST_SRID(k.geom) = 0 THEN ST_SetSRID(k.geom, 4326) WHEN ST_SRID(k.geom) = 4326 THEN k.geom ELSE ST_Transform(k.geom, 4326) END),
+                ${point}
+              ))
+            )
+            AND ST_Covers(
+              (CASE WHEN ST_SRID(k.geom) = 0 THEN ST_SetSRID(k.geom, 4326) WHEN ST_SRID(k.geom) = 4326 THEN k.geom ELSE ST_Transform(k.geom, 4326) END),
+              ${point}
+            )
           LIMIT 1
         ) AS kabupaten,
 
         (
           SELECT k.kecamatan
           FROM public.kecamatan k
-          WHERE k.geom_valid IS NOT NULL
-            AND k.geom_valid && ${point}
-            AND ST_Covers(k.geom_valid, ${point})
+          WHERE k.geom IS NOT NULL
+            AND ST_Covers(
+              (CASE WHEN ST_SRID(k.geom) = 0 THEN ST_SetSRID(k.geom, 4326) WHEN ST_SRID(k.geom) = 4326 THEN k.geom ELSE ST_Transform(k.geom, 4326) END),
+              ${point}
+            )
           LIMIT 1
         ) AS kecamatan,
 
         (
           SELECT k.kel_desa
           FROM public.kel_desa k
-          WHERE k.geom_valid IS NOT NULL
-            AND k.geom_valid && ${point}
-            AND ST_Covers(k.geom_valid, ${point})
+          WHERE k.geom IS NOT NULL
+            AND ST_Covers(
+              (CASE WHEN ST_SRID(k.geom) = 0 THEN ST_SetSRID(k.geom, 4326) WHEN ST_SRID(k.geom) = 4326 THEN k.geom ELSE ST_Transform(k.geom, 4326) END),
+              ${point}
+            )
           LIMIT 1
         ) AS kelurahan,
 
         (
           SELECT d.nama_das
           FROM public.das_adm d
-          WHERE d.geom_valid IS NOT NULL
-            AND d.geom_valid && ${point}
-            AND ST_Covers(d.geom_valid, ${point})
+          WHERE d.geom IS NOT NULL
+            AND (
+              (ST_SRID(d.geom) = 0 AND d.geom && ST_Expand(ST_SetSRID(ST_MakePoint($2, $1), 0), 0.25))
+              OR
+              (ST_SRID(d.geom) = 4326 AND d.geom && ST_Expand(${point}, 0.25))
+              OR
+              (ST_SRID(d.geom) NOT IN (0, 4326) AND ST_Covers(
+                (CASE WHEN ST_SRID(d.geom) = 0 THEN ST_SetSRID(d.geom, 4326) WHEN ST_SRID(d.geom) = 4326 THEN d.geom ELSE ST_Transform(d.geom, 4326) END),
+                ${point}
+              ))
+            )
+            AND ST_Covers(
+              (CASE WHEN ST_SRID(d.geom) = 0 THEN ST_SetSRID(d.geom, 4326) WHEN ST_SRID(d.geom) = 4326 THEN d.geom ELSE ST_Transform(d.geom, 4326) END),
+              ${point}
+            )
           LIMIT 1
         ) AS das
-    `;    let admin = {};
+    `;
+
+    let admin = {};
 
     try {
       const adminResult = await pool.query(adminQuery, [latitude, longitude]);
@@ -18196,90 +19233,83 @@ app.get("/api/location-proximity", async (req, res) => {
     // ========================================================
 
     // ========================================================
-    // 5. RIWAYAT KEJADIAN - BNPB
+    // 5. RIWAYAT KEJADIAN
     //
-    // Sumber:
-    //   BNPB Data API
-    //
-    // Tidak lagi menggunakan:
-    //   public.kejadian
-    //
-    // Tidak ada:
-    //   k.geom
-    //   ST_Transform
-    //   ST_Distance PostGIS
-    //
-    // Proximity dihitung di memory setelah data BNPB
-    // masuk ke cache.
+    // Sumber: public.kejadian
+    // Ambil record terdekat dari titik GPS berdasarkan latitude/longitude.
+    // Semua kolom yang diminta frontend dikembalikan.
     // ========================================================
 
     let incidents = [];
 
     try {
-      const incidentStartedAt = Date.now();
-
-      const bnpbRecords = await fetchBNPBIncidents();
-
-      const toRad = (value) => (Number(value) * Math.PI) / 180;
-
-      const distanceKm = (lat1, lon1, lat2, lon2) => {
-        const R = 6371;
-
-        const dLat = toRad(lat2 - lat1);
-
-        const dLon = toRad(lon2 - lon1);
-
-        const a =
-          Math.sin(dLat / 2) ** 2 +
-          Math.cos(toRad(lat1)) *
-            Math.cos(toRad(lat2)) *
-            Math.sin(dLon / 2) ** 2;
-
-        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      };
-
-      incidents = bnpbRecords
-        .map((row) => {
-          const distanceKmValue = distanceKm(
-            latitude,
+      const incidentResult = await pool.query(
+        `
+          SELECT
+            id,
+            title,
+            category,
+            date,
+            location,
+            das,
             longitude,
-            Number(row.latitude),
-            Number(row.longitude),
-          );
+            latitude,
+            curah_hujan,
+            featured,
+            thumbnail_path,
+            images_paths,
+            description,
+            created_at,
+            updated_at,
+            ST_DistanceSphere(
+              ST_SetSRID(
+                ST_MakePoint(
+                  longitude::double precision,
+                  latitude::double precision
+                ),
+                4326
+              ),
+              ST_SetSRID(ST_MakePoint($2, $1), 4326)
+            ) AS distance_meters
+          FROM public.kejadian
+          WHERE
+            longitude IS NOT NULL
+            AND latitude IS NOT NULL
+            AND longitude::double precision BETWEEN -180 AND 180
+            AND latitude::double precision BETWEEN -90 AND 90
+          ORDER BY distance_meters ASC
+          LIMIT $3
+        `,
+        [latitude, longitude, incidentLimit],
+      );
 
-          return {
-            id: row.id,
-
-            disaster_type: row.disaster_type,
-
-            event_date: row.event_date,
-
-            latitude: Number(row.latitude),
-
-            longitude: Number(row.longitude),
-
-            province: row.province ?? null,
-
-            kabupaten: row.kabupaten ?? null,
-
-            source: row.source || "BNPB",
-
-            distanceMeters: Math.round(distanceKmValue * 1000),
-          };
-        })
-        .sort((a, b) => a.distanceMeters - b.distanceMeters)
-        .slice(0, incidentLimit);
-
-      console.log(`âœ… [LOCATION PROXIMITY] Incidents: ${incidents.length}`);
+      incidents = (incidentResult.rows || []).map((row) => ({
+        id: row.id,
+        title: row.title ?? null,
+        category: row.category ?? null,
+        date: row.date ?? null,
+        location: row.location ?? null,
+        das: row.das ?? null,
+        longitude: row.longitude !== null ? Number(row.longitude) : null,
+        latitude: row.latitude !== null ? Number(row.latitude) : null,
+        curah_hujan: row.curah_hujan ?? null,
+        featured: Boolean(row.featured),
+        thumbnail_path: row.thumbnail_path ?? null,
+        images_paths: row.images_paths ?? null,
+        description: row.description ?? null,
+        created_at: row.created_at ?? null,
+        updated_at: row.updated_at ?? null,
+        distanceMeters:
+          row.distance_meters !== null ? Number(row.distance_meters) : null,
+        source: "public.kejadian",
+      }));
 
       console.log(
-        `â±ï¸ [LOCATION PROXIMITY] BNPB INCIDENTS: ${
-          Date.now() - incidentStartedAt
-        } ms`,
+        `âœ… [LOCATION PROXIMITY] public.kejadian: ${incidents.length}`,
       );
     } catch (error) {
       console.warn(
-        "âš ï¸ [LOCATION PROXIMITY] BNPB incident adapter skipped:",
+        "âš ï¸ [LOCATION PROXIMITY] Query public.kejadian skipped:",
         error.message,
       );
 
@@ -19264,31 +20294,6 @@ function normalizePermissionPayload(body = {}) {
   };
 }
 
-// ============================================================
-// ADMIN-ONLY USER LAYER AUTHORIZATION MANAGEMENT
-// ============================================================
-
-function requireLayerAuthorizationAdmin(req, res, next) {
-  const decoded = getDecodedToken(req);
-
-  if (!decoded) {
-    return res.status(401).json({
-      success: false,
-      message: "Access token required.",
-    });
-  }
-
-  if (!isPrivilegedLayerToken(decoded)) {
-    return res.status(403).json({
-      success: false,
-      message: "Admin access required.",
-    });
-  }
-
-  req.user = decoded;
-  next();
-}
-
 // GET authorization for the currently logged-in user.
 // Super Admin/admin token mendapat akses penuh untuk kebutuhan operasional.
 app.get("/api/my-layer-authorizations", async (req, res) => {
@@ -19345,7 +20350,7 @@ app.get("/api/my-layer-authorizations", async (req, res) => {
 });
 
 // GET authorization catalog: layers + users + statistics.
-app.get("/api/user-authorizations/catalog", requireLayerAuthorizationAdmin, async (req, res) => {
+app.get("/api/user-authorizations/catalog", async (req, res) => {
   try {
     await ensureUserLayerAuthorizationTable();
 
@@ -19414,7 +20419,7 @@ app.get("/api/user-authorizations/catalog", requireLayerAuthorizationAdmin, asyn
 });
 
 // GET all authorizations for one user.
-app.get("/api/user-authorizations/user/:userId", requireLayerAuthorizationAdmin, async (req, res) => {
+app.get("/api/user-authorizations/user/:userId", async (req, res) => {
   try {
     await ensureUserLayerAuthorizationTable();
     const userId = parsePositiveId(req.params.userId, "User ID");
@@ -19484,7 +20489,7 @@ app.get("/api/user-authorizations/user/:userId", requireLayerAuthorizationAdmin,
 });
 
 // GET one user + one layer authorization.
-app.get("/api/user-authorizations/:userId/:layerId", requireLayerAuthorizationAdmin, async (req, res) => {
+app.get("/api/user-authorizations/:userId/:layerId", async (req, res) => {
   try {
     await ensureUserLayerAuthorizationTable();
 
@@ -19532,7 +20537,7 @@ app.get("/api/user-authorizations/:userId/:layerId", requireLayerAuthorizationAd
 });
 
 // POST = create or upsert one authorization.
-app.post("/api/user-authorizations", requireLayerAuthorizationAdmin, async (req, res) => {
+app.post("/api/user-authorizations", async (req, res) => {
   const client = await pool.connect();
 
   try {
@@ -19615,7 +20620,7 @@ app.post("/api/user-authorizations", requireLayerAuthorizationAdmin, async (req,
 });
 
 // PUT = update one authorization.
-app.put("/api/user-authorizations/:userId/:layerId", requireLayerAuthorizationAdmin, async (req, res) => {
+app.put("/api/user-authorizations/:userId/:layerId", async (req, res) => {
   try {
     await ensureUserLayerAuthorizationTable();
 
@@ -19673,7 +20678,7 @@ app.put("/api/user-authorizations/:userId/:layerId", requireLayerAuthorizationAd
 });
 
 // DELETE = remove authorization assignment.
-app.delete("/api/user-authorizations/:userId/:layerId", requireLayerAuthorizationAdmin, async (req, res) => {
+app.delete("/api/user-authorizations/:userId/:layerId", async (req, res) => {
   try {
     await ensureUserLayerAuthorizationTable();
 
@@ -19715,7 +20720,7 @@ app.delete("/api/user-authorizations/:userId/:layerId", requireLayerAuthorizatio
 });
 
 // Bulk save = one transaction for the whole visible matrix.
-app.put("/api/user-authorizations/user/:userId/bulk", requireLayerAuthorizationAdmin, async (req, res) => {
+app.put("/api/user-authorizations/user/:userId/bulk", async (req, res) => {
   const client = await pool.connect();
 
   try {
@@ -21691,3 +22696,8 @@ server.headersTimeout = 7210000; // Slightly higher than keepAliveTimeout
 
 // Increase max headers count for large multipart uploads
 server.maxHeadersCount = 3000;
+
+
+
+
+

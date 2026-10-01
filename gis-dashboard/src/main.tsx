@@ -1,4 +1,5 @@
 import React from "react";
+import AccessTracker from "./components/tracking/AccessTracker";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
@@ -46,6 +47,7 @@ import UserIndex from "./views/system/user/index";
 import UserManagement from "./views/system/user/UserManagement";
 import RoleIndex from "./views/system/role/index";
 import UserAuthorization from "./views/system/user/UserAuthorization";
+import LaporanPengguna from "./views/laporan/LaporanPengguna";
 
 // ======================================================
 // EWS
@@ -102,6 +104,7 @@ if (!rootElement) {
 createRoot(rootElement).render(
   <React.StrictMode>
     <BrowserRouter>
+      <AccessTracker />
       <Routes>
         {/* ==================================================
             PUBLIC ROUTES
@@ -229,6 +232,11 @@ createRoot(rootElement).render(
               path="/system/user-authorization"
               element={<UserAuthorization />}
             />
+
+            <Route
+              path="/laporan/pengguna"
+              element={<LaporanPengguna />}
+            />
           </Route>
         </Route>
 
@@ -247,3 +255,4 @@ createRoot(rootElement).render(
     </BrowserRouter>
   </React.StrictMode>,
 );
+

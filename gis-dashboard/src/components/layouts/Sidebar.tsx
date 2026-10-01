@@ -193,7 +193,7 @@ const mainMenus: MenuItem[] = [
      DETEKSI & ANALISIS KERAWANAN
   ============================================================ */
   {
-    title: "Deteksi & Analisis Kerawanan",
+    title: "My Location",
     description: "GPS dan status risiko lokasi",
     icon: AlertTriangle,
     children: [

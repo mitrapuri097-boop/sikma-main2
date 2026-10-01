@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, GeoJSON, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -46,6 +46,7 @@ const API_URL = (
 const API_ENDPOINTS = {
   locations: `${API_URL}/api/lokasi`,
   statistics: `${API_URL}/api/lokasi/statistics`,
+  dasGeometry: `${API_URL}/api/das/geometry-by-name`,
   export: `${API_URL}/api/lokasi/export`,
 };
 
@@ -479,13 +480,49 @@ function FitLocations({ locations }: { locations: ActivityRecord[] }) {
   return null;
 }
 
-function LocationInventoryMap({ locations }: { locations: ActivityRecord[] }) {
+function FitDasGeometry({ geometry }: { geometry: any }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!geometry) return;
+
+    try {
+      const layer = L.geoJSON(geometry);
+      const bounds = layer.getBounds();
+      if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [36, 36], maxZoom: 10 });
+      }
+    } catch (error) {
+      console.error("Invalid DAS geometry:", error);
+    }
+  }, [geometry, map]);
+
+  return null;
+}
+
+function LocationInventoryMap({
+  locations,
+  dasGeometry,
+  selectedDas,
+  dasLoading,
+  dasError,
+  onClearDas,
+}: {
+  locations: ActivityRecord[];
+  dasGeometry: any;
+  selectedDas: string;
+  dasLoading: boolean;
+  dasError: string;
+  onClearDas: () => void;
+}) {
   const mappedLocations = locations.filter((item) =>
     Number.isFinite(Number(item.latitude)) &&
     Number.isFinite(Number(item.longitude)) &&
     item.latitude !== null && item.latitude !== undefined &&
     item.longitude !== null && item.longitude !== undefined
   );
+
+  const hasMapContent = mappedLocations.length > 0 || Boolean(dasGeometry);
 
   return (
     <section className="mt-5 overflow-hidden rounded-2xl border bg-white shadow-[0_8px_30px_rgba(15,23,42,0.05)]"
@@ -495,7 +532,7 @@ function LocationInventoryMap({ locations }: { locations: ActivityRecord[] }) {
         <div>
           <h2 className="text-sm font-extrabold text-slate-800">Peta Sebaran Lokasi Kegiatan</h2>
           <p className="mt-1 text-[10px] text-slate-500">
-            Titik peta berasal dari koordinat lokasi yang tersimpan di database.
+            Pilih DAS dari data database untuk menampilkan batas DAS dan lokasi kegiatan di dalamnya.
           </p>
         </div>
         <div className="flex items-center gap-2 text-[10px] font-semibold text-slate-500">
@@ -504,10 +541,26 @@ function LocationInventoryMap({ locations }: { locations: ActivityRecord[] }) {
         </div>
       </div>
 
-      {mappedLocations.length ? (
+      {selectedDas && (
+        <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2.5" style={{ borderColor: THEME.border, backgroundColor: THEME.primaryBg }}>
+          <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-teal-800">DAS aktif</span>
+          <span className="rounded-lg border border-teal-200 bg-white px-2.5 py-1.5 text-[10px] font-extrabold text-teal-800">{selectedDas}</span>
+          {dasLoading && <span className="text-[9px] font-semibold text-slate-500">Memuat batas DAS…</span>}
+          {dasError && <span className="text-[9px] font-semibold text-rose-600">{dasError}</span>}
+          <button type="button" onClick={onClearDas} className="ml-auto inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[9px] font-bold text-slate-600 hover:bg-slate-50">
+            <X size={11} /> Hapus DAS
+          </button>
+        </div>
+      )}
+
+      {hasMapContent ? (
         <div className="relative h-[420px] w-full">
           <MapContainer
-            center={[Number(mappedLocations[0].latitude), Number(mappedLocations[0].longitude)]}
+            center={
+              mappedLocations.length
+                ? [Number(mappedLocations[0].latitude), Number(mappedLocations[0].longitude)]
+                : [0, 0]
+            }
             zoom={5}
             scrollWheelZoom
             className="h-full w-full"
@@ -517,7 +570,23 @@ function LocationInventoryMap({ locations }: { locations: ActivityRecord[] }) {
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
-            <FitLocations locations={mappedLocations} />
+            {!dasGeometry && <FitLocations locations={mappedLocations} />}
+            {dasGeometry && (
+              <>
+                <FitDasGeometry geometry={dasGeometry} />
+                <GeoJSON
+                  key={`${selectedDas}-${JSON.stringify(dasGeometry).length}`}
+                  data={dasGeometry}
+                  style={() => ({
+                    color: "#0F766E",
+                    weight: 2,
+                    opacity: 0.95,
+                    fillColor: "#14B8A6",
+                    fillOpacity: 0.14,
+                  })}
+                />
+              </>
+            )}
             {mappedLocations.map((item) => (
               <Marker
                 key={String(item.id)}
@@ -569,6 +638,9 @@ export default function Lokasi() {
   const [provinces, setProvinces] = useState<string[]>([]);
 
   const [dasOptions, setDasOptions] = useState<string[]>([]);
+  const [dasGeometry, setDasGeometry] = useState<any>(null);
+  const [dasLoading, setDasLoading] = useState(false);
+  const [dasError, setDasError] = useState("");
 
   const [loading, setLoading] = useState(true);
   const [statisticsLoading, setStatisticsLoading] = useState(true);
@@ -753,6 +825,55 @@ export default function Lokasi() {
       setRefreshing(false);
     }
   };
+
+  /* ==========================================================
+     DAS MAP SELECTION
+  ========================================================== */
+
+  useEffect(() => {
+    const dasName = filters.das.trim();
+
+    if (!dasName) {
+      setDasGeometry(null);
+      setDasError("");
+      setDasLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    const loadDasGeometry = async () => {
+      setDasLoading(true);
+      setDasError("");
+      setDasGeometry(null);
+
+      try {
+        const response = await fetch(
+          `${API_ENDPOINTS.dasGeometry}?dasName=${encodeURIComponent(dasName)}`,
+          { signal: controller.signal },
+        );
+
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok || result.success === false || !result.geom) {
+          throw new Error(result.error || result.message || "Batas DAS tidak ditemukan.");
+        }
+
+        setDasGeometry(result.geom);
+      } catch (error: any) {
+        if (error?.name !== "AbortError") {
+          console.error("Gagal memuat geometry DAS:", error);
+          setDasError(error?.message || "Gagal memuat batas DAS.");
+        }
+      } finally {
+        if (!controller.signal.aborted) setDasLoading(false);
+      }
+    };
+
+    loadDasGeometry();
+
+    return () => controller.abort();
+  }, [filters.das]);
 
   /* ==========================================================
      FILTER
@@ -1112,7 +1233,51 @@ export default function Lokasi() {
         </section>
 
         {/* PETA INVENTARISASI LOKASI */}
-        <LocationInventoryMap locations={records} />
+        <LocationInventoryMap
+          locations={records}
+          dasGeometry={dasGeometry}
+          selectedDas={filters.das}
+          dasLoading={dasLoading}
+          dasError={dasError}
+          onClearDas={() => updateFilter("das", "")}
+        />
+
+        {/* ====================================================
+            PENCARIAN DAS TERHUBUNG KE PETA
+        ==================================================== */}
+        <section className="mt-5 rounded-2xl border bg-white p-4 shadow-[0_8px_30px_rgba(15,23,42,0.05)]" style={{ borderColor: THEME.border }}>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+            <div className="min-w-0 flex-1">
+              <div className="mb-1.5 flex items-center gap-2">
+                <Trees size={15} className="text-teal-700" />
+                <label htmlFor="lokasi-das-search" className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-slate-700">Cari DAS</label>
+                {dasLoading && <span className="text-[9px] font-semibold text-slate-400">Memuat batas…</span>}
+              </div>
+              <input
+                id="lokasi-das-search"
+                list="lokasi-das-options"
+                value={filters.das}
+                onChange={(event) => updateFilter("das", event.target.value)}
+                placeholder="Ketik nama DAS, lalu pilih dari data database…"
+                autoComplete="off"
+                className="h-10 w-full rounded-xl border bg-slate-50 px-3 text-[11px] font-semibold text-slate-700 outline-none transition focus:bg-white focus:ring-2 focus:ring-teal-500/10"
+                style={{ borderColor: THEME.border }}
+              />
+              <datalist id="lokasi-das-options">
+                {dasOptions.map((das) => <option key={das} value={das} />)}
+              </datalist>
+            </div>
+
+            {filters.das && (
+              <button type="button" onClick={() => updateFilter("das", "")} className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border bg-white px-4 text-[10px] font-extrabold text-slate-600 transition hover:bg-slate-50" style={{ borderColor: THEME.border }}>
+                <X size={14} />
+                Hapus pilihan
+              </button>
+            )}
+          </div>
+          <div className="mt-2 text-[9px] text-slate-400">Pilih DAS untuk menampilkan batas wilayah DAS dan mengarahkan peta ke area tersebut. Data pilihan berasal dari API SIMITI.</div>
+          {dasError && <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[9px] font-semibold text-rose-700">{dasError}</div>}
+        </section>
 
         {/* ====================================================
             REGISTRY PANEL
