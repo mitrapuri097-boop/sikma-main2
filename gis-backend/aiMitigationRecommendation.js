@@ -1,4 +1,4 @@
-const express = require("express");
+﻿const express = require("express");
 const OpenAI = require("openai");
 
 const CATALOG = {
@@ -63,9 +63,10 @@ function createAiMitigationRecommendationRouter(pool) {
   const router = express.Router();
 
   router.post("/mitigation-recommendation", async (req, res) => {
+    const context = req.body?.context || {};
+    const hazard = String(context.hazard || "").toLowerCase();
+
     try {
-      const context = req.body?.context || {};
-      const hazard = String(context.hazard || "").toLowerCase();
       if (!CATALOG[hazard]) {
         return res.status(400).json({ success: false, message: `Jenis bencana '${hazard}' belum memiliki katalog mitigasi.` });
       }
@@ -175,7 +176,70 @@ function createAiMitigationRecommendationRouter(pool) {
       });
     } catch (error) {
       console.error("/api/ai/mitigation-recommendation error:", error);
-      res.status(500).json({ success: false, message: error?.message || "AI recommendation gagal." });
+
+      // ================================================================
+      // FALLBACK LOKAL
+      // Jika OpenAI tidak dapat digunakan karena credit/quota habis,
+      // SIMITI tetap memberikan rekomendasi dari CATALOG.
+      // Format response dibuat sama dengan response AI agar frontend
+      // tidak perlu diubah.
+      // ================================================================
+      const isCreditExhausted =
+        error?.status === 429 &&
+        (
+          error?.code === "credit_balance_exhausted" ||
+          error?.error?.code === "credit_balance_exhausted" ||
+          error?.error?.type === "insufficient_quota"
+        );
+
+      if (isCreditExhausted && CATALOG[hazard]) {
+        const fallbackCatalog = catalogFor(hazard);
+
+        const fallbackRecommendations = fallbackCatalog
+          .slice(0, 3)
+          .map(([id, name], index) => ({
+            rank: index + 1,
+            intervention_id: id,
+            intervention: name,
+            priority_score: Math.max(0, 90 - index * 10),
+            urgency: index === 0 ? "Tinggi" : index === 1 ? "Sedang" : "Sedang",
+            expected_effect:
+              "Mengurangi paparan atau dampak risiko bencana melalui intervensi mitigasi yang sesuai karakteristik wilayah.",
+            why:
+              `Intervensi ini dipilih dari katalog mitigasi ${hazard} dan perlu disesuaikan dengan kondisi lapangan serta evidence wilayah.`,
+            evidence: [
+              `Katalog mitigasi SIMITI untuk hazard ${hazard}.`,
+            ],
+            implementation_notes:
+              "Validasi kondisi lapangan, data spasial, kebutuhan teknis, kewenangan instansi, serta kelayakan implementasi sebelum pelaksanaan.",
+          }));
+
+        return res.json({
+          success: true,
+          area: context.selected_region || context.area?.label || "Wilayah terpilih",
+          hazard,
+          diagnosis:
+            `Rekomendasi mitigasi ${hazard} disusun menggunakan katalog mitigasi SIMITI karena layanan AI sedang tidak tersedia.`,
+          risk_level: "Perlu verifikasi",
+          primary_drivers: [],
+          recommendations: fallbackRecommendations,
+          confidence: 50,
+          verification_needed: true,
+          verification_reason:
+            "Layanan AI tidak tersedia karena quota/credit OpenAI habis. Rekomendasi ini merupakan fallback berbasis katalog dan wajib diverifikasi dengan kondisi lapangan.",
+          meta: {
+            model: "local-catalog-fallback",
+            source: "SIMITI local mitigation catalog",
+            generated_at: new Date().toISOString(),
+            fallback_reason: "OpenAI credit balance exhausted",
+          },
+        });
+      }
+
+      res.status(500).json({
+        success: false,
+        message: error?.message || "AI recommendation gagal.",
+      });
     }
   });
 
@@ -183,3 +247,5 @@ function createAiMitigationRecommendationRouter(pool) {
 }
 
 module.exports = { createAiMitigationRecommendationRouter, CATALOG };
+
+

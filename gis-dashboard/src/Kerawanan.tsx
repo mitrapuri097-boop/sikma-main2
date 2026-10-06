@@ -40,6 +40,13 @@ type GpsThreatState = {
 
 const Kerawanan = () => {
   // ============================================================
+  // ENTERPRISE SIDEBAR — UI ONLY
+  // Tidak mengubah logic GIS, API, layer, legend, atau data.
+  // ============================================================
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  // ============================================================
   // SIMITI Leaflet safety:
   // Bersihkan CircleMarker legacy/stale dari layer bencana.
   // CircleMarker tidak digunakan untuk layer bencana polygon.
@@ -172,7 +179,7 @@ const Kerawanan = () => {
   };
 
   // UI-only state; declared before every hook/render reference.
-  const [isBottomSummaryOpen, setIsBottomSummaryOpen] = useState(false);
+  const [isBottomSummaryOpen, setIsBottomSummaryOpen] = useState(true);
 
   // Leaflet needs a size recalculation after the bottom grid row collapses/expands.
   useEffect(() => {
@@ -227,8 +234,6 @@ const Kerawanan = () => {
 
   const navigate = useNavigate();
   const [showMenuDropdown, setShowMenuDropdown] = useState(false);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -436,8 +441,8 @@ const Kerawanan = () => {
   const [selectedLegendType, setSelectedLegendType] = useState<string | null>(null);
   const [selectedLegendColor, setSelectedLegendColor] = useState<string | null>(null);
 
-  // Legend enterprise: pada awalnya hanya nama layer yang tampil.
-  // Kelas + warna baru dibuka setelah user mengklik layer tersebut.
+  // Legend enterprise: layer aktif tampil horizontal.
+  // Kelas + warna baru dibuka setelah nama layer diklik.
   const [expandedLegendLayers, setExpandedLegendLayers] = useState<Set<string>>(
     new Set(),
   );
@@ -3182,7 +3187,12 @@ const Kerawanan = () => {
           // Point pada layer bencana tetap ditampilkan. Beberapa sumber bencana
           // menyimpan kejadian sebagai Point, jadi jangan dibuang karena itu membuat
           // tanda bencana hilang ketika area dipilih.
+          // SIMITI: Point/CircleMarker wajib memakai Canvas renderer.
+          // Renderer SVG dapat masuk ke Bounds.js dengan _pxBounds yang belum
+          // terbentuk ketika map sedang add/remove/invalidateSize.
+          const pointRenderer = window.L.canvas({ padding: 0.5 });
           return window.L.circleMarker([lat, lng], {
+            renderer: pointRenderer,
             radius: zoom > 10 ? 6 : 4,
             fillColor: tableColor,
             color: "#000",
@@ -4825,6 +4835,7 @@ const Kerawanan = () => {
         year: year,
       }));
 
+      console.log("🔎 MITIGASI DATA:", JSON.stringify(layerData?.mitigasiAdaptasi || [], null, 2));
       setAvailableLayers({
         kerawanan: layerData.kerawanan || [],
         mitigasiAdaptasi: layerData.mitigasiAdaptasi || [],
@@ -5039,6 +5050,7 @@ const Kerawanan = () => {
         year: year,
       }));
 
+      console.log("🔎 MITIGASI DATA:", JSON.stringify(layerData?.mitigasiAdaptasi || [], null, 2));
       setAvailableLayers({
         kerawanan: layerData.kerawanan || [],
         mitigasiAdaptasi: layerData.mitigasiAdaptasi || [],
@@ -5252,12 +5264,53 @@ const Kerawanan = () => {
         grouped.kejadian = [...grouped.kejadian, ...autoKejadian];
       }
 
-      // Authorization tetap diterapkan setelah availability check sebagai defense-in-depth.
-      // Ikuti alur kerawanan-ori: availability hanya menentukan layer yang
-      // tersedia pada wilayah terpilih; authorization tidak boleh mengosongkan
-      // checkbox katalog di panel ini. Authorization tetap dipakai pada endpoint
-      // backend saat layer benar-benar dimuat.
+      // ================================================================
+      // SAMAKAN DATA FLOW DENGAN kerawanan-ori.tsx
+      // ================================================================
+      // Availability hanya menentukan metadata/count layer pada wilayah
+      // terpilih. Catalog utama tetap berasal dari layerData.
+      //
+      // Khusus KEJADIAN:
+      // - layerData.kejadian = catalog utama
+      // - grouped.kejadian = hasil availability
+      // - catalog harus tetap dipertahankan walaupun availability kosong
+      // - availability boleh memperbarui metadata yang tersedia
+      //
+      // Dengan pola ini checkbox KEJADIAN tidak hilang hanya karena
+      // /api/layers/check-availability tidak mengembalikan item tertentu.
+
+      const kejadianCatalog = Array.isArray(layerData?.kejadian)
+        ? layerData.kejadian
+        : [];
+
+      const availableKejadianById = new Map(
+        grouped.kejadian.map((item: any) => [item.id, item]),
+      );
+
+      const mergedKejadian = kejadianCatalog.map((item: any) => ({
+        ...item,
+        ...(availableKejadianById.get(item.id) || {}),
+      }));
+
+      // Pertahankan auto-generated kejadian dari hasil availability yang
+      // memang belum ada di catalog utama.
+      const catalogIds = new Set(
+        kejadianCatalog.map((item: any) => item.id),
+      );
+
+      const extraAvailableKejadian = grouped.kejadian.filter(
+        (item: any) => !catalogIds.has(item.id),
+      );
+
+      grouped.kejadian = [
+        ...mergedKejadian,
+        ...extraAvailableKejadian,
+      ];
+
       console.log("Grouped available layers:", grouped);
+      console.log("Kejadian catalog:", kejadianCatalog);
+      console.log("Merged kejadian:", grouped.kejadian);
+
       setAvailableLayers(grouped);
     } catch (error) {
       console.error("Error checking layer availability:", error);
@@ -5364,6 +5417,13 @@ const Kerawanan = () => {
     tableName = resolvedTableName;
     // Tambahkan layer ke active layers
     setActiveLayers(prev => new Set([...prev, tableName]));
+
+    // Enterprise flow:
+    // checkbox -> activeLayers -> load GeoJSON -> infraData -> Data Grid
+    if (INFRA_IDS.includes(tableName as any)) {
+      setActiveBottomTab("mitigasi_adaptasi");
+      setIsBottomSummaryOpen(true);
+    }
     
     // Simpan metadata untuk kejadian layer
     if (tableName.startsWith('kejadian_') && year && category && !isShapefile) {
@@ -6613,12 +6673,23 @@ const Kerawanan = () => {
       bahaya_banjir: "bahaya_banjir",
       bahaya_banjir_bandang: "bahaya_banjir_bandang",
     };
+
+    // Semua layer Mitigasi & Adaptasi menggunakan
+    // satu bottom tab: mitigasi_adaptasi.
+    if (INFRA_IDS.includes(layerName as any)) {
+      return "mitigasi_adaptasi";
+    }
+
     return map[layerName] || layerName;
   };
 
   const openEnterpriseDataGrid = () => {
     const tab = enterpriseDataGridTabForLayer(enterpriseIdentify.layerName);
     setActiveBottomTab(tab);
+
+    // Pastikan panel Data Grid terbuka.
+    setIsBottomSummaryOpen(true);
+
     setEnterpriseIdentify((prev) => ({ ...prev, open: false }));
     const el = document.getElementById("enterprise-data-grid");
     if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -6733,7 +6804,14 @@ const Kerawanan = () => {
       if (Number.isFinite(lat) && Number.isFinite(lng)) {
         clearEnterpriseSearchHighlight();
         map.flyTo([lat, lng], 14, { duration: 1.0 });
-        const marker = window.L.circleMarker([lat, lng], { radius: 9, color: "#f59e0b", weight: 4, fillColor: "#fbbf24", fillOpacity: 0.35 }).addTo(map);
+        const marker = window.L.circleMarker([lat, lng], {
+          renderer: window.L.canvas({ padding: 0.5 }),
+          radius: 9,
+          color: "#f59e0b",
+          weight: 4,
+          fillColor: "#fbbf24",
+          fillOpacity: 0.35,
+        }).addTo(map);
         enterpriseSearchHighlightRef.current = marker;
         marker.bindPopup(`<b>${String(result.label).replace(/[&<>"]/g, "")}</b>`).openPopup();
       }
@@ -9950,208 +10028,340 @@ const Kerawanan = () => {
 
       case "mitigasi_adaptasi": {
         const activeInfra = INFRA_LAYERS.filter((l) => activeLayers.has(l.id));
+
         if (activeInfra.length === 0) {
           return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada layer infrastruktur yang aktif
-                </p>
+            <div
+              style={{
+                height: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "#ffffff",
+              }}
+            >
+              <div style={{ textAlign: "center", color: "#9ca3af" }}>
+                <div
+                  style={{
+                    width: "42px",
+                    height: "42px",
+                    margin: "0 auto 10px",
+                    borderRadius: "12px",
+                    background: "#f3f4f6",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "20px",
+                  }}
+                >
+                  🏗️
+                </div>
+                <div style={{ fontSize: "13px", fontWeight: 500 }}>
+                  Belum ada data Mitigasi & Adaptasi
+                </div>
+                <div style={{ fontSize: "11px", marginTop: "4px" }}>
+                  Aktifkan layer infrastruktur untuk melihat data.
+                </div>
               </div>
             </div>
           );
         }
+
+        const renderConditionBadge = (value: any) => {
+          const textValue = String(value ?? "-").trim();
+
+          if (!textValue || textValue === "-") {
+            return <span style={{ color: "#9ca3af" }}>-</span>;
+          }
+
+          const lower = textValue.toLowerCase();
+
+          let background = "#FEF3C7";
+          let color = "#92400E";
+          let border = "#FDE68A";
+
+          if (
+            lower.includes("baik") ||
+            lower.includes("operasi") ||
+            lower.includes("normal")
+          ) {
+            background = "#ECFDF3";
+            color = "#166534";
+            border = "#BBF7D0";
+          } else if (
+            lower.includes("rusak") ||
+            lower.includes("buruk") ||
+            lower.includes("tidak")
+          ) {
+            background = "#FEF2F2";
+            color = "#B91C1C";
+            border = "#FECACA";
+          }
+
+          return (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                maxWidth: "100%",
+                padding: "3px 8px",
+                borderRadius: "999px",
+                background,
+                color,
+                border: `1px solid ${border}`,
+                fontSize: "10px",
+                lineHeight: 1.2,
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+              }}
+              title={textValue}
+            >
+              <span
+                style={{
+                  width: "5px",
+                  height: "5px",
+                  borderRadius: "50%",
+                  background: color,
+                  flexShrink: 0,
+                }}
+              />
+              {textValue}
+            </span>
+          );
+        };
+
         return (
           <div
-            className="h-full overflow-auto"
-            style={{ maxHeight: "calc(35vh - 60px)" }}
+            style={{
+              height: "100%",
+              overflowY: "auto",
+              overflowX: "hidden",
+              background: "#ffffff",
+            }}
           >
             {activeInfra.map((layer, idx) => {
               const rows = infraData[layer.id] || [];
+
               return (
-                <div key={layer.id}>
-                  {idx > 0 && (
-                    <div
-                      style={{
-                        height: "1px",
-                        background: "var(--color-border-tertiary, #e5e7eb)",
-                      }}
-                    />
-                  )}
+                <section
+                  key={layer.id}
+                  style={{
+                    borderBottom:
+                      idx < activeInfra.length - 1
+                        ? "8px solid #f8fafc"
+                        : "none",
+                  }}
+                >
+                  {/* Header layer — dibuat seperti panel profesional pada mockup */}
                   <div
                     style={{
-                      padding: "6px 12px",
-                      background: "#f9fafb",
+                      minHeight: "42px",
+                      padding: "7px 12px",
                       display: "flex",
                       alignItems: "center",
                       gap: "8px",
+                      background: "#ffffff",
                       borderBottom: "1px solid #e5e7eb",
                     }}
                   >
                     <span
                       style={{
-                        width: "10px",
-                        height: "10px",
+                        width: "8px",
+                        height: "8px",
                         borderRadius: "50%",
                         background: layer.color,
-                        display: "inline-block",
+                        boxShadow: `0 0 0 3px ${layer.color}22`,
                         flexShrink: 0,
                       }}
                     />
-                    <span style={{ fontSize: "13px", fontWeight: 500 }}>
-                      {layer.label}
-                    </span>
+
                     <span
                       style={{
-                        fontSize: "11px",
-                        color: "#6b7280",
-                        background: "#e5e7eb",
-                        borderRadius: "99px",
-                        padding: "1px 8px",
+                        color: "#111827",
+                        fontSize: "13px",
+                        fontWeight: 650,
+                        letterSpacing: "-0.01em",
+                      }}
+                    >
+                      {layer.label}
+                    </span>
+
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        height: "20px",
+                        padding: "0 8px",
+                        borderRadius: "999px",
+                        background: "#f1f5f9",
+                        color: "#64748b",
+                        fontSize: "10px",
+                        fontWeight: 600,
                       }}
                     >
                       {rows.length} data
                     </span>
                   </div>
+
                   {rows.length === 0 ? (
-                    <div className="p-3 text-center text-xs text-gray-400">
-                      Tidak ada data di area ini
+                    <div
+                      style={{
+                        padding: "26px 16px",
+                        textAlign: "center",
+                        color: "#9ca3af",
+                        fontSize: "11px",
+                      }}
+                    >
+                      Tidak ada data di area yang dipilih.
                     </div>
                   ) : (
-                    <div style={{ overflowX: "auto" }}>
+                    <div
+                      style={{
+                        width: "100%",
+                        overflowX: "auto",
+                        overflowY: "auto",
+                        maxHeight: "calc(35vh - 96px)",
+                      }}
+                    >
                       <table
                         style={{
                           width: "100%",
-                          fontSize: "11px",
-                          borderCollapse: "collapse",
+                          minWidth: Math.max(
+                            760,
+                            30 + layer.cols.length * 145,
+                          ),
+                          borderCollapse: "separate",
+                          borderSpacing: 0,
                           tableLayout: "fixed",
+                          fontSize: "11px",
                         }}
                       >
                         <thead>
-                          <tr style={{ background: "#f3f4f6" }}>
+                          <tr>
                             <th
                               style={{
-                                padding: "6px 8px",
+                                position: "sticky",
+                                top: 0,
+                                zIndex: 3,
+                                width: "34px",
+                                padding: "7px 6px",
                                 textAlign: "left",
-                                fontWeight: 500,
-                                color: "#6b7280",
-                                borderBottom: "1px solid #e5e7eb",
-                                width: "30px",
+                                color: "#64748b",
+                                background: "#f8fafc",
+                                borderBottom: "1px solid #e2e8f0",
+                                fontWeight: 600,
                               }}
                             >
                               No
                             </th>
+
                             {layer.cols.map((col) => (
                               <th
                                 key={col.k}
                                 style={{
-                                  padding: "6px 8px",
+                                  position: "sticky",
+                                  top: 0,
+                                  zIndex: 3,
+                                  width:
+                                    col.h === "Nama" ||
+                                    col.h === "Sumber Air"
+                                      ? "190px"
+                                      : "145px",
+                                  padding: "7px 8px",
                                   textAlign: "left",
-                                  fontWeight: 500,
-                                  color: "#6b7280",
-                                  borderBottom: "1px solid #e5e7eb",
+                                  color: "#64748b",
+                                  background: "#f8fafc",
+                                  borderBottom: "1px solid #e2e8f0",
+                                  fontWeight: 600,
                                   whiteSpace: "nowrap",
                                   overflow: "hidden",
                                   textOverflow: "ellipsis",
                                 }}
+                                title={col.h}
                               >
                                 {col.h}
                               </th>
                             ))}
                           </tr>
                         </thead>
+
                         <tbody>
                           {rows.map((row, i) => (
                             <tr
                               key={i}
-                              style={{ borderBottom: "1px solid #f3f4f6" }}
-                              onMouseEnter={() =>
+                              onMouseEnter={(event) => {
+                                event.currentTarget.style.background = "#f8fbff";
                                 handleRowMouseEnter(
                                   String(row[layer.cols[0].k] ?? ""),
                                   layer.id,
                                   layer.color,
-                                )
-                              }
-                              onMouseLeave={handleRowMouseLeave}
+                                );
+                              }}
+                              onMouseLeave={(event) => {
+                                event.currentTarget.style.background = "#ffffff";
+                                handleRowMouseLeave();
+                              }}
+                              style={{
+                                background: "#ffffff",
+                                transition: "background 120ms ease",
+                              }}
                             >
                               <td
-                                style={{ padding: "5px 8px", color: "#374151" }}
+                                style={{
+                                  padding: "6px",
+                                  color: "#64748b",
+                                  borderBottom: "1px solid #f1f5f9",
+                                  verticalAlign: "middle",
+                                }}
                               >
                                 {i + 1}
                               </td>
+
                               {layer.cols.map((col) => {
-                                const val = row[col.k] || "-";
-                                const isKondisi =
+                                const rawValue = row[col.k];
+                                const value =
+                                  rawValue === null ||
+                                  rawValue === undefined ||
+                                  rawValue === ""
+                                    ? "-"
+                                    : String(rawValue);
+
+                                const isCondition =
                                   col.h === "Kondisi" ||
                                   col.h === "Kondisi Teknis";
-                                if (isKondisi) {
-                                  const lower = String(val).toLowerCase();
-                                  const bg = lower.includes("baik")
-                                    ? "#EAF3DE"
-                                    : lower.includes("rusak")
-                                      ? "#FCEBEB"
-                                      : "#FAEEDA";
-                                  const color = lower.includes("baik")
-                                    ? "#3B6D11"
-                                    : lower.includes("rusak")
-                                      ? "#A32D2D"
-                                      : "#854F0B";
-                                  return (
-                                    <td
-                                      key={col.k}
-                                      style={{ padding: "5px 8px" }}
-                                    >
-                                      {val !== "-" ? (
-                                        <span
-                                          style={{
-                                            background: bg,
-                                            color,
-                                            borderRadius: "99px",
-                                            padding: "2px 7px",
-                                            fontSize: "10px",
-                                            fontWeight: 500,
-                                          }}
-                                        >
-                                          {val}
-                                        </span>
-                                      ) : (
-                                        "-"
-                                      )}
-                                    </td>
-                                  );
-                                }
+
                                 return (
                                   <td
                                     key={col.k}
                                     style={{
-                                      padding: "5px 8px",
-                                      color: "#374151",
+                                      padding: "6px 8px",
+                                      color: "#334155",
+                                      borderBottom: "1px solid #f1f5f9",
+                                      verticalAlign: "middle",
                                       whiteSpace: "nowrap",
                                       overflow: "hidden",
                                       textOverflow: "ellipsis",
-                                      maxWidth: "150px",
                                     }}
+                                    title={value}
                                   >
-                                    {val}
+                                    {isCondition
+                                      ? renderConditionBadge(value)
+                                      : value}
                                   </td>
                                 );
                               })}
                             </tr>
                           ))}
-                          <tr>
-                            <td
-                              colSpan={layer.cols.length + 1}
-                              style={{ height: "8px" }}
-                            />
-                          </tr>
                         </tbody>
                       </table>
                     </div>
                   )}
-                </div>
+                </section>
               );
             })}
-            <div style={{ height: "80px" }} />
+
+            <div style={{ height: "60px" }} />
           </div>
         );
       }
@@ -10644,6 +10854,7 @@ const Kerawanan = () => {
                     gpsAccuracyCircleRef.current.setRadius(radius);
                   } else {
                     gpsAccuracyCircleRef.current = L.circle(latLng, {
+                      renderer: L.canvas({ padding: 0.5 }),
                       radius,
                       color: "#16a34a",
                       weight: 1,
@@ -10915,7 +11126,7 @@ const Kerawanan = () => {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#f4f7f6] text-slate-800">
+    <div className="flex h-screen w-full overflow-hidden bg-[#f4f7f6] text-slate-800">
       <style>{`
         @media print {
           @page {
@@ -11026,6 +11237,13 @@ const Kerawanan = () => {
         .kerawanan-map,
         .kerawanan-layer-panel,
         .kerawanan-bottom-summary { min-width: 0; }
+        .kerawanan-bottom-summary {
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        }
+        .kerawanan-bottom-summary > * { min-width: 0; }
+        .kerawanan-layer-panel { position: relative; z-index: 20; }
+        .kerawanan-bottom-summary { position: relative; z-index: 10; }
+        .kerawanan-bottom-summary button { min-width: 0; }
 
         @media (max-width: 1279px) {
           .kerawanan-workspace {
@@ -11053,6 +11271,7 @@ const Kerawanan = () => {
             height: auto !important;
             min-height: 0 !important;
             overflow: visible !important;
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
           }
           .kerawanan-bottom-summary > * {
             min-width: 0;
@@ -11257,35 +11476,47 @@ const Kerawanan = () => {
       `}</style>
 
       {/* =========================================================
-          SIDEBAR — gunakan komponen reusable dari src/views/components
-         ========================================================= */}
+          ENTERPRISE SIDEBAR
+          ========================================================= */}
       <Sidebar
         collapsed={sidebarCollapsed}
         mobileOpen={mobileSidebarOpen}
         onCloseMobile={() => setMobileSidebarOpen(false)}
-        onToggle={() => setSidebarCollapsed((prev) => !prev)}
       />
+
+      {/* Desktop sidebar collapse / expand */}
+      <button
+        type="button"
+        className={`hidden md:flex fixed top-[20px] z-[4000] h-9 w-9 items-center justify-center rounded-lg border border-slate-700 bg-[#0F172A] text-slate-300 shadow-lg transition-all duration-300 hover:bg-slate-800 hover:text-white ${
+          sidebarCollapsed ? "left-[68px]" : "left-[270px]"
+        }`}
+        onClick={() => setSidebarCollapsed((v) => !v)}
+        aria-label={sidebarCollapsed ? "Tampilkan sidebar" : "Sembunyikan sidebar"}
+        title={sidebarCollapsed ? "Tampilkan sidebar" : "Sembunyikan sidebar"}
+      >
+        <span className="text-xl leading-none">
+          {sidebarCollapsed ? "›" : "‹"}
+        </span>
+      </button>
+
+      {/* Mobile menu trigger — hanya UI/sidebar, tidak menyentuh GIS */}
+      <button
+        type="button"
+        className="mobile-menu-button fixed left-3 top-3 z-[4000] md:hidden"
+        onClick={() => setMobileSidebarOpen(true)}
+        aria-label="Buka menu navigasi"
+        title="Buka menu navigasi"
+      >
+        <span />
+        <span />
+        <span />
+      </button>
 
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {/* =========================================================
             HEADER
            ========================================================= */}
         <div className="shrink-0 bg-white border-b border-slate-200 relative">
-          <div className="mobile-topbar">
-            <button
-              type="button"
-              onClick={() => setMobileSidebarOpen(true)}
-              className="mobile-menu-button"
-              aria-label="Buka menu navigasi"
-            >
-              <span></span>
-              <span></span>
-              <span></span>
-            </button>
-            <div className="mobile-page-title">
-              SIMITI <span>• Kawasan Rawan</span>
-            </div>
-          </div>
           <Header currentPage="kerawanan" />
           {isAuthenticated && (
             <div className="px-4 py-1 bg-emerald-50 border-t border-emerald-100 flex items-center justify-between">
@@ -11329,7 +11560,7 @@ const Kerawanan = () => {
             } gap-0 transition-[grid-template-columns,grid-template-rows] duration-300 ease-out`}
             style={{
               gridTemplateRows: isBottomSummaryOpen
-                ? "minmax(0, 1fr) 184px"
+                ? "minmax(0, 1fr) 260px"
                 : "minmax(0, 1fr) 0px",
               rowGap: isBottomSummaryOpen ? "8px" : "0px",
             }}
@@ -11338,7 +11569,7 @@ const Kerawanan = () => {
                 MAP — pusat visual seperti mockup
                ===================================================== */}
             <section
-                className={`kerawanan-map relative min-w-0 w-full ${isBottomSummaryOpen ? "min-h-[520px]" : "min-h-0"} xl:min-h-0 rounded-xl overflow-hidden bg-sky-100 border border-white shadow-sm transition-[grid-column] duration-300 ${
+                className={`kerawanan-map relative min-w-0 w-full ${isBottomSummaryOpen ? "min-h-[500px]" : "min-h-0"} xl:min-h-0 rounded-xl overflow-hidden bg-sky-100 border border-white shadow-sm transition-[grid-column] duration-300 ${
                   isRightLayerPanelOpen ? "" : "xl:col-span-full"
                 }`}
               >
@@ -11741,15 +11972,23 @@ const Kerawanan = () => {
                                       activeLayers.has(String(layer.isManual ? layer.name : layer.id)) ||
                                       activeLayers.has(String(layer.name))
                                     }
-                                    onChange={(e) =>
+                                    onChange={(e) => {
+                                      console.log("🔎 CHECKBOX LAYER:", {
+                                        id: layer.id,
+                                        name: layer.name,
+                                        label: layer.label,
+                                        isManual: layer.isManual,
+                                        checked: e.target.checked,
+                                      });
+
                                       handleLayerToggle(
                                         layer.isManual ? layer.name : layer.id,
                                         e.target.checked,
                                         layer.year,
                                         layer.category,
                                         layer.isShapefile,
-                                      )
-                                    }
+                                      );
+                                    }}
                                     disabled={loadingLayerNames.has(layer.name)}
                                   />
                                   <span className="text-[10px] flex-1 truncate">
@@ -11767,218 +12006,401 @@ const Kerawanan = () => {
              </aside>
 
             {/* =====================================================
-                BOTTOM ANALYTICS — 3 kartu seperti mockup
+                BOTTOM ANALYTICS — KERAWANAN + MITIGASI & ADAPTASI
+                Dua panel independen, selalu berdampingan pada desktop.
+                Tidak mengubah logic layer / API / map.
                ===================================================== */}
             <section
               id="kerawanan-bottom-summary-panel"
-              className={`kerawanan-bottom-summary min-h-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[1.35fr_1fr] gap-2 overflow-hidden transition-opacity duration-200 ${
+              className={`kerawanan-bottom-summary min-h-0 grid grid-cols-2 gap-2.5 overflow-hidden transition-opacity duration-200 ${
                 isBottomSummaryOpen ? "opacity-100" : "hidden"
+              } ${
+                isRightLayerPanelOpen
+                  ? "xl:col-span-1 xl:col-start-1"
+                  : "xl:col-span-full"
               }`}
             >
-              {/* LEGEND KERAWANAN — menggantikan panel Sebaran Tingkat Kerawanan */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 overflow-hidden">
-                <div className="h-full flex flex-col">
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div>
-                      <div className="text-[8px] uppercase tracking-[0.08em] text-slate-400 font-bold">
-                        Legenda Kerawanan
-                      </div>
-                      <div className="text-[7px] text-slate-500 mt-1">
-                        Layer aktif pada peta
-                      </div>
-                    </div>
-                    <span className="shrink-0 inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-[7px] font-bold text-emerald-700 ring-1 ring-emerald-100">
-                      LEGEND
-                    </span>
-                  </div>
-                  <div className="min-h-0 flex-1">
-                    {(() => {
-                      const legendLayerNames = [
-                        "risiko_banjir",
-                        "risiko_banjir_bandang",
-                        "risiko_kekeringan",
-                        "risiko_abrasi",
-                        "risiko_longsor",
-                        "risiko_karhutla",
-                      ] as const;
+              {(() => {
+                const legendRiskLayers = [
+                  "risiko_banjir",
+                  "risiko_banjir_bandang",
+                  "risiko_kekeringan",
+                  "risiko_abrasi",
+                  "risiko_longsor",
+                  "risiko_karhutla",
+                ] as const;
 
-                      // Tampilkan semua layer risiko yang sedang aktif,
-                      // walaupun data kelasnya belum tersedia.
-                      const activeRiskLayers = legendLayerNames.filter((name) =>
-                        activeLayers.has(name),
-                      );
+                const activeRiskLayers = legendRiskLayers.filter((name) =>
+                  activeLayers.has(name),
+                );
+                const activeInfraLayers = INFRA_LAYERS.filter((layer) =>
+                  activeLayers.has(layer.id),
+                );
 
-                      if (activeRiskLayers.length === 0) return (
-                        <div className="h-full min-h-[110px] rounded-lg border border-dashed border-slate-200 bg-slate-50/70 flex items-center justify-center px-3 text-center text-[8px] text-slate-400">
-                          Aktifkan layer kerawanan untuk menampilkan legenda.
-                        </div>
-                      );
+                const selectedRiskLayer =
+                  activeRiskLayers.find((name) =>
+                    expandedLegendLayers.has(name),
+                  ) || activeRiskLayers[0];
 
-                      const toggleLegendLayer = (layerName: string) => {
-                        setExpandedLegendLayers((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(layerName)) {
-                            next.delete(layerName);
-                          } else {
-                            next.add(layerName);
-                          }
-                          return next;
-                        });
-                      };
+                const selectedInfraLayer =
+                  activeInfraLayers.find((layer) =>
+                    expandedLegendLayers.has(layer.id),
+                  ) || activeInfraLayers[0];
 
-                      return (
-                        <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
-                          {activeRiskLayers.map((layerName) => {
-                            const isExpanded = expandedLegendLayers.has(layerName);
-                            const items = risikoData[layerName] || [];
+                const selectedRiskItems = selectedRiskLayer
+                  ? risikoData[selectedRiskLayer] || []
+                  : [];
+                const selectedInfraRows = selectedInfraLayer
+                  ? infraData[selectedInfraLayer.id] || []
+                  : [];
 
-                            return (
-                              <div
-                                key={layerName}
-                                className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,.04)]"
-                              >
-                                {/* Layer utama — TANPA warna.
-                                    Warna/kelas baru muncul setelah diklik. */}
-                                <button
-                                  type="button"
-                                  onClick={() => toggleLegendLayer(layerName)}
-                                  className={`flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors ${
-                                    isExpanded
-                                      ? "bg-slate-50"
-                                      : "bg-white hover:bg-slate-50"
-                                  }`}
-                                >
-                                  <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-slate-100 text-[9px] text-slate-500">
-                                    {isExpanded ? "−" : "+"}
-                                  </span>
-                                  <span className="min-w-0 flex-1 truncate text-[9px] font-bold text-slate-700">
-                                    {formatTableName(layerName)}
-                                  </span>
-                                  <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[7px] font-semibold text-slate-500">
-                                    {items.length} kelas
-                                  </span>
-                                </button>
+                const selectLayer = (name: string) =>
+                  setExpandedLegendLayers(new Set([name]));
 
-                                {isExpanded && (
-                                  <div className="border-t border-slate-100">
-                                    {items.length > 0 ? (
-                                      <table className="w-full text-[8px]">
-                                        <thead>
-                                          <tr className="border-b border-slate-100 bg-slate-50/70 text-slate-500">
-                                            <th className="w-7 px-2 py-1 text-left font-semibold">No</th>
-                                            <th className="px-2 py-1 text-left font-semibold">Warna</th>
-                                            <th className="px-2 py-1 text-left font-semibold">Kelas Kerawanan</th>
-                                            <th className="px-2 py-1 text-right font-semibold">Luas</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {items.map((item, idx) => (
-                                            <tr
-                                              key={`${layerName}-${item.kelas}-${idx}`}
-                                              className={`border-b border-slate-50 last:border-0 hover:bg-emerald-50/50 cursor-pointer transition-colors ${
-                                                selectedLegendKey === item.kelas &&
-                                                selectedLegendType === layerName
-                                                  ? "bg-emerald-50 ring-1 ring-inset ring-emerald-300"
-                                                  : ""
-                                              }`}
-                                              title="Klik untuk menerapkan warna kelas ini ke daerah terpilih"
-                                              onClick={() =>
-                                                handleLegendClick(
-                                                  item.kelas,
-                                                  layerName,
-                                                  item.color || "#808080",
-                                                )
-                                              }
-                                              onMouseEnter={() =>
-                                                handleRowMouseEnter(
-                                                  item.kelas,
-                                                  layerName,
-                                                  item.color || "#808080",
-                                                )
-                                              }
-                                              onMouseLeave={handleRowMouseLeave}
-                                            >
-                                              <td className="px-2 py-1 text-slate-500">
-                                                {idx + 1}
-                                              </td>
-                                              <td className="px-2 py-1">
-                                                <span
-                                                  className="block h-3 w-6 rounded-sm border border-slate-300"
-                                                  style={{
-                                                    backgroundColor:
-                                                      item.color || "#808080",
-                                                  }}
-                                                />
-                                              </td>
-                                              <td className="px-2 py-1 text-slate-700">
-                                                {item.kelas || "-"}
-                                              </td>
-                                              <td className="px-2 py-1 text-right text-slate-600 tabular-nums">
-                                                {Number(item.luas || 0).toLocaleString(
-                                                  "id-ID",
-                                                  { maximumFractionDigits: 2 },
-                                                )}
-                                              </td>
-                                            </tr>
-                                          ))}
-                                        </tbody>
-                                      </table>
-                                    ) : (
-                                      <div className="px-3 py-2 text-[8px] text-slate-400">
-                                        Belum ada kelas kerawanan untuk layer ini.
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
+                const value = (v: any) => {
+                  const t = String(v ?? "").trim();
+                  return t || "-";
+                };
+
+                return (
+                  <>
+                    {/* =================================================
+                        PANEL 1 — KERAWANAN
+                       ================================================= */}
+                    <div className="relative min-w-0 min-h-0 overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
+                      <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-400" />
+
+                      <div className="h-full min-h-0 flex flex-col p-3">
+                        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M4 19V5" />
+                                <path d="M4 19h16" />
+                                <path d="m7 15 3-4 3 2 5-7" />
+                              </svg>
+                            </span>
+                            <div className="min-w-0">
+                              <div className="truncate text-[10px] font-extrabold uppercase tracking-[0.08em] text-slate-800">
+                                Kerawanan
                               </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              </div>
+                              <div className="mt-0.5 truncate text-[7px] font-medium text-slate-400">
+                                Layer risiko yang sedang aktif
+                              </div>
+                            </div>
+                          </div>
 
-              {/* KEJADIAN TERKINI */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 overflow-hidden">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <div className="text-[8px] uppercase tracking-wide text-slate-400 font-bold">
-                      Kejadian Terkini di Sekitar Lokasi
-                    </div>
-                    <div className="text-[7px] text-slate-400 mt-1">
-                      {kejadianListings.length || 0} record
-                    </div>
-                  </div>
-                  <button className="text-[8px] text-emerald-700 font-semibold">
-                    Lihat Semua
-                  </button>
-                </div>
-                <div className="mt-2 space-y-1.5">
-                  {kejadianListings.slice(0, 4).map((item: any, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="w-5 h-5 rounded-full bg-orange-100 flex items-center justify-center text-[8px]">
-                        ⚠
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <b className="text-[8px] block truncate">
-                          {item.title || item.incident_type || "Kejadian Bencana"}
-                        </b>
-                        <span className="text-[7px] text-slate-400">
-                          {item.incident_date || "—"}
-                        </span>
+                          <span className="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 text-[6px] font-extrabold tracking-wide text-emerald-700">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                            {activeRiskLayers.length} LAYER
+                          </span>
+                        </div>
+
+                        <div className="mt-2 min-h-0 flex-1 grid grid-rows-[auto_minmax(0,1fr)] gap-2">
+                          {activeRiskLayers.length > 0 ? (
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {activeRiskLayers.map((name) => {
+                                const selected = selectedRiskLayer === name;
+                                const n = (risikoData[name] || []).length;
+
+                                return (
+                                  <button
+                                    key={name}
+                                    type="button"
+                                    onClick={() => selectLayer(name)}
+                                    className={`min-w-0 flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-left transition-all ${
+                                      selected
+                                        ? "border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm"
+                                        : "border-slate-100 bg-slate-50/60 text-slate-500 hover:border-emerald-100 hover:bg-white"
+                                    }`}
+                                  >
+                                    <span
+                                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                                        selected ? "bg-emerald-600" : "bg-slate-300"
+                                      }`}
+                                    />
+                                    <span className="min-w-0 flex-1 truncate text-[7px] font-extrabold">
+                                      {formatTableName(name)}
+                                    </span>
+                                    <span className="shrink-0 rounded-full bg-white px-1.5 py-0.5 text-[6px] font-bold text-slate-500 ring-1 ring-slate-100">
+                                      {n}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="flex min-h-[52px] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-3 text-center">
+                              <div>
+                                <div className="text-[8px] font-bold text-slate-500">
+                                  Belum ada layer Kerawanan aktif
+                                </div>
+                                <div className="mt-1 text-[6px] text-slate-400">
+                                  Centang layer Kerawanan di panel Layer.
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="min-h-0 overflow-hidden rounded-xl border border-slate-100 bg-white">
+                            {selectedRiskLayer ? (
+                              selectedRiskItems.length ? (
+                                <div className="h-full overflow-y-auto p-1.5">
+                                  <div className="mb-1 grid grid-cols-[22px_minmax(0,1fr)_82px] gap-2 px-1.5 text-[6px] font-extrabold uppercase tracking-wide text-slate-400">
+                                    <span />
+                                    <span>Kelas Risiko</span>
+                                    <span className="text-right">Luas</span>
+                                  </div>
+
+                                  {selectedRiskItems.map((item, idx) => (
+                                    <button
+                                      type="button"
+                                      key={`${selectedRiskLayer}-${item.kelas}-${idx}`}
+                                      className={`grid w-full grid-cols-[22px_minmax(0,1fr)_82px] items-center gap-2 rounded-lg px-1.5 py-1.5 text-left hover:bg-emerald-50/60 ${
+                                        selectedLegendKey === item.kelas &&
+                                        selectedLegendType === selectedRiskLayer
+                                          ? "bg-emerald-50 ring-1 ring-emerald-100"
+                                          : ""
+                                      }`}
+                                      onClick={() =>
+                                        handleLegendClick(
+                                          item.kelas,
+                                          selectedRiskLayer,
+                                          item.color || "#808080",
+                                        )
+                                      }
+                                      onMouseEnter={() =>
+                                        handleRowMouseEnter(
+                                          item.kelas,
+                                          selectedRiskLayer,
+                                          item.color || "#808080",
+                                        )
+                                      }
+                                      onMouseLeave={handleRowMouseLeave}
+                                    >
+                                      <span
+                                        className="block h-3.5 w-5 rounded-md ring-1 ring-black/5"
+                                        style={{
+                                          backgroundColor:
+                                            item.color || "#808080",
+                                        }}
+                                      />
+                                      <span className="truncate text-[7px] font-semibold text-slate-700">
+                                        {item.kelas || "-"}
+                                      </span>
+                                      <span className="text-right text-[7px] font-extrabold tabular-nums text-slate-600">
+                                        {(() => {
+                                          const raw = Number(item.luas) || 0;
+                                          const ha = raw > 100000 ? raw / 10000 : raw;
+                                          return `${ha.toLocaleString("id-ID", {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })} ha`;
+                                        })()}
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="flex h-full items-center justify-center px-4 text-center text-[8px] text-slate-400">
+                                  Belum ada kelas kerawanan untuk layer ini.
+                                </div>
+                              )
+                            ) : (
+                              <div className="flex h-full items-center justify-center px-4 text-center text-[8px] text-slate-400">
+                                Pilih layer Kerawanan untuk melihat kelas dan luas.
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  ))}
-                  {!kejadianListings.length && (
-                    <div className="text-[8px] text-slate-400 py-4">
-                      Belum ada kejadian aktif untuk lokasi ini.
+
+                    {/* =================================================
+                        PANEL 2 — MITIGASI & ADAPTASI
+                       ================================================= */}
+                    <div className="relative min-w-0 min-h-0 overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
+                      <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-teal-600 via-cyan-500 to-sky-400" />
+
+                      <div className="h-full min-h-0 flex flex-col p-3">
+                        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-teal-50 text-teal-700 ring-1 ring-teal-100">
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M3 21h18" />
+                                <path d="M5 21V8l7-5 7 5v13" />
+                                <path d="M9 21v-5h6v5" />
+                                <path d="M9 10h.01M15 10h.01" />
+                              </svg>
+                            </span>
+                            <div className="min-w-0">
+                              <div className="truncate text-[10px] font-extrabold uppercase tracking-[0.08em] text-slate-800">
+                                Mitigasi &amp; Adaptasi
+                              </div>
+                              <div className="mt-0.5 truncate text-[7px] font-medium text-slate-400">
+                                Infrastruktur dan tindakan mitigasi aktif
+                              </div>
+                            </div>
+                          </div>
+
+                          <span className="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-teal-100 bg-teal-50 px-2 py-1 text-[6px] font-extrabold tracking-wide text-teal-700">
+                            <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
+                            {activeInfraLayers.length} LAYER
+                          </span>
+                        </div>
+
+                        <div className="mt-2 min-h-0 flex-1 grid grid-rows-[auto_minmax(0,1fr)] gap-2">
+                          {activeInfraLayers.length > 0 ? (
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {activeInfraLayers.map((layer) => {
+                                const selected = selectedInfraLayer?.id === layer.id;
+                                const n = (infraData[layer.id] || []).length;
+
+                                return (
+                                  <button
+                                    key={layer.id}
+                                    type="button"
+                                    onClick={() => selectLayer(layer.id)}
+                                    className={`min-w-0 flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-left transition-all ${
+                                      selected
+                                        ? "border-teal-200 bg-teal-50 text-teal-700 shadow-sm"
+                                        : "border-slate-100 bg-slate-50/60 text-slate-500 hover:border-teal-100 hover:bg-white"
+                                    }`}
+                                  >
+                                    <span
+                                      className="h-2 w-2 shrink-0 rounded-full ring-2 ring-white shadow-sm"
+                                      style={{ backgroundColor: layer.color }}
+                                    />
+                                    <span className="min-w-0 flex-1 truncate text-[7px] font-extrabold">
+                                      {layer.label}
+                                    </span>
+                                    <span className="shrink-0 rounded-full bg-white px-1.5 py-0.5 text-[6px] font-bold text-slate-500 ring-1 ring-slate-100">
+                                      {n}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="flex min-h-[52px] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-3 text-center">
+                              <div>
+                                <div className="text-[8px] font-bold text-slate-500">
+                                  Belum ada layer Mitigasi &amp; Adaptasi aktif
+                                </div>
+                                <div className="mt-1 text-[6px] text-slate-400">
+                                  Centang Bendungan, Bendung, Embung, Danau, atau layer mitigasi lainnya.
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="min-h-0 overflow-hidden rounded-xl border border-slate-100 bg-white">
+                            {selectedInfraLayer ? (
+                              selectedInfraRows.length ? (
+                                <div className="h-full overflow-auto">
+                                  <table className="min-w-[620px] w-full border-collapse text-[7px]">
+                                    <thead className="sticky top-0 z-10 bg-slate-50">
+                                      <tr>
+                                        <th className="w-7 border-b border-slate-100 px-2 py-1.5 text-left font-extrabold text-slate-400">
+                                          No
+                                        </th>
+                                        {selectedInfraLayer.cols.map((col) => (
+                                          <th
+                                            key={col.k}
+                                            className="border-b border-slate-100 px-2 py-1.5 text-left font-extrabold uppercase tracking-wide text-slate-400"
+                                          >
+                                            {col.h}
+                                          </th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {selectedInfraRows.slice(0, 100).map((row, i) => (
+                                        <tr
+                                          key={i}
+                                          className="border-b border-slate-50 hover:bg-teal-50/40"
+                                          onMouseEnter={() =>
+                                            handleRowMouseEnter(
+                                              String(
+                                                row[
+                                                  selectedInfraLayer.cols[0].k
+                                                ] ?? "",
+                                              ),
+                                              selectedInfraLayer.id,
+                                              selectedInfraLayer.color,
+                                            )
+                                          }
+                                          onMouseLeave={handleRowMouseLeave}
+                                        >
+                                          <td className="px-2 py-1.5 font-semibold text-slate-400">
+                                            {i + 1}
+                                          </td>
+                                          {selectedInfraLayer.cols.map((col) => {
+                                            const v = value(row[col.k]);
+                                            const kond =
+                                              col.h === "Kondisi" ||
+                                              col.h === "Kondisi Teknis";
+
+                                            if (!kond || v === "-") {
+                                              return (
+                                                <td
+                                                  key={col.k}
+                                                  className="max-w-[150px] truncate px-2 py-1.5 font-medium text-slate-600"
+                                                  title={v}
+                                                >
+                                                  {v}
+                                                </td>
+                                              );
+                                            }
+
+                                            const l = v.toLowerCase();
+                                            const tone = l.includes("baik")
+                                              ? "bg-emerald-50 text-emerald-700"
+                                              : l.includes("rusak")
+                                                ? "bg-rose-50 text-rose-700"
+                                                : "bg-amber-50 text-amber-700";
+
+                                            return (
+                                              <td key={col.k} className="px-2 py-1.5">
+                                                <span
+                                                  className={`inline-flex rounded-full px-1.5 py-0.5 text-[6px] font-extrabold ${tone}`}
+                                                >
+                                                  {v}
+                                                </span>
+                                              </td>
+                                            );
+                                          })}
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+
+                                  {selectedInfraRows.length > 100 && (
+                                    <div className="border-t border-slate-100 px-2.5 py-1.5 text-[6px] font-semibold text-slate-400">
+                                      Menampilkan 100 dari {selectedInfraRows.length} data.
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="flex h-full items-center justify-center px-4 text-center text-[8px] text-slate-400">
+                                  Tidak ada data {selectedInfraLayer.label.toLowerCase()} di area peta.
+                                </div>
+                              )
+                            ) : (
+                              <div className="flex h-full items-center justify-center px-4 text-center text-[8px] text-slate-400">
+                                Pilih layer Mitigasi &amp; Adaptasi untuk melihat data.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  )}
-                </div>
-              </div>
+                  </>
+                );
+              })()}
             </section>
+
+
           </div>
 
         </main>
@@ -13181,5 +13603,9 @@ const Kerawanan = () => {
 };
 
 export default Kerawanan;
+
+
+
+
 
 

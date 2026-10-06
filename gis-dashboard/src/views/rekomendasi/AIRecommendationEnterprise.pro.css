@@ -1,0 +1,17 @@
+
+/* SIMITI AI Recommendation - PRO enterprise override */
+.simiti-enterprise-page{background:#f3f6fa}
+.simiti-enterprise-main{max-width:none}
+.ai-module-header{padding-bottom:2px}
+.ai-module-title h1{font-weight:800;letter-spacing:-.02em}
+.ai-workspace{grid-template-columns:minmax(0,1fr) 410px}
+.ai-recommendation-panel{box-shadow:0 10px 30px rgba(15,23,42,.075)}
+.ai-ranking-item.selected{background:#f0f7ff;border-left:3px solid #1679e8;padding-left:3px}
+.ai-kpi-card{min-height:68px}
+.simiti-map-stage{height:calc(100vh - 300px);min-height:560px;max-height:760px}
+.simiti-dashboard-grid{grid-template-columns:minmax(0,1.15fr) minmax(340px,.85fr)}
+.dash-card{box-shadow:0 8px 24px rgba(15,23,42,.05)}
+.ai-panel-footer{background:#fbfdff}
+.ai-map-status{backdrop-filter:blur(8px)}
+@media(max-width:1250px){.ai-workspace{grid-template-columns:minmax(0,1fr) 360px}.simiti-map-stage{height:600px}}
+@media(max-width:980px){.ai-workspace{grid-template-columns:1fr}.simiti-map-stage{height:560px}}

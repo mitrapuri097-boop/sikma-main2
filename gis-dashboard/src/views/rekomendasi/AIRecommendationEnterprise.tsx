@@ -28,8 +28,9 @@ import {
 } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import "./AIRecommendationEnterprise.css";
+import "./AIRecommendationEnterprise.pro.css";
 
-type Hazard = "Banjir" | "Longsor" | "Karhutla" | "Kekeringan";
+type Hazard = "Banjir" | "Longsor" | "Karhutla" | "Kekeringan" | "Abrasi";
 
 const getSmitiToken = (): string | null => {
   // Keep this page aligned with the authentication storage used by
@@ -100,6 +101,11 @@ const hazardMeta: Record<
     icon: Wind,
     markerClass: "hazard-drought",
     label: "Kekeringan",
+  },
+  Abrasi: {
+    icon: Activity,
+    markerClass: "hazard-abrasion",
+    label: "Abrasi",
   },
 };
 
@@ -211,6 +217,13 @@ const normalizeHazard = (category = ""): Hazard | null => {
   if (value.includes("kebakaran") || value.includes("karhutla"))
     return "Karhutla";
   if (value.includes("kekeringan")) return "Kekeringan";
+  if (
+    value.includes("abrasi") ||
+    value.includes("pantai") ||
+    value.includes("gelombang pasang") ||
+    value.includes("rob")
+  )
+    return "Abrasi";
   return null;
 };
 
@@ -234,24 +247,12 @@ const riskClass = (value = "") => {
   return "risk-low";
 };
 
-function Brand() {
-  return (
-    <div className="simiti-map-brand">
-      <div className="simiti-brand-logo">
-        <ShieldCheck size={22} />
-      </div>
-      <div>
-        <strong>Sistem Informasi Mitigasi dan Adaptasi</strong>
-        <span>Bencana Hidrometeorologi</span>
-      </div>
-    </div>
-  );
-}
 
 export default function AIRecommendationEnterprise() {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
+  const recommendationLayerRef = useRef<L.LayerGroup | null>(null);
   const boundaryLayerRef = useRef<L.LayerGroup | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Boundary administratif di halaman ini memakai geometry dari
@@ -264,18 +265,19 @@ export default function AIRecommendationEnterprise() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [selectedId, setSelectedId] = useState<number | string | null>(null);
   const [hazards, setHazards] = useState<Set<Hazard>>(
-    new Set(["Banjir", "Longsor", "Karhutla", "Kekeringan"]),
+    new Set(["Banjir", "Longsor", "Karhutla", "Kekeringan", "Abrasi"]),
   );
   const [query, setQuery] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showLayers, setShowLayers] = useState(true);
-  const [leftOpen, setLeftOpen] = useState(true);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [layersCount, setLayersCount] = useState<number | null>(null);
   const [aiResult, setAiResult] = useState<AiRecommendation | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
+  const [recommendationLayerVisible, setRecommendationLayerVisible] = useState(false);
+  const [recommendationLimit, setRecommendationLimit] = useState(10);
   const [areaSearchQuery, setAreaSearchQuery] = useState("");
   const [areaSearchResults, setAreaSearchResults] = useState<any[]>([]);
   const [showAreaResults, setShowAreaResults] = useState(false);
@@ -714,6 +716,65 @@ export default function AIRecommendationEnterprise() {
     }
   }, []);
 
+
+  const spatialRecommendations = useMemo(() => {
+    const source = groupCandidatesByBoundary
+      .filter((group) => group.center?.every(Number.isFinite))
+      .map((group) => {
+        const candidatesInGroup = group.candidates;
+        const count = candidatesInGroup.length;
+        const rainfallValues = candidatesInGroup
+          .map((item) => toNumber(item.curah_hujan))
+          .filter((value): value is number => value !== null);
+        const rainfallMax = rainfallValues.length ? Math.max(...rainfallValues) : 0;
+        const hazardSet = group.hazards;
+        const dominantHazard =
+          Array.from(hazardSet).sort(
+            (a, b) =>
+              candidatesInGroup.filter((x) => x.hazard === b).length -
+              candidatesInGroup.filter((x) => x.hazard === a).length,
+          )[0] || null;
+
+        const densityScore = Math.min(40, count * 8);
+        const rainfallScore =
+          dominantHazard === "Banjir"
+            ? Math.min(25, rainfallMax / 8)
+            : 10;
+        const multiHazardScore = Math.min(20, Math.max(0, hazardSet.size - 1) * 10);
+        const recencyScore = Math.min(
+          15,
+          candidatesInGroup.some((item) => {
+            if (!item.date) return false;
+            const d = new Date(item.date);
+            return Number.isFinite(d.getTime()) &&
+              Date.now() - d.getTime() <= 365 * 24 * 60 * 60 * 1000;
+          })
+            ? 15
+            : 7,
+        );
+
+        const score = Math.round(
+          Math.min(100, densityScore + rainfallScore + multiHazardScore + recencyScore),
+        );
+
+        return {
+          key: group.key,
+          label: group.label,
+          center: group.center,
+          count,
+          hazards: Array.from(hazardSet),
+          dominantHazard,
+          rainfallMax,
+          score,
+          representative: candidatesInGroup[0],
+          boundary: group.boundary,
+        };
+      })
+      .sort((a, b) => b.score - a.score || b.count - a.count);
+
+    return source.slice(0, Math.max(1, recommendationLimit));
+  }, [groupCandidatesByBoundary, recommendationLimit]);
+
   const requestAi = useCallback(async (candidate: Candidate | null) => {
     if (!candidate) {
       setAiResult(null);
@@ -800,6 +861,7 @@ export default function AIRecommendationEnterprise() {
     L.control.zoom({ position: "topright" }).addTo(map);
 
     markerLayerRef.current = L.layerGroup().addTo(map);
+    recommendationLayerRef.current = L.layerGroup().addTo(map);
     boundaryLayerRef.current = L.layerGroup().addTo(map);
     mapInstanceRef.current = map;
 
@@ -809,16 +871,28 @@ export default function AIRecommendationEnterprise() {
     };
     map.on("zoomend", syncAdminLevel);
 
-    const resize = () => map.invalidateSize();
+    const resize = () => map.invalidateSize(false);
     window.addEventListener("resize", resize);
+
+    // EnterpriseLayout/route transitions can mount this map before the
+    // content column has its final dimensions. Force Leaflet to recalculate
+    // after the layout settles so tiles are painted immediately.
+    const resizeObserver = new ResizeObserver(() => resize());
+    resizeObserver.observe(mapRef.current);
+    const resizeTimer = window.setTimeout(() => resize(), 80);
+    const resizeTimer2 = window.setTimeout(() => resize(), 350);
 
     return () => {
       window.removeEventListener("resize", resize);
+      resizeObserver.disconnect();
+      window.clearTimeout(resizeTimer);
+      window.clearTimeout(resizeTimer2);
       map.off("zoomend", syncAdminLevel);
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
       map.remove();
       mapInstanceRef.current = null;
       markerLayerRef.current = null;
+      recommendationLayerRef.current = null;
       boundaryLayerRef.current = null;
     };
   }, []);
@@ -908,6 +982,68 @@ export default function AIRecommendationEnterprise() {
       marker.addTo(layer);
     });
   }, [groupCandidatesByBoundary, selectedId, selectedAreaBoundary]);
+
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const layer = recommendationLayerRef.current;
+    if (!map || !layer) return;
+
+    layer.clearLayers();
+    if (!selectedAreaBoundary || !recommendationLayerVisible) return;
+
+    spatialRecommendations.forEach((item, index) => {
+      const hazard = item.dominantHazard;
+      const color =
+        item.score >= 75 ? "#dc2626" :
+        item.score >= 55 ? "#f97316" :
+        "#16a34a";
+
+      const icon = L.divIcon({
+        className: "simiti-ai-recommendation-marker-wrap",
+        html: `
+          <div style="
+            width:42px;height:42px;border-radius:50%;
+            background:${color};border:3px solid rgba(255,255,255,.98);
+            box-shadow:0 5px 16px rgba(15,23,42,.35);
+            display:flex;flex-direction:column;align-items:center;justify-content:center;
+            color:#fff;font-family:Inter,ui-sans-serif,system-ui,sans-serif;
+            cursor:pointer;box-sizing:border-box;
+          ">
+            <span style="font-size:11px;line-height:1">${index + 1}</span>
+            <strong style="font-size:11px;line-height:1.1">${item.score}</strong>
+          </div>
+        `,
+        iconSize: [42, 42],
+        iconAnchor: [21, 21],
+      });
+
+      const marker = L.marker(item.center, { icon });
+      marker.bindTooltip(
+        `<strong>${escapeHtml(item.label)}</strong><br/>Prioritas #${index + 1} · ${item.score}/100<br/>${escapeHtml(
+          hazard || "Multi-risiko",
+        )} · ${item.count} kejadian`,
+        {
+          direction: "top",
+          offset: [0, -21],
+          className: "simiti-tooltip",
+        },
+      );
+
+      marker.on("click", () => {
+        const candidate = item.representative;
+        setSelectedId(candidate.id);
+        setDrawerOpen(true);
+        map.flyTo(item.center, Math.max(map.getZoom(), 11), { duration: 0.8 });
+      });
+
+      marker.addTo(layer);
+    });
+  }, [
+    spatialRecommendations,
+    recommendationLayerVisible,
+    selectedAreaBoundary,
+  ]);
 
   useEffect(() => {
     const layer = boundaryLayerRef.current;
@@ -1280,743 +1416,151 @@ export default function AIRecommendationEnterprise() {
 
   const topRecommendations = aiResult?.recommendations?.slice(0, 3) || [];
 
+  const runAnalysis = () => {
+    const topSpatial = spatialRecommendations[0];
+    const candidate = topSpatial?.representative || selectedAreaIncidents[0] || filteredCandidates[0] || null;
+    if (!candidate) {
+      setAiError("Belum ada kandidat lokasi pada wilayah terpilih.");
+      setDrawerOpen(true);
+      return;
+    }
+    setRecommendationLayerVisible(true);
+    setSelectedId(candidate.id);
+    setDrawerOpen(true);
+    requestAi(candidate);
+  };
+
+  const recommendationScore = topRecommendation
+    ? Math.round(Number(topRecommendation.priority_score) || 0)
+    : null;
+  const visibleLocations = spatialRecommendations.map((item) => item.representative);
+
   return (
-    <div className="simiti-map-page">
-      <main className="simiti-map-shell">
-        <div className="simiti-map-search">
-          <Search size={17} />
-          <input
-            value={areaSearchQuery}
-            onChange={(e) => handleAreaSearch(e.target.value)}
-            onFocus={() => areaSearchResults.length && setShowAreaResults(true)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void fallbackGeocode();
-              if (e.key === "Escape") setShowAreaResults(false);
-            }}
-            placeholder="Cari provinsi / kabupaten / kecamatan..."
-          />
-          {areaSearchLoading && <RefreshCw size={15} className="spin" />}
-          {areaSearchQuery && (
-            <button
-              type="button"
-              onClick={() => {
-                setAreaSearchQuery("");
-                setAreaSearchResults([]);
-                setShowAreaResults(false);
-              }}
-            >
-              <X size={14} />
-            </button>
-          )}
-
-          {showAreaResults && areaSearchResults.length > 0 && (
-            <div className="simiti-area-results">
-              {areaSearchResults.map((area, index) => (
-                <button
-                  type="button"
-                  key={`${area?.id || area?.label || "area"}-${index}`}
-                  onClick={() => selectArea(area)}
-                >
-                  <MapPinned size={15} />
-                  <span>
-                    <strong>
-                      {area?.label ||
-                        area?.kelurahan ||
-                        area?.kecamatan ||
-                        area?.kab_kota ||
-                        area?.provinsi ||
-                        "Wilayah"}
-                    </strong>
-                    <small>
-                      {area?.level || "wilayah"}
-                      {area?.provinsi ? ` · ${area.provinsi}` : ""}
-                    </small>
-                    <small>
-                      <Droplets size={11} style={{ verticalAlign: "-2px" }} />{" "}
-                      DAS: {area?._dasName || "belum teridentifikasi"}
-                    </small>
-                  </span>
-                </button>
-              ))}
+    <div className="simiti-enterprise-page simiti-ai-module">
+      <div className="simiti-enterprise-body">
+        <main className="simiti-enterprise-main">
+          <header className="ai-module-header">
+            <div className="ai-module-title">
+              <div className="ai-title-icon"><BrainCircuit size={22} /></div>
+              <div>
+                <div className="ai-eyebrow">SIMITI • DECISION SUPPORT SYSTEM</div>
+                <h1>Rekomendasi Lokasi Mitigasi &amp; Adaptasi <span>Berbasis AI</span></h1>
+                <p>Analisis spasial untuk menentukan lokasi prioritas dan model intervensi berdasarkan risiko bencana serta evidence SIMITI.</p>
+              </div>
             </div>
-          )}
-        </div>
-
-        <aside
-          className={`simiti-analysis-panel ${leftOpen ? "open" : "closed"}`}
-        >
-          <div className="simiti-analysis-head">
-            <div>
-              <span>SPATIAL ANALYSIS</span>
-              <h2>Decision Center</h2>
-            </div>
-            <button
-              type="button"
-              onClick={() => setLeftOpen(false)}
-              title="Tutup panel"
-            >
-              <X size={17} />
-            </button>
-          </div>
-
-          <div className="simiti-analysis-search">
-            <Search size={15} />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter lokasi / kejadian..."
-            />
-            {query && (
-              <button type="button" onClick={() => setQuery("")}>
-                <X size={13} />
+            <div className="ai-header-actions">
+              <div className="ai-live-status"><i /> <span>DATA ENGINE</span><b>LIVE</b></div>
+              <button type="button" className="ai-refresh" onClick={async () => { setRefreshing(true); await fetchIncidents(); await fetchLayerCount(); setRefreshing(false); }} disabled={refreshing}>
+                <RefreshCw size={15} className={refreshing ? "spin" : ""} /> {refreshing ? "Memuat..." : "Refresh Data"}
               </button>
-            )}
-          </div>
-
-          <section className="simiti-analysis-section">
-            <div className="simiti-analysis-section-title">
-              <span>HAZARD ANALYSIS</span>
-              <small>
-                {groupCandidatesByBoundary.length} {adminLevel} ·{" "}
-                {filteredCandidates.length} kejadian
-              </small>
-            </div>
-            <div className="simiti-hazard-list">
-              {(Object.keys(hazardMeta) as Hazard[]).map((hazard) => {
-                const Icon = hazardMeta[hazard].icon;
-                const active = hazards.has(hazard);
-                return (
-                  <button
-                    type="button"
-                    key={hazard}
-                    className={active ? "active" : ""}
-                    onClick={() => toggleHazard(hazard)}
-                  >
-                    <span
-                      className={`simiti-hazard-icon ${hazardMeta[hazard].markerClass}`}
-                    >
-                      <Icon size={14} />
-                    </span>
-                    <span className="simiti-hazard-name">{hazard}</span>
-                    <b>{hazardCounts[hazard]}</b>
-                    <i>{active ? "ON" : "OFF"}</i>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="simiti-analysis-section">
-            <div className="simiti-analysis-section-title">
-              <span>DATA LAYERS</span>
-              <Layers3 size={14} />
-            </div>
-            <div className="simiti-layer-row">
-              <button
-                type="button"
-                className="layer-toggle active"
-                onClick={() => setShowLayers((v) => !v)}
-              >
-                {showLayers ? <Eye size={14} /> : <EyeOff size={14} />}
-                <span>Risk &amp; kejadian</span>
-                <b>{layersCount ?? "—"}</b>
+              <button type="button" className="ai-primary-action" onClick={runAnalysis}>
+                <Sparkles size={16} /> Analisis AI
               </button>
             </div>
-            <div className="simiti-layer-info">
-              <span>
-                <ShieldCheck size={12} /> SIMITI live data
-              </span>
-              <span>
-                {selectedAreaBoundary
-                  ? `Boundary ${selectedAreaBoundary.level}`
-                  : "Boundary via pencarian wilayah"}
-              </span>
-            </div>
+          </header>
+
+          <section className="ai-kpi-strip">
+            <div className="ai-kpi-card"><span className="kpi-icon blue"><MapPinned size={17}/></span><div><small>LOKASI DIANALISIS</small><strong>{selectedAreaBoundary ? filteredCandidates.length : candidates.length}</strong><em>{selectedAreaBoundary?.label || "Seluruh data SIMITI"}</em></div></div>
+            <div className="ai-kpi-card"><span className="kpi-icon emerald"><Target size={17}/></span><div><small>LOKASI PRIORITAS</small><strong>{visibleLocations.length}</strong><em>Hasil spatial scoring</em></div></div>
+            <div className="ai-kpi-card"><span className="kpi-icon amber"><AlertTriangle size={17}/></span><div><small>RISIKO DOMINAN</small><strong>{spatialRecommendations[0]?.dominantHazard || "—"}</strong><em>{spatialRecommendations[0] ? `${spatialRecommendations[0].count} evidence kejadian` : "Pilih wilayah"}</em></div></div>
+            <div className="ai-kpi-card"><span className="kpi-icon violet"><ShieldCheck size={17}/></span><div><small>CONFIDENCE AI</small><strong>{aiResult?.confidence != null ? `${Math.round(Number(aiResult.confidence))}%` : "—"}</strong><em>{aiResult?.meta?.model || "Menunggu analisis"}</em></div></div>
           </section>
 
-          <section className="simiti-analysis-section">
-            <div className="simiti-analysis-section-title">
-              <span>SELECTED LOCATION</span>
-              <MapPinned size={14} />
+          <section className="ai-workspace">
+            <div className="ai-map-column">
+              <div className="ai-map-toolbar">
+                <div className="ai-area-search">
+                  <Search size={16}/>
+                  <input value={areaSearchQuery} onChange={(e) => setAreaSearchQuery(e.target.value)} onFocus={() => areaSearchQuery && setShowAreaResults(true)} placeholder="Cari provinsi, kabupaten, kecamatan..." />
+                  {areaSearchLoading && <RefreshCw size={14} className="spin" />}
+                  {showAreaResults && areaSearchResults.length > 0 && <div className="ai-area-results">{areaSearchResults.slice(0, 8).map((area, i) => <button type="button" key={`${area.id || area.label || i}`} onClick={() => { const found = adminBoundaries.find((b) => String(b.id) === String(area.id)); if (found) { setSelectedAreaBoundary(found); setShowAreaResults(false); setAreaSearchQuery(found.label); void fetchDasForArea(found); void fetchBnpbFloodForArea(found); } }}><MapPinned size={14}/><span>{area.label || area.name || "Wilayah"}</span></button>)}</div>}
+                </div>
+                <div className="ai-map-scope"><span>Wilayah aktif</span><strong>{selectedAreaBoundary?.label || "Belum dipilih"}</strong></div>
+                <button type="button" className="ai-map-tool" onClick={() => mapInstanceRef.current?.setView([-2.5,118],5)} title="Kembali ke Indonesia"><Navigation size={16}/></button>
+                <button type="button" className="ai-map-tool" onClick={() => setShowLayers(v => !v)} title="Layer"><Layers3 size={16}/></button>
+              </div>
+
+              <div className="simiti-map-stage ai-map-stage">
+                <div ref={mapRef} className="simiti-map" />
+
+                {showLayers && <div className="simiti-map-layer-card ai-layer-card">
+                  <div className="layer-card-head"><div><small>LAYER PETA</small><h3>Tematik</h3></div><button type="button" onClick={() => setShowLayers(false)}><X size={15}/></button></div>
+                  <div className="layer-check active"><span>✓</span><b>Batas Administrasi</b><ChevronRight size={13} /></div>
+                  <div className="layer-check active"><span>✓</span><b>Risiko Bencana</b><ChevronRight size={13} /></div>
+                  <div className="layer-check"><span>✓</span><b>DAS</b><ChevronRight size={13} /></div>
+                  <div className="layer-check"><span>□</span><b>Kerentanan</b><ChevronRight size={13} /></div>
+                  <div className="layer-check"><span>□</span><b>Paparan</b><ChevronRight size={13} /></div>
+                  <div className="layer-check"><span>□</span><b>Tutupan Lahan</b><ChevronRight size={13} /></div>
+                  <div className={`layer-ai-title ${recommendationLayerVisible ? "active" : ""}`} onClick={() => setRecommendationLayerVisible(v => !v)} role="button" tabIndex={0}>
+                    <span>{recommendationLayerVisible ? "✓" : "□"}</span><b>Titik Rekomendasi AI</b><ChevronRight size={13}/>
+                  </div>
+                  <div className="layer-legend"><span className="dot red" /> Sangat Direkomendasikan <span className="dot orange" /> Direkomendasikan <span className="dot green" /> Cukup</div>
+                </div>}
+
+                <div className="ai-map-status"><span><i/> DATA SPASIAL LIVE</span><span>{filteredCandidates.length.toLocaleString("id-ID")} kandidat</span><span>{layersCount ?? "—"} layer</span></div>
+              </div>
+
+              <div className="ai-workflow">
+                <div className="workflow-step done"><span>01</span><div><b>Integrasi Data Peta</b><small>PostGIS · layer risiko · DAS · kejadian</small></div></div><i>→</i>
+                <div className="workflow-step done"><span>02</span><div><b>Analisis Spasial</b><small>Overlay · evidence · spatial scoring</small></div></div><i>→</i>
+                <div className="workflow-step active"><span>03</span><div><b>AI Recommendation</b><small>Model mitigasi &amp; adaptasi</small></div></div><i>→</i>
+                <div className="workflow-step"><span>04</span><div><b>Visualisasi</b><small>Titik / layer rekomendasi</small></div></div><i>→</i>
+                <div className="workflow-step"><span>05</span><div><b>Output</b><small>GeoJSON · laporan · evidence</small></div></div>
+              </div>
             </div>
 
-            {selected ? (
-              <button
-                type="button"
-                className="simiti-selected-mini"
-                onClick={() => {
-                  setDrawerOpen(true);
-                  mapInstanceRef.current?.flyTo(
-                    [selected.lat, selected.lng],
-                    12,
-                    { duration: 0.8 },
-                  );
-                }}
-              >
-                <div>
-                  <strong>{selected.title || selected.area}</strong>
-                  <small>{selected.area}</small>
-                </div>
-                <span>{selected.hazard}</span>
-              </button>
-            ) : (
-              <div className="simiti-analysis-empty">
-                Pilih titik pada peta.
+            <aside className="ai-recommendation-panel">
+              <div className="ai-panel-head">
+                <div><div className="ai-eyebrow">AI DECISION SUPPORT</div><h2>Panel Rekomendasi AI</h2><p>Pilih risiko untuk memfilter kandidat lokasi.</p></div>
+                <span className="ai-badge"><Sparkles size={13}/> AI</span>
               </div>
-            )}
+
+              <div className="hazard-tabs">
+                <button type="button" className={hazards.size === 5 ? "active" : ""} onClick={() => setHazards(new Set(["Banjir","Longsor","Karhutla","Kekeringan","Abrasi"]))}>Semua</button>
+                {(Object.keys(hazardMeta) as Hazard[]).map((hazard) => { const Icon = hazardMeta[hazard].icon; return <button type="button" key={hazard} className={hazards.size === 1 && hazards.has(hazard) ? "active" : ""} onClick={() => setHazards(new Set([hazard]))}><Icon size={14}/> {hazard}</button>; })}
+              </div>
+
+              <div className="hazard-kpi-grid">{(Object.keys(hazardMeta) as Hazard[]).map((hazard) => { const Icon = hazardMeta[hazard].icon; return <button type="button" key={hazard} className={`hazard-kpi ${hazardMeta[hazard].markerClass}`} onClick={() => setHazards(new Set([hazard]))}><span><Icon size={14}/></span><strong>{hazardCounts[hazard]}</strong><small>lokasi {hazard}</small></button>; })}</div>
+
+              <div className="ai-panel-section-title"><div><small>PRIORITY RANKING</small><h3>Daftar Rekomendasi Lokasi</h3></div><span>{visibleLocations.length} lokasi</span></div>
+              <div className="ai-ranking-list">
+                {visibleLocations.slice(0, 8).map((item, index) => { const score = Math.round(Number(spatialRecommendations[index]?.score) || 0); const Icon = hazardMeta[item.hazard].icon; return <button type="button" className={`ai-ranking-item ${String(selected?.id) === String(item.id) ? "selected" : ""}`} key={item.id} onClick={() => { setSelectedId(item.id); setRecommendationLayerVisible(true); setDrawerOpen(true); }}><span className={`rank-marker ${hazardMeta[item.hazard].markerClass}`}><Icon size={14}/></span><span className="rank-content"><strong>{item.title || item.area}</strong><small>{item.area}</small><em><b>{item.hazard}</b> · {item.das || "DAS belum teridentifikasi"}</em></span><span className="rank-score"><b>{score}</b><small>/100</small><i>Detail</i></span></button>; })}
+                {!visibleLocations.length && <div className="ai-empty"><MapPinned size={24}/><strong>Pilih wilayah untuk memunculkan kandidat</strong><span>Analisis spasial akan menggunakan evidence kejadian SIMITI pada wilayah aktif.</span></div>}
+              </div>
+
+              <div className="ai-panel-footer"><button type="button" className="ai-primary-action full" onClick={runAnalysis}><Sparkles size={15}/> Jalankan Analisis AI</button><span><ShieldCheck size={13}/> Output AI menggunakan evidence spasial SIMITI.</span></div>
+            </aside>
           </section>
 
-          <section className="simiti-analysis-section simiti-das-section">
-            <div className="simiti-analysis-section-title">
-              <span>DAS &amp; BANJIR</span>
-              <Droplets size={14} />
-            </div>
+          <section className="ai-results-grid">
+            <article className="dash-card ranking-card ai-result-card">
+              <div className="dash-title"><div><small>SPATIAL ANALYSIS OUTPUT</small><h3>Hasil Rekomendasi Lokasi</h3></div><div className="result-actions"><span>{visibleLocations.length} lokasi</span><button type="button" onClick={exportGeoJson}><Download size={14}/> GeoJSON</button></div></div>
+              <div className="rank-table"><div className="rank-row rank-head"><span>No</span><span>Lokasi</span><span>Hazard</span><span>Score</span><span>Aksi</span></div>{visibleLocations.map((item,index) => <div className="rank-row" key={item.id}><span className="rank-no">{index+1}</span><span><strong>{item.title || item.area}</strong><small>{item.area}</small></span><span className={`hazard-pill ${hazardMeta[item.hazard].markerClass}`}>{item.hazard}</span><b>{Math.round(Number(spatialRecommendations[index]?.score)||0)}/100</b><button type="button" onClick={() => { setSelectedId(item.id); setDrawerOpen(true); setRecommendationLayerVisible(true); }}><Eye size={14}/> Detail</button></div>)}{!visibleLocations.length && <div className="dash-empty">Belum ada hasil. Pilih wilayah lalu jalankan analisis.</div>}</div>
+            </article>
 
-            {selectedAreaBoundary ? (
-              <>
-                <div className="simiti-das-card">
-                  <div className="simiti-das-card-icon">
-                    <Droplets size={15} />
-                  </div>
-                  <div>
-                    <small>DAS WILAYAH TERPILIH</small>
-                    <strong>
-                      {dasLoading
-                        ? "Mengidentifikasi DAS..."
-                        : selectedDas?.nama_das ||
-                          selectedDas?.name ||
-                          selectedDas?.das_name ||
-                          selectedDas?.label ||
-                          selectedAreaIncidents.find((item) => item.das)?.das ||
-                          "Belum teridentifikasi"}
-                    </strong>
-                  </div>
-                </div>
-
-                <div className="simiti-das-card" style={{ marginTop: 8 }}>
-                  <div className="simiti-das-card-icon">
-                    <ShieldCheck size={15} />
-                  </div>
-                  <div>
-                    <small>RISIKO BANJIR BNPB / InaRISK</small>
-                    <strong>
-                      {bnpbFloodLoading
-                        ? "Membaca indeks BNPB..."
-                        : bnpbFlood.value == null
-                          ? "Belum tersedia"
-                          : bnpbFlood.value.toFixed(3)}
-                    </strong>
-                    {bnpbFlood.error && (
-                      <small className="simiti-das-error">{bnpbFlood.error}</small>
-                    )}
-                  </div>
-                </div>
-
-                <div className="simiti-flood-kpi-grid">
-                  <div>
-                    <span>Kejadian banjir</span>
-                    <b>{floodEvidence.count}</b>
-                  </div>
-                  <div>
-                    <span>Avg. hujan</span>
-                    <b>
-                      {floodEvidence.avgRainfall == null
-                        ? "—"
-                        : floodEvidence.avgRainfall.toFixed(1)}
-                    </b>
-                  </div>
-                  <div>
-                    <span>Max. hujan</span>
-                    <b>
-                      {floodEvidence.maxRainfall == null
-                        ? "—"
-                        : floodEvidence.maxRainfall.toFixed(1)}
-                    </b>
-                  </div>
-                </div>
-
-                <div className="simiti-flood-recommendation">
-                  <div className="simiti-mini-title">
-                    <Sparkles size={13} /> REKOMENDASI BANJIR LOKASI
-                  </div>
-                  {floodRecommendations.slice(0, 3).map((item, index) => (
-                    <div key={`${item.title}-${index}`} className="simiti-flood-rec-row">
-                      <span>{String(index + 1).padStart(2, "0")}</span>
-                      <p>{item.text}</p>
-                    </div>
-                  ))}
-                </div>
-
-                {dasError && (
-                  <small className="simiti-das-error">{dasError}</small>
-                )}
-              </>
-            ) : (
-              <div className="simiti-analysis-empty">
-                Pilih daerah untuk melihat DAS dan rekomendasi mitigasi banjir.
-              </div>
-            )}
+            <article className="dash-card detail-card ai-detail-enterprise">
+              <div className="dash-title"><div><small>AI INSIGHT</small><h3>Detail Rekomendasi #{selected ? "01" : "—"}</h3></div>{recommendationScore !== null && <span className="score-badge">{recommendationScore}/100</span>}</div>
+              {selected ? <>
+                <div className="enterprise-location-head"><div className="enterprise-location-icon"><MapPinned size={20}/></div><div><small>{selected.hazard.toUpperCase()}</small><h4>{selected.title || selected.area}</h4><p>{selected.area} · {selected.date || "Tanggal tidak tersedia"}</p></div><div className="confidence-box"><small>CONFIDENCE</small><strong>{aiResult?.confidence != null ? `${Math.round(Number(aiResult.confidence))}%` : "—"}</strong></div></div>
+                <div className="enterprise-factors"><div><span>Risiko {selected.hazard}</span><i><b style={{width:`${recommendationScore ?? 0}%`}}/></i><strong>{recommendationScore ?? "—"}</strong></div><div><span>Curah Hujan</span><i><b style={{width:`${Math.min(100, Number(selected.curah_hujan)||0)}%`}}/></i><strong>{selected.curah_hujan ?? "—"}</strong></div><div><span>Evidence Kejadian</span><i><b style={{width:`${Math.min(100, selectedAreaIncidents.length*10)}%`}}/></i><strong>{selectedAreaIncidents.length}</strong></div></div>
+                <div className="enterprise-model-columns"><div><small>MODEL MITIGASI</small>{topRecommendations.slice(0,3).map((r,i)=><span key={r.intervention_id || i}><ShieldCheck size={13}/>{r.intervention}</span>)}</div><div><small>MODEL ADAPTASI</small><span><ShieldCheck size={13}/>Early Warning System</span><span><ShieldCheck size={13}/>Peningkatan kesiapsiagaan</span><span><ShieldCheck size={13}/>Jalur evakuasi</span></div></div>
+                <div className="enterprise-reason"><strong>Alasan Rekomendasi</strong><p>{topRecommendation?.why || aiResult?.diagnosis || "Jalankan analisis AI untuk mendapatkan alasan rekomendasi berbasis evidence SIMITI."}</p></div>
+              </> : <div className="dash-empty large"><Target size={28}/><strong>Belum ada lokasi terpilih</strong><p>Klik kandidat pada panel kanan atau jalankan analisis AI.</p></div>}
+            </article>
           </section>
 
-          <section className="simiti-analysis-section simiti-ranking-section">
-            <div className="simiti-analysis-section-title">
-              <span>AI PRIORITY</span>
-              <Sparkles size={14} />
-            </div>
-            {aiLoading ? (
-              <div className="simiti-mini-loading">
-                <RefreshCw size={14} className="spin" /> Analyzing...
-              </div>
-            ) : topRecommendations.length ? (
-              topRecommendations.map((rec) => (
-                <div
-                  className="simiti-priority-row"
-                  key={`${rec.intervention_id}-${rec.rank}`}
-                >
-                  <span>{String(rec.rank).padStart(2, "0")}</span>
-                  <div>
-                    <strong>{rec.intervention}</strong>
-                    <small>{rec.urgency || "AI priority"}</small>
-                  </div>
-                  <b>{Math.round(rec.priority_score)}</b>
-                </div>
-              ))
-            ) : (
-              <div className="simiti-analysis-empty">
-                Analisis muncul setelah lokasi dipilih.
-              </div>
-            )}
+          <section className="ai-audit-grid">
+            <article className="dash-card process-card"><div className="dash-title"><div><small>TRANSPARENCY</small><h3>Alur Keputusan Sistem</h3></div></div><div className="process-flow enterprise-flow"><div><span>01</span><b>PostGIS</b><small>Data spasial &amp; layer risiko</small></div><i>→</i><div><span>02</span><b>Spatial Engine</b><small>Overlay, evidence, scoring</small></div><i>→</i><div><span>03</span><b>AI Engine</b><small>Reasoning &amp; model rekomendasi</small></div><i>→</i><div><span>04</span><b>SIMITI UI</b><small>Peta, ranking &amp; output</small></div></div></article>
+            <article className="dash-card json-card"><div className="dash-title"><div><small>AUDIT TRAIL</small><h3>AI Response</h3></div><span>LIVE</span></div><pre>{JSON.stringify(aiResult || { status:"waiting", wilayah:selectedAreaBoundary?.label || null, kandidat:visibleLocations.length }, null, 2)}</pre><button type="button" onClick={() => navigator.clipboard?.writeText(JSON.stringify(aiResult || {}, null, 2))}>Salin JSON</button></article>
           </section>
+        </main>
 
-          <div className="simiti-analysis-footer">
-            <button type="button" onClick={exportGeoJson}>
-              <Download size={13} /> Export
-            </button>
-            <span>
-              <Activity size={11} /> Live
-            </span>
-          </div>
+        <aside className={`simiti-assistant-panel ${drawerOpen ? "open" : ""}`}>
+          <div className="assistant-head"><div className="assistant-avatar"><Sparkles size={16}/></div><div><strong>AI Assistant — DSS Mitigasi</strong><small>Evidence SIMITI</small></div><button type="button" onClick={() => setDrawerOpen(false)}><X size={16}/></button></div>
+          <div className="assistant-body"><div className="chat-bubble bot">Saya dapat membantu membaca hasil spatial scoring dan menjelaskan alasan rekomendasi.</div>{selected && <div className="chat-bubble bot">Lokasi aktif: <b>{selected.area}</b>. {recommendationScore ? `Prioritas ${recommendationScore}/100.` : "Skor belum tersedia."}</div>}<button type="button" className="chat-action" onClick={runAnalysis}><Sparkles size={13}/> Tampilkan rekomendasi</button><button type="button" className="chat-action secondary" onClick={() => setSelectedId(visibleLocations[0]?.id || null)}>Buka lokasi terbaik</button></div>
+          <div className="assistant-input"><span>Tulis pertanyaan...</span><Sparkles size={16}/></div>
         </aside>
-
-        {!leftOpen && (
-          <button
-            type="button"
-            className="simiti-left-reopen"
-            onClick={() => setLeftOpen(true)}
-            title="Buka analysis panel"
-          >
-            <ChevronRight size={17} />
-          </button>
-        )}
-
-        <div className="simiti-map-status">
-          <span>
-            <Activity size={13} />{" "}
-            {loading
-              ? "Memuat data..."
-              : `${groupCandidatesByBoundary.length} ${adminLevel} · ${filteredCandidates.length} kejadian`}
-          </span>
-          <span>
-            <Layers3 size={13} /> {layersCount == null ? "—" : layersCount}{" "}
-            layer
-          </span>
-        </div>
-
-        <div ref={mapRef} className="simiti-map" />
-
-        <div className="simiti-map-controls">
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedAreaBoundary(null);
-              setSelectedId(null);
-              setAiResult(null);
-              setDrawerOpen(false);
-              setSelectedDas(null);
-              setDasError("");
-              mapInstanceRef.current?.setView([-2.5, 118], 5);
-            }}
-            title="Kembali ke Indonesia"
-          >
-            <Navigation size={17} />
-          </button>
-          <button
-            type="button"
-            className={showLayers ? "active" : ""}
-            onClick={() => setShowLayers((value) => !value)}
-            title="Tampilkan legend"
-          >
-            <Layers3 size={17} />
-          </button>
-        </div>
-
-        {showLayers && (
-          <div className="simiti-map-legend">
-            <div className="simiti-legend-title">LAYER &amp; LOKASI</div>
-            {(Object.keys(hazardMeta) as Hazard[]).map((hazard) => {
-              const Icon = hazardMeta[hazard].icon;
-              const active = hazards.has(hazard);
-              return (
-                <button
-                  type="button"
-                  key={hazard}
-                  className={active ? "active" : ""}
-                  onClick={() => toggleHazard(hazard)}
-                >
-                  <span
-                    className={`legend-dot ${hazardMeta[hazard].markerClass}`}
-                  >
-                    <Icon size={12} />
-                  </span>
-                  <span>{hazard}</span>
-                  <i>{active ? "✓" : ""}</i>
-                </button>
-              );
-            })}
-            <div className="simiti-legend-divider" />
-            <div className="simiti-legend-note">
-              <span className="legend-ai-dot">
-                <Target size={11} />
-              </span>
-              Lokasi terpilih / analisis AI
-            </div>
-          </div>
-        )}
-
-        <div className="simiti-map-footer-left">
-          <span>© SIMITI Spatial Engine</span>
-          <span>© OpenStreetMap</span>
-        </div>
-
-        <div className="simiti-map-footer-right">
-          <Crosshair size={12} /> EPSG:4326
-        </div>
-
-        <button
-          type="button"
-          className={`simiti-drawer-tab ${drawerOpen ? "open" : ""}`}
-          onClick={() => setDrawerOpen((value) => !value)}
-          title={drawerOpen ? "Tutup panel" : "Buka rekomendasi"}
-        >
-          {drawerOpen ? <ChevronRight size={21} /> : <ChevronLeft size={21} />}
-        </button>
-
-        <aside className={`simiti-ai-drawer ${drawerOpen ? "open" : ""}`}>
-          <div className="simiti-drawer-head">
-            <div>
-              <span>AI DECISION SUPPORT</span>
-              <h2>AI Decision Support</h2>
-            </div>
-            <button type="button" onClick={() => setDrawerOpen(false)}>
-              <X size={18} />
-            </button>
-          </div>
-
-          {!selected ? (
-            selectedAreaBoundary ? (
-              <div className="simiti-area-decision-card">
-                <div className="simiti-selected-card">
-                  <div className="simiti-selected-top">
-                    <div className="simiti-selected-icon">
-                      <Droplets size={19} />
-                    </div>
-                    <div className="simiti-selected-title">
-                      <small>SELECTED AREA · FLOOD ANALYSIS</small>
-                      <h3>{selectedAreaBoundary.label}</h3>
-                      <p>
-                        {selectedAreaBoundary.kecamatan ||
-                          selectedAreaBoundary.kab_kota ||
-                          selectedAreaBoundary.provinsi ||
-                          "Wilayah terpilih"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="simiti-drawer-section">
-                  <div className="simiti-section-title">
-                    <span>DAS &amp; BANJIR</span>
-                    <Droplets size={14} />
-                  </div>
-
-                  <div className="simiti-evidence-list">
-                    <div>
-                      <span>DAS</span>
-                      <strong>
-                        {dasLoading
-                          ? "Mengidentifikasi..."
-                          : selectedDas?.nama_das ||
-                            selectedDas?.name ||
-                            selectedDas?.das_name ||
-                            selectedDas?.label ||
-                            "Belum teridentifikasi"}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Indeks banjir BNPB</span>
-                      <strong>
-                        {bnpbFloodLoading
-                          ? "Membaca..."
-                          : bnpbFlood.value == null
-                            ? "—"
-                            : bnpbFlood.value.toFixed(3)}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Kejadian banjir</span>
-                      <strong>{floodEvidence.count}</strong>
-                    </div>
-                    <div>
-                      <span>Curah hujan maksimum</span>
-                      <strong>
-                        {floodEvidence.maxRainfall == null
-                          ? "—"
-                          : floodEvidence.maxRainfall.toFixed(1)}
-                      </strong>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="simiti-drawer-section">
-                  <div className="simiti-section-title">
-                    <span>REKOMENDASI OTOMATIS</span>
-                    <Sparkles size={14} />
-                  </div>
-                  {floodRecommendations.slice(0, 4).map((item, index) => (
-                    <div key={`${item.title}-${index}`} className="simiti-rec-row">
-                      <span>{String(index + 1).padStart(2, "0")}</span>
-                      <div>
-                        <strong>{item.title}</strong>
-                        <small>{item.text}</small>
-                        <small className="simiti-rec-source">{item.status} · {item.source}</small>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {(dasError || bnpbFlood.error) && (
-                  <div className="simiti-verification">
-                    <AlertTriangle size={14} />
-                    <span>{dasError || bnpbFlood.error}</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="simiti-empty">
-                <MapPinned size={30} />
-                <strong>Belum ada lokasi</strong>
-                <p>
-                  Pilih daerah pada pencarian atau boundary peta untuk menjalankan analisis banjir dan DAS.
-                </p>
-              </div>
-            )
-          ) : (
-            <>
-              <div className="simiti-selected-card">
-                <div className="simiti-selected-top">
-                  <div className="simiti-selected-icon">
-                    <SelectedIcon size={19} />
-                  </div>
-                  <div className="simiti-selected-title">
-                    <small>LOKASI KEJADIAN #{selected.id}</small>
-                    <h3>{selected.title || selected.area}</h3>
-                    <p>{selected.area}</p>
-                  </div>
-                </div>
-
-                <div className="simiti-selected-meta">
-                  <span>{selected.category || selected.hazard}</span>
-                  <span>{selected.date || "Tanggal tidak tersedia"}</span>
-                </div>
-
-                <button
-                  type="button"
-                  className="simiti-focus-btn"
-                  onClick={focusSelected}
-                >
-                  <MapPinned size={14} /> Tampilkan di peta
-                </button>
-              </div>
-
-              <div className="simiti-risk-box">
-                <div>
-                  <span>TINGKAT RISIKO AI</span>
-                  <strong className={riskClass(risk)}>{risk}</strong>
-                </div>
-                <div className="simiti-confidence">
-                  <span>CONFIDENCE</span>
-                  <strong>
-                    {aiResult?.confidence == null
-                      ? "—"
-                      : `${Math.round(aiResult.confidence)}%`}
-                  </strong>
-                </div>
-              </div>
-
-              {aiLoading && (
-                <div className="simiti-ai-loading">
-                  <RefreshCw size={16} className="spin" />
-                  <span>AI sedang menganalisis evidence SIMITI...</span>
-                </div>
-              )}
-
-              {!aiLoading && aiResult && (
-                <>
-                  {aiResult.diagnosis && (
-                    <div className="simiti-diagnosis">
-                      <div className="simiti-mini-title">
-                        <BrainCircuit size={14} /> DIAGNOSIS
-                      </div>
-                      <p>{aiResult.diagnosis}</p>
-                    </div>
-                  )}
-
-                  <div className="simiti-drawer-section">
-                    <div className="simiti-section-title">
-                      <span>REKOMENDASI UTAMA</span>
-                      <Sparkles size={14} />
-                    </div>
-
-                    {topRecommendation && (
-                      <div className="simiti-main-recommendation">
-                        <div className="simiti-rec-rank">01</div>
-                        <div>
-                          <strong>{topRecommendation.intervention}</strong>
-                          <p>{topRecommendation.why}</p>
-                        </div>
-                        <b>{Math.round(topRecommendation.priority_score)}</b>
-                      </div>
-                    )}
-
-                    {aiResult.recommendations?.slice(1).map((rec) => (
-                      <div
-                        className="simiti-rec-row"
-                        key={`${rec.intervention_id}-${rec.rank}`}
-                      >
-                        <span>{String(rec.rank).padStart(2, "0")}</span>
-                        <div>
-                          <strong>{rec.intervention}</strong>
-                          <small>{rec.urgency || "Prioritas AI"}</small>
-                        </div>
-                        <b>{Math.round(rec.priority_score)}</b>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="simiti-drawer-section">
-                    <div className="simiti-section-title">
-                      <span>EVIDENCE DATA</span>
-                      <ShieldCheck size={14} />
-                    </div>
-
-                    <div className="simiti-evidence-list">
-                      <div>
-                        <span>Tanggal kejadian</span>
-                        <strong>{selected.date || "—"}</strong>
-                      </div>
-                      <div>
-                        <span>Curah hujan</span>
-                        <strong>
-                          {selected.curah_hujan == null
-                            ? "—"
-                            : String(selected.curah_hujan)}
-                        </strong>
-                      </div>
-                      <div>
-                        <span>DAS</span>
-                        <strong>
-                          {selected.das ||
-                            selectedDas?.nama_das ||
-                            selectedDas?.name ||
-                            selectedDas?.das_name ||
-                            "—"}
-                        </strong>
-                      </div>
-                      <div>
-                        <span>Koordinat</span>
-                        <strong>
-                          {selected.lat.toFixed(5)}, {selected.lng.toFixed(5)}
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  {aiResult.primary_drivers?.length ? (
-                    <div className="simiti-driver-box">
-                      <Sparkles size={14} />
-                      <div>
-                        <span>DRIVER UTAMA</span>
-                        <p>{aiResult.primary_drivers.join(" · ")}</p>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {aiResult.verification_needed && (
-                    <div className="simiti-verification">
-                      <AlertTriangle size={14} />
-                      <span>
-                        {aiResult.verification_reason ||
-                          "Output AI perlu diverifikasi dengan data lapangan."}
-                      </span>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {!aiLoading && !aiResult && (
-                <div className="simiti-ai-error">
-                  <AlertTriangle size={15} />
-                  <span>{aiError || "Analisis AI belum tersedia."}</span>
-                </div>
-              )}
-            </>
-          )}
-
-          <div className="simiti-drawer-bottom">
-            <button type="button" onClick={exportGeoJson}>
-              <Download size={14} /> Export GeoJSON
-            </button>
-            <span>
-              <Activity size={12} /> Live backend data
-            </span>
-          </div>
-        </aside>
-
-        <div className="simiti-enterprise-status">
-          <div>
-            <span className="status-dot" /> DATA ENGINE <strong>LIVE</strong>
-          </div>
-          <div>
-            LOCATIONS <strong>{filteredCandidates.length}</strong>
-          </div>
-          <div>
-            LAYERS <strong>{layersCount ?? "—"}</strong>
-          </div>
-          <div>
-            AI ENGINE{" "}
-            <strong>
-              {aiLoading ? "ANALYZING" : aiResult ? "READY" : "IDLE"}
-            </strong>
-          </div>
-          <div>
-            RISK{" "}
-            <strong
-              className={`status-risk ${riskClass(aiResult?.risk_level || "")}`}
-            >
-              {aiResult?.risk_level || "—"}
-            </strong>
-          </div>
-          <div className="status-time">
-            <Activity size={11} /> SIMITI Spatial Decision Support
-          </div>
-        </div>
-
-        <div className="simiti-mobile-hint">
-          <span>
-            <MapPinned size={13} /> Klik titik untuk analisis AI
-          </span>
-        </div>
-      </main>
+      </div>
     </div>
   );
 }
