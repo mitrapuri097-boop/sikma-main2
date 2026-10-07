@@ -192,6 +192,9 @@ const Kerawanan = () => {
   const [isRightLayerPanelOpen, setIsRightLayerPanelOpen] = useState(false);
 
   const mapRef = useRef(null);
+  const [baseMapType, setBaseMapType] = useState<"road" | "satellite">("road");
+  const roadBaseLayerRef = useRef<any>(null);
+  const satelliteBaseLayerRef = useRef<any>(null);
   const mapInstanceRef = useRef(null);
   const mapInitializingRef = useRef(false);
   const mapWeatherMarkerRef = useRef<any>(null);
@@ -6421,10 +6424,26 @@ const Kerawanan = () => {
         }
       });
 
-      window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "&copy; OpenStreetMap contributors",
-        crossOrigin: true,
-      }).addTo(map);
+      const roadBaseLayer = window.L.tileLayer(
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        {
+          attribution: "&copy; OpenStreetMap contributors",
+          crossOrigin: true,
+        },
+      );
+
+      const satelliteBaseLayer = window.L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        {
+          attribution: "Tiles &copy; Esri",
+          crossOrigin: true,
+        },
+      );
+
+      roadBaseLayerRef.current = roadBaseLayer;
+      satelliteBaseLayerRef.current = satelliteBaseLayer;
+
+      roadBaseLayer.addTo(map);
 
       mapInstanceRef.current = map;
       mapInitializingRef.current = false;
@@ -6480,9 +6499,33 @@ const Kerawanan = () => {
         const container = mapRef.current as HTMLElement & { _leaflet_id?: number };
         delete container._leaflet_id;
       }
+      roadBaseLayerRef.current = null;
+      satelliteBaseLayerRef.current = null;
       setMapReady(false);
     };
   }, []);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const roadLayer = roadBaseLayerRef.current;
+    const satelliteLayer = satelliteBaseLayerRef.current;
+
+    if (!map || !roadLayer || !satelliteLayer || !mapReady) return;
+
+    if (map.hasLayer(roadLayer)) {
+      map.removeLayer(roadLayer);
+    }
+
+    if (map.hasLayer(satelliteLayer)) {
+      map.removeLayer(satelliteLayer);
+    }
+
+    if (baseMapType === "satellite") {
+      satelliteLayer.addTo(map);
+    } else {
+      roadLayer.addTo(map);
+    }
+  }, [baseMapType, mapReady]);
 
   useEffect(() => {
     // Auto-fetch photos dan listings ketika ada perubahan pada activeLayers kejadian
@@ -12170,6 +12213,35 @@ const Kerawanan = () => {
                 className="kerawanan-map relative min-w-0 w-full min-h-0 xl:min-h-0 rounded-xl overflow-hidden bg-sky-100 border border-white shadow-sm"
               >
               <div ref={mapRef} className="absolute inset-0" />
+
+              {/* BASEMAP SWITCHER */}
+              <div className="absolute top-3 right-3 z-[3000] flex overflow-hidden rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-sm">
+                <button
+                  type="button"
+                  onClick={() => setBaseMapType("road")}
+                  className={`px-3 py-2 text-[11px] font-semibold transition-colors ${
+                    baseMapType === "road"
+                      ? "bg-emerald-600 text-white"
+                      : "text-slate-600 hover:bg-slate-50"
+                  }`}
+                  title="Peta Jalan"
+                >
+                  Road
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setBaseMapType("satellite")}
+                  className={`border-l border-slate-200 px-3 py-2 text-[11px] font-semibold transition-colors ${
+                    baseMapType === "satellite"
+                      ? "bg-emerald-600 text-white"
+                      : "text-slate-600 hover:bg-slate-50"
+                  }`}
+                  title="Citra Satelit"
+                >
+                  Satellite
+                </button>
+              </div>
 
               <div className="print-map-title absolute top-3 left-3 z-[3000] rounded-lg bg-white/95 border border-slate-200 px-3 py-2 shadow-sm">
                 <div className="text-[15px] font-bold text-slate-800">SIMITI • Peta Kawasan Rawan</div>
