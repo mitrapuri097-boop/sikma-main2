@@ -232,3 +232,178 @@
 .mockup-container .absolute {
   z-index: 1001;
 }
+/* =========================================================
+   SIMITI — REMOVE DIVIDER BETWEEN MAP & BOTTOM SUMMARY
+   ========================================================= */
+
+.kerawanan-workspace {
+  row-gap: 0 !important;
+  border: 0 !important;
+  outline: 0 !important;
+}
+
+.kerawanan-workspace > .kerawanan-map {
+  border-bottom: 0 !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+}
+
+.kerawanan-workspace > .kerawanan-bottom-summary {
+  margin-top: 0 !important;
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+  border-left: 0 !important;
+  border-right: 0 !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+}
+
+.kerawanan-bottom-summary,
+.kerawanan-bottom-summary::before,
+.kerawanan-bottom-summary::after {
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+}
+
+.kerawanan-bottom-summary > * {
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+}
+
+@media (min-width: 1280px) {
+  .kerawanan-workspace {
+    grid-template-rows: minmax(0, 1fr) 160px !important;
+    row-gap: 0 !important;
+  }
+
+  .kerawanan-workspace > .kerawanan-bottom-summary {
+    height: 160px !important;
+    max-height: 160px !important;
+    min-height: 0 !important;
+  }
+}
+
+/* =========================================================
+   SIMITI — CLEAN BOTTOM SUMMARY COLUMNS
+   Hilangkan garis vertikal antar:
+   Kejadian Terkini | Legenda | Mitigasi & Adaptasi
+   ========================================================= */
+
+.kerawanan-bottom-summary {
+  border: 0 !important;
+  outline: 0 !important;
+}
+
+.kerawanan-bottom-summary > * {
+  border-left: 0 !important;
+  border-right: 0 !important;
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+}
+
+/* Override semua utility border Tailwind/CoreUI di dalam summary */
+.kerawanan-bottom-summary .border,
+.kerawanan-bottom-summary .border-l,
+.kerawanan-bottom-summary .border-r,
+.kerawanan-bottom-summary .border-x,
+.kerawanan-bottom-summary .border-slate-200,
+.kerawanan-bottom-summary .border-slate-100,
+.kerawanan-bottom-summary .border-emerald-100 {
+  border-left: 0 !important;
+  border-right: 0 !important;
+}
+
+/* Jangan biarkan divider pseudo-element muncul */
+.kerawanan-bottom-summary::before,
+.kerawanan-bottom-summary::after {
+  content: none !important;
+  display: none !important;
+  border: 0 !important;
+}
+
+/* Khusus tiga kolom utama */
+.kerawanan-bottom-summary > :nth-child(1),
+.kerawanan-bottom-summary > :nth-child(2),
+.kerawanan-bottom-summary > :nth-child(3) {
+  border-left: 0 !important;
+  border-right: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Kalau separator dibuat oleh pseudo-element anak */
+.kerawanan-bottom-summary > *::before,
+.kerawanan-bottom-summary > *::after {
+  border-left: 0 !important;
+  border-right: 0 !important;
+  box-shadow: none !important;
+}
+
+/* =========================================================
+   SIMITI — BOTTOM SUMMARY DATA SCROLL
+   ========================================================= */
+
+.kerawanan-bottom-summary {
+  overflow: hidden !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Hilangkan frame / divider pada 3 kolom */
+.kerawanan-bottom-summary > * {
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+  min-width: 0 !important;
+}
+
+/* Area internal yang menggunakan overflow */
+.kerawanan-bottom-summary > * {
+  overflow: hidden !important;
+}
+
+/* Scrollbar data dibuat tipis dan clean */
+.kerawanan-bottom-summary * {
+  scrollbar-width: thin;
+}
+
+/* Hilangkan garis border bawaan pada container data */
+.kerawanan-bottom-summary .border,
+.kerawanan-bottom-summary .border-x,
+.kerawanan-bottom-summary .border-y,
+.kerawanan-bottom-summary .border-l,
+.kerawanan-bottom-summary .border-r,
+.kerawanan-bottom-summary .border-t,
+.kerawanan-bottom-summary .border-b {
+  border-color: transparent !important;
+}
+
+/* Header section tetap clean */
+.kerawanan-bottom-summary .bg-emerald-50 {
+  border: 0 !important;
+}
+
+/* Jangan tampilkan separator pseudo element */
+.kerawanan-bottom-summary::before,
+.kerawanan-bottom-summary::after,
+.kerawanan-bottom-summary > *::before,
+.kerawanan-bottom-summary > *::after {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Desktop */
+@media (min-width: 1280px) {
+  .kerawanan-bottom-summary {
+    grid-template-columns:
+      minmax(220px, 0.65fr)
+      minmax(300px, 1.35fr)
+      minmax(300px, 1.35fr) !important;
+
+    height: 160px !important;
+    max-height: 160px !important;
+  }
+}

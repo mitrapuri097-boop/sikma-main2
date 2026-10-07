@@ -1,4 +1,4 @@
-﻿// server.js - Updated with new schema and Excel processing + REFERENCE_MAPPING
+// server.js - Updated with new schema and Excel processing + REFERENCE_MAPPING
 require("dotenv").config();
 
 const express = require("express");
@@ -14459,6 +14459,26 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
     }
 
     const adminNames = parseJsonArrayQuery(adminFilter, "adminFilter");
+
+    // ============================================================
+    // SIMITI ENTERPRISE ADMIN FILTER + GEOMETRY CLIPPING
+    // ============================================================
+    //
+    // Filter administratif bersifat DINAMIS berdasarkan:
+    //   provinsi  -> public.provinsi
+    //   kabupaten -> public.kab_kota
+    //   kecamatan -> public.kecamatan
+    //   kelurahan -> public.kel_desa
+    //
+    // ST_Intersects  : memilih feature yang masuk/menyentuh area.
+    // ST_Intersection: memotong geometry agar tidak keluar
+    //                  dari boundary administratif.
+    //
+    // Tidak ada hardcode Bogor.
+    // ============================================================
+
+    let geometrySql = `l.${geometryColumn}`;
+
     if (adminNames?.length) {
       const adminConfig = {
         provinsi: ["provinsi", "provinsi"],
@@ -14477,6 +14497,11 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       }
 
       const [adminTable, adminColumn] = adminConfig;
+
+      // ------------------------------------------------------------
+      // Cari geometry boundary yang tersedia.
+      // Prioritas geom_valid -> geom.
+      // ------------------------------------------------------------
       const adminCheck = await client.query(
         `
           SELECT column_name
@@ -14487,34 +14512,117 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
         `,
         [adminTable, adminColumn],
       );
+
       const adminColumns = adminCheck.rows.map((r) => r.column_name);
+
       const adminGeom = adminColumns.includes("geom_valid")
         ? "geom_valid"
         : adminColumns.includes("geom")
           ? "geom"
           : null;
+
       if (!adminGeom || !adminColumns.includes(adminColumn)) {
         return res.status(500).json({
           success: false,
           error: "Admin boundary unavailable",
-          message: `Boundary ${adminTable} tidak mempunyai kolom yang diperlukan.`,
+          message:
+            `Boundary ${adminTable} tidak mempunyai kolom yang diperlukan.`,
         });
       }
 
-      const placeholders = adminNames
+      // ------------------------------------------------------------
+      // Placeholder parameter.
+      // params.length digunakan supaya tidak bentrok dengan:
+      // bounds + DAS parameter yang sudah ada sebelumnya.
+      // ------------------------------------------------------------
+      const adminPlaceholders = adminNames
         .map((_, i) => `$${params.length + i + 1}`)
         .join(", ");
-      fromSql += ` JOIN "${adminTable}" b_admin ON b_admin."${adminColumn}" IN (${placeholders})`;
+
       params.push(...adminNames);
-      conditions.push(
-        `ST_Intersects(l.${geometryColumn}, b_admin.${adminGeom})`,
+
+      // ------------------------------------------------------------
+      // Buat satu geometry boundary dari wilayah yang dipilih.
+      //
+      // Contoh:
+      // adminLevel  = kabupaten
+      // adminNames  = ["Bogor"]
+      //
+      // hasil:
+      // admin_clip.clip_geom = boundary Kabupaten Bogor
+      // ------------------------------------------------------------
+      fromSql += `
+        CROSS JOIN LATERAL (
+          SELECT
+            ST_UnaryUnion(
+              ST_Collect(
+                CASE
+                  WHEN ST_SRID(b_admin.${adminGeom}) = 0
+                    THEN ST_SetSRID(
+                      ST_Force2D(b_admin.${adminGeom}),
+                      4326
+                    )
+                  ELSE ST_Force2D(b_admin.${adminGeom})
+                END
+              )
+            ) AS clip_geom
+          FROM "${adminTable}" b_admin
+          WHERE b_admin."${adminColumn}" IN (${adminPlaceholders})
+        ) admin_clip
+      `;
+
+      // ------------------------------------------------------------
+      // Spatial candidate filter.
+      //
+      // Ini menjaga performa: hanya geometry yang berpotongan
+      // dengan boundary yang diproses lebih lanjut.
+      // ------------------------------------------------------------
+      conditions.push(`
+        admin_clip.clip_geom IS NOT NULL
+        AND NOT ST_IsEmpty(admin_clip.clip_geom)
+        AND ST_Intersects(
+          l.${geometryColumn},
+          admin_clip.clip_geom
+        )
+      `);
+
+      // ------------------------------------------------------------
+      // TRUE GEOMETRY CLIPPING
+      //
+      // Polygon risiko yang keluar boundary akan dipotong.
+      //
+      // ST_CollectionExtract(..., 3)
+      // mengambil geometry Polygon/MultiPolygon.
+      // ------------------------------------------------------------
+      geometrySql = `
+        ST_CollectionExtract(
+          ST_Intersection(
+            CASE
+              WHEN ST_SRID(l.${geometryColumn}) = 0
+                THEN ST_SetSRID(
+                  ST_Force2D(l.${geometryColumn}),
+                  4326
+                )
+              ELSE ST_Force2D(l.${geometryColumn})
+            END,
+            admin_clip.clip_geom
+          ),
+          3
+        )
+      `;
+
+      console.log(
+        `✂️ [ADMIN CLIP] ${tableName}`,
+        `level=${adminLevel}`,
+        `names=${JSON.stringify(adminNames)}`,
+        `boundary=${adminTable}.${adminColumn}.${adminGeom}`,
       );
     }
 
     const FEATURE_LIMIT = 100000;
     const query = `
       SELECT
-        ST_AsGeoJSON(l.${geometryColumn}) AS geometry,
+        ST_AsGeoJSON(${geometrySql}) AS geometry,
         ${propertiesSql} AS properties
       ${fromSql}
       WHERE ${conditions.join(" AND ")}
