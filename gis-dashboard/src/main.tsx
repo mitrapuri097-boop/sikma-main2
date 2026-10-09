@@ -48,6 +48,9 @@ import UserManagement from "./views/system/user/UserManagement";
 import RoleIndex from "./views/system/role/index";
 import UserAuthorization from "./views/system/user/UserAuthorization";
 import LaporanPengguna from "./views/laporan/LaporanPengguna";
+import LaporanDownload from "./views/laporan/LaporanDownload";
+import LaporanKejadianBencana from "./views/laporan/LaporanKejadianBencana";
+import LaporanMitigasi from "./views/laporan/LaporanMitigasi";
 
 // ======================================================
 // EWS
@@ -228,15 +231,13 @@ createRoot(rootElement).render(
 
             <Route path="/system/roles" element={<RoleIndex />} />
 
-            <Route
-              path="/system/user-authorization"
-              element={<UserAuthorization />}
-            />
+            <Route path="/system/user-authorization" element={<UserAuthorization />} />
 
-            <Route
-              path="/laporan/pengguna"
-              element={<LaporanPengguna />}
-            />
+            <Route path="/laporan/pengguna" element={<LaporanPengguna />} />
+
+            <Route path="/laporan/download" element={<LaporanDownload />} />
+            <Route path="/laporan/kejadian-bencana" element={<LaporanKejadianBencana />} />
+            <Route path="/laporan/mitigasi" element={<LaporanMitigasi />} />
           </Route>
         </Route>
 
@@ -255,4 +256,3 @@ createRoot(rootElement).render(
     </BrowserRouter>
   </React.StrictMode>,
 );
-

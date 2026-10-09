@@ -99,20 +99,24 @@ app.use((req, res, next) => {
 // .env:
 // DB_HOST=localhost
 // DB_PORT=5432
-// DB_NAME=simiti_local
+// DB_NAME=nama_database_postgresql_anda
 // DB_USER=postgres
 // DB_PASSWORD=your_postgres_password
 // ============================================================
 const dbConfig = {
   host: process.env.DB_HOST || "localhost",
   port: Number(process.env.DB_PORT || 5432),
-  database: process.env.DB_NAME || "simiti_local",
+  database: process.env.DB_NAME,
   user: process.env.DB_USER || "postgres",
   password: process.env.DB_PASSWORD || "",
   max: Number(process.env.DB_CONNECTION_LIMIT || 20),
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
 };
+
+if (!dbConfig.database) {
+  throw new Error("DB_NAME wajib diisi di file .env agar backend tidak tersambung ke database yang keliru.");
+}
 
 const pool = new PgPool(dbConfig);
 /* ============================================================
@@ -10820,6 +10824,77 @@ app.get("/api/das/geometry-by-name", async (req, res) => {
   }
 });
 
+app.get("/api/admin/polygon-by-coordinates", async (req, res) => {
+  try {
+    const longitude = Number(req.query.lon);
+    const latitude = Number(req.query.lat);
+
+    if (
+      !Number.isFinite(longitude) ||
+      !Number.isFinite(latitude) ||
+      longitude < -180 ||
+      longitude > 180 ||
+      latitude < -90 ||
+      latitude > 90
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Koordinat longitude/latitude tidak valid",
+      });
+    }
+
+    const query = `
+      WITH clicked_point AS (
+        SELECT ST_SetSRID(
+          ST_MakePoint($1, $2),
+          4326
+        ) AS geom
+      )
+      SELECT
+        kd.gid,
+        COALESCE(
+          NULLIF(kd.kel_desa, ''),
+          NULLIF(kd.name, ''),
+          'Desa/Kelurahan'
+        ) AS kel_desa,
+        kd.kecamatan,
+        kd.kab_kota,
+        kd.provinsi,
+        ST_AsGeoJSON(
+          ST_Force2D(COALESCE(kd.geom_valid, kd.geom))
+        )::json AS geom
+      FROM public.kel_desa kd
+      CROSS JOIN clicked_point cp
+      WHERE COALESCE(kd.geom_valid, kd.geom) IS NOT NULL
+        AND COALESCE(kd.geom_valid, kd.geom) && cp.geom
+        AND ST_Covers(
+          COALESCE(kd.geom_valid, kd.geom),
+          cp.geom
+        )
+      LIMIT 1
+    `;
+
+    const result = await pool.query(query, [longitude, latitude]);
+
+    if (!result.rows.length) {
+      return res.status(404).json({
+        success: false,
+        error: "Polygon desa/kelurahan tidak ditemukan pada titik ini",
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Gagal mengambil polygon desa/kelurahan:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Gagal mengambil polygon desa/kelurahan",
+    });
+  }
+});
 app.get("/api/das/geometry-by-coordinates", async (req, res) => {
   try {
     const { longitude, latitude } = req.query;

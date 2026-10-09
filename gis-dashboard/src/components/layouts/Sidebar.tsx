@@ -281,6 +281,12 @@ const mainMenus: MenuItem[] = [
         icon: Users,
       },
       {
+        title: "Laporan Pendownload Data",
+        href: "/laporan/download",
+        icon: FileBarChart,
+      },
+
+      {
         title: "Laporan Lokasi Rawan",
         href: "/laporan/kerawanan",
         icon: AlertTriangle,
@@ -292,7 +298,7 @@ const mainMenus: MenuItem[] = [
       },
       {
         title: "Laporan Kejadian Bencana",
-        href: "/laporan/kejadian",
+        href: "/laporan/kejadian-bencana",
         icon: Activity,
       },
       {
