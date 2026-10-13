@@ -14296,10 +14296,13 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
   try {
     const { tableName } = req.params;
     const { bounds, dasFilter, adminFilter, adminLevel } = req.query;
+    const requestedZoom = Number.parseInt(String(req.query.zoom ?? "5"), 10);
+    const zoom = Number.isFinite(requestedZoom) ? Math.max(0, Math.min(22, requestedZoom)) : 5;
 
     console.log("ðŸ—ºï¸ [GEOJSON] request", {
       tableName,
       bounds: bounds || null,
+      zoom,
       adminLevel: adminLevel || null,
       hasDasFilter: Boolean(dasFilter),
       hasAdminFilter: Boolean(adminFilter),
@@ -14694,10 +14697,42 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       );
     }
 
-    const FEATURE_LIMIT = 100000;
+    // Toleransi penyederhanaan menyesuaikan luas viewport.
+    // View nasional: geometri lebih sederhana.
+    // View lokal: detail geometri lebih dipertahankan.
+    const boundsNumbers = bounds
+      ? String(bounds).split(",").map(Number)
+      : [];
+
+    let simplifyTolerance = 0.005;
+
+    if (
+      boundsNumbers.length === 4 &&
+      boundsNumbers.every(Number.isFinite)
+    ) {
+      const [south, west, north, east] = boundsNumbers;
+      const span = Math.max(
+        Math.abs(north - south),
+        Math.abs(east - west)
+      );
+
+      simplifyTolerance = Math.min(
+        0.01,
+        Math.max(0.00001, span / 2000)
+      );
+    }
+
+    // Batasi payload berdasarkan zoom. View nasional tidak boleh memuat 100 ribu
+    // geometri sekaligus; detail bertambah ketika pengguna memperbesar peta.
+    const FEATURE_LIMIT =
+      zoom <= 5 ? 2000 :
+      zoom <= 7 ? 4000 :
+      zoom <= 9 ? 7000 :
+      zoom <= 11 ? 12000 :
+      zoom <= 13 ? 18000 : 25000;
     const query = `
       SELECT
-        ST_AsGeoJSON(${geometrySql}) AS geometry,
+        ST_AsGeoJSON(ST_SimplifyPreserveTopology(${geometrySql}, ${simplifyTolerance}), 5) AS geometry,
         ${propertiesSql} AS properties
       ${fromSql}
       WHERE ${conditions.join(" AND ")}
@@ -14730,9 +14765,12 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       `âœ… [GEOJSON] ${tableName}: ${features.length} features (${Date.now() - startedAt}ms)`,
     );
 
+    res.set("Cache-Control", "private, max-age=20");
     return res.json({
       type: "FeatureCollection",
       features,
+      featureLimit: FEATURE_LIMIT,
+      zoom,
       limitReached: result.rows.length === FEATURE_LIMIT,
       success: true,
       layer: tableName,
@@ -14965,7 +15003,7 @@ app.get("/api/areas/search", async (req, res) => {
   const client = await pool.connect();
 
   try {
-    const { query, level } = req.query;
+    const { query, level, provinsi: filterProvinsi, kab_kota: filterKabKota, kecamatan: filterKecamatan } = req.query;
 
     console.log("ðŸ” [SEARCH] Incoming request:", { query, level });
 
@@ -15031,12 +15069,12 @@ app.get("/api/areas/search", async (req, res) => {
             provinsi,
             ST_AsGeoJSON(ST_SetSRID(ST_Union(geom_valid), 4326)) as geom_json
           FROM kab_kota
-          WHERE LOWER(kab_kota) LIKE $1
+          WHERE LOWER(kab_kota) LIKE $1 AND ($2::text IS NULL OR LOWER(provinsi) = LOWER($2))
           GROUP BY kab_kota, provinsi
           ORDER BY kab_kota
           LIMIT 50
         `,
-          [searchPattern],
+          [searchPattern, filterProvinsi || null],
         );
 
         console.log(
@@ -15069,12 +15107,12 @@ app.get("/api/areas/search", async (req, res) => {
             provinsi,
             ST_AsGeoJSON(ST_SetSRID(ST_Union(geom_valid), 4326)) as geom_json
           FROM kecamatan
-          WHERE LOWER(kecamatan) LIKE $1
+          WHERE LOWER(kecamatan) LIKE $1 AND ($2::text IS NULL OR LOWER(provinsi) = LOWER($2)) AND ($3::text IS NULL OR LOWER(kab_kota) = LOWER($3))
           GROUP BY kecamatan, kab_kota, provinsi
           ORDER BY kecamatan
           LIMIT 50
         `,
-          [searchPattern],
+          [searchPattern, filterProvinsi || null, filterKabKota || null],
         );
 
         console.log(
@@ -15109,12 +15147,12 @@ app.get("/api/areas/search", async (req, res) => {
             provinsi,
             ST_AsGeoJSON(ST_SetSRID(ST_Union(geom_valid), 4326)) as geom_json
           FROM kel_desa
-          WHERE LOWER(kel_desa) LIKE $1
+          WHERE LOWER(kel_desa) LIKE $1 AND ($2::text IS NULL OR LOWER(provinsi) = LOWER($2)) AND ($3::text IS NULL OR LOWER(kab_kota) = LOWER($3)) AND ($4::text IS NULL OR LOWER(kecamatan) = LOWER($4))
           GROUP BY kel_desa, kecamatan, kab_kota, provinsi
           ORDER BY kel_desa
           LIMIT 50
         `,
-          [searchPattern],
+          [searchPattern, filterProvinsi || null, filterKabKota || null, filterKecamatan || null],
         );
 
         console.log(
@@ -16842,6 +16880,86 @@ app.put("/api/users/:id", async (req, res) => {
   }
 });
 // ============================================================
+// DELETE /api/users/:id
+// Hapus user dengan autentikasi dan validasi role admin.
+// Tidak menghapus data relasi secara otomatis.
+// ============================================================
+app.delete("/api/users/:id", verifyToken, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "ID user tidak valid.",
+      });
+    }
+
+    // Pastikan hanya Admin/Super Admin yang boleh menghapus user.
+    const roleResult = await client.query(
+      `SELECT name FROM public.master_role WHERE id = $1 LIMIT 1`,
+      [req.user?.role_id || null],
+    );
+    const roleName = String(
+      req.user?.role_name || roleResult.rows[0]?.name || "",
+    ).toLowerCase().replace(/[^a-z0-9]/g, "");
+
+    if (!roleName.includes("admin")) {
+      return res.status(403).json({
+        success: false,
+        message: "Akses ditolak. Hanya Admin/Super Admin yang dapat menghapus user.",
+      });
+    }
+
+    // Cegah admin menghapus akun yang sedang dipakai untuk login.
+    if (Number(req.user?.id) === id) {
+      return res.status(400).json({
+        success: false,
+        message: "Akun yang sedang digunakan tidak dapat dihapus.",
+      });
+    }
+
+    const existing = await client.query(
+      `SELECT id, username, full_name, email FROM public.users WHERE id = $1 LIMIT 1`,
+      [id],
+    );
+    if (!existing.rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "User tidak ditemukan.",
+      });
+    }
+
+    // Hard delete only the user row. Foreign-key relationships are not cascaded.
+    const deleted = await client.query(
+      `DELETE FROM public.users WHERE id = $1 RETURNING id, username, full_name, email`,
+      [id],
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "User berhasil dihapus.",
+      data: deleted.rows[0],
+    });
+  } catch (error) {
+    console.error("DELETE /api/users/:id ERROR:", error);
+    if (error.code === "23503") {
+      return res.status(409).json({
+        success: false,
+        message: "User tidak dapat dihapus karena masih memiliki data terkait. Hapus atau pindahkan relasi tersebut terlebih dahulu.",
+      });
+    }
+    return res.status(500).json({
+      success: false,
+      message: "Gagal menghapus user.",
+      error: error.message,
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// ============================================================
 // MASTER ROLE MANAGEMENT
 // ============================================================
 
@@ -18333,113 +18451,48 @@ app.get("/api/location-assessment", async (req, res) => {
     // ========================================================
 
     const adminQuery = `
-      SELECT
-
-        (
-          SELECT p.provinsi
-          FROM public.provinsi p
-          WHERE p.geom IS NOT NULL
-            AND (
-              (ST_SRID(p.geom) = 0 AND p.geom && ST_Expand(ST_SetSRID(ST_MakePoint($2, $1), 0), 0.25))
-              OR
-              (ST_SRID(p.geom) = 4326 AND p.geom && ST_Expand(${point}, 0.25))
-              OR
-              (ST_SRID(p.geom) NOT IN (0, 4326) AND ST_Covers(
-                (CASE WHEN ST_SRID(p.geom) = 0 THEN ST_SetSRID(p.geom, 4326) WHEN ST_SRID(p.geom) = 4326 THEN p.geom ELSE ST_Transform(p.geom, 4326) END),
-                ${point}
-              ))
-            )
-            AND ST_Covers(
-              (CASE WHEN ST_SRID(p.geom) = 0 THEN ST_SetSRID(p.geom, 4326) WHEN ST_SRID(p.geom) = 4326 THEN p.geom ELSE ST_Transform(p.geom, 4326) END),
-              ${point}
-            )
-          LIMIT 1
-        ) AS provinsi,
-
-        (
-          SELECT k.kab_kota
-          FROM public.kab_kota k
-          WHERE k.geom IS NOT NULL
-            AND (
-              (ST_SRID(k.geom) = 0 AND k.geom && ST_Expand(ST_SetSRID(ST_MakePoint($2, $1), 0), 0.25))
-              OR
-              (ST_SRID(k.geom) = 4326 AND k.geom && ST_Expand(${point}, 0.25))
-              OR
-              (ST_SRID(k.geom) NOT IN (0, 4326) AND ST_Covers(
-                (CASE WHEN ST_SRID(k.geom) = 0 THEN ST_SetSRID(k.geom, 4326) WHEN ST_SRID(k.geom) = 4326 THEN k.geom ELSE ST_Transform(k.geom, 4326) END),
-                ${point}
-              ))
-            )
-            AND (
-              (ST_SRID(k.geom) = 0 AND k.geom && ST_Expand(ST_SetSRID(ST_MakePoint($2, $1), 0), 0.25))
-              OR
-              (ST_SRID(k.geom) = 4326 AND k.geom && ST_Expand(${point}, 0.25))
-              OR
-              (ST_SRID(k.geom) NOT IN (0, 4326) AND ST_Covers(
-                (CASE WHEN ST_SRID(k.geom) = 0 THEN ST_SetSRID(k.geom, 4326) WHEN ST_SRID(k.geom) = 4326 THEN k.geom ELSE ST_Transform(k.geom, 4326) END),
-                ${point}
-              ))
-            )
-            AND (
-              (ST_SRID(k.geom) = 0 AND k.geom && ST_Expand(ST_SetSRID(ST_MakePoint($2, $1), 0), 0.25))
-              OR
-              (ST_SRID(k.geom) = 4326 AND k.geom && ST_Expand(${point}, 0.25))
-              OR
-              (ST_SRID(k.geom) NOT IN (0, 4326) AND ST_Covers(
-                (CASE WHEN ST_SRID(k.geom) = 0 THEN ST_SetSRID(k.geom, 4326) WHEN ST_SRID(k.geom) = 4326 THEN k.geom ELSE ST_Transform(k.geom, 4326) END),
-                ${point}
-              ))
-            )
-            AND ST_Covers(
-              (CASE WHEN ST_SRID(k.geom) = 0 THEN ST_SetSRID(k.geom, 4326) WHEN ST_SRID(k.geom) = 4326 THEN k.geom ELSE ST_Transform(k.geom, 4326) END),
-              ${point}
-            )
-          LIMIT 1
-        ) AS kabupaten,
-
-        (
-          SELECT k.kecamatan
-          FROM public.kecamatan k
-          WHERE k.geom IS NOT NULL
-            AND ST_Covers(
-              (CASE WHEN ST_SRID(k.geom) = 0 THEN ST_SetSRID(k.geom, 4326) WHEN ST_SRID(k.geom) = 4326 THEN k.geom ELSE ST_Transform(k.geom, 4326) END),
-              ${point}
-            )
-          LIMIT 1
-        ) AS kecamatan,
-
-        (
-          SELECT k.kel_desa
-          FROM public.kel_desa k
-          WHERE k.geom IS NOT NULL
-            AND ST_Covers(
-              (CASE WHEN ST_SRID(k.geom) = 0 THEN ST_SetSRID(k.geom, 4326) WHEN ST_SRID(k.geom) = 4326 THEN k.geom ELSE ST_Transform(k.geom, 4326) END),
-              ${point}
-            )
-          LIMIT 1
-        ) AS kelurahan,
-
-        (
-          SELECT d.nama_das
-          FROM public.das_adm d
-          WHERE d.geom IS NOT NULL
-            AND (
-              (ST_SRID(d.geom) = 0 AND d.geom && ST_Expand(ST_SetSRID(ST_MakePoint($2, $1), 0), 0.25))
-              OR
-              (ST_SRID(d.geom) = 4326 AND d.geom && ST_Expand(${point}, 0.25))
-              OR
-              (ST_SRID(d.geom) NOT IN (0, 4326) AND ST_Covers(
-                (CASE WHEN ST_SRID(d.geom) = 0 THEN ST_SetSRID(d.geom, 4326) WHEN ST_SRID(d.geom) = 4326 THEN d.geom ELSE ST_Transform(d.geom, 4326) END),
-                ${point}
-              ))
-            )
-            AND ST_Covers(
-              (CASE WHEN ST_SRID(d.geom) = 0 THEN ST_SetSRID(d.geom, 4326) WHEN ST_SRID(d.geom) = 4326 THEN d.geom ELSE ST_Transform(d.geom, 4326) END),
-              ${point}
-            )
-          LIMIT 1
-        ) AS das
-    `;
+  SELECT
+    (
+      SELECT p.provinsi
+      FROM public.provinsi p
+      WHERE p.geom_valid IS NOT NULL
+        AND p.geom_valid && ${point}
+        AND ST_Covers(p.geom_valid, ${point})
+      LIMIT 1
+    ) AS provinsi,
+    (
+      SELECT k.kab_kota
+      FROM public.kab_kota k
+      WHERE k.geom_valid IS NOT NULL
+        AND k.geom_valid && ${point}
+        AND ST_Covers(k.geom_valid, ${point})
+      LIMIT 1
+    ) AS kabupaten,
+    (
+      SELECT k.kecamatan
+      FROM public.kecamatan k
+      WHERE k.geom_valid IS NOT NULL
+        AND k.geom_valid && ${point}
+        AND ST_Covers(k.geom_valid, ${point})
+      LIMIT 1
+    ) AS kecamatan,
+    (
+      SELECT k.kel_desa
+      FROM public.kel_desa k
+      WHERE k.geom_valid IS NOT NULL
+        AND k.geom_valid && ${point}
+        AND ST_Covers(k.geom_valid, ${point})
+      LIMIT 1
+    ) AS kelurahan,
+    (
+      SELECT d.nama_das
+      FROM public.das_adm d
+      WHERE d.geom_valid IS NOT NULL
+        AND d.geom_valid && ${point}
+        AND ST_Covers(d.geom_valid, ${point})
+      LIMIT 1
+    ) AS das
+`;
 
     let admin = {};
 
@@ -18605,19 +18658,18 @@ app.get("/api/location-assessment", async (req, res) => {
       expectedRiskLayerCount > 0 &&
       analyzedRiskLayerCount === expectedRiskLayerCount;
 
-    let myLokasiScore = null;
-    let myLokasiStatus = null;
+    const myLokasiPartialScore = mappedRisks.reduce(
+  (sum, item) => sum + Number(item.score || 0),
+  0,
+);
 
-    if (complete) {
-      const totalScore = mappedRisks.reduce(
-        (sum, item) => sum + Number(item.score),
-        0,
-      );
+let myLokasiScore = null;
+let myLokasiStatus = null;
 
-      myLokasiScore = totalScore;
-
-      myLokasiStatus = getStatusFromScore(totalScore);
-    }
+if (complete) {
+  myLokasiScore = myLokasiPartialScore;
+  myLokasiStatus = getStatusFromScore(myLokasiPartialScore);
+}
 
     checkpoint("MY LOKASI ENGINE DONE");
 
@@ -18769,6 +18821,7 @@ app.get("/api/location-assessment", async (req, res) => {
 
         myLokasi: {
           score: myLokasiScore,
+          partialScore: analyzedRiskLayerCount > 0 ? myLokasiPartialScore : null,
 
           minimum: riskLayers.length * 1,
 

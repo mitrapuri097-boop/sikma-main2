@@ -69,6 +69,7 @@ const Index = () => {
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [deletingUserId, setDeletingUserId] = useState<string | number | null>(null)
   const [search, setSearch] = useState('')
   const [showUserForm, setShowUserForm] = useState(false)
   const [showEditUser, setShowEditUser] =
@@ -290,6 +291,75 @@ const handleCloseEditUser = () => {
   setShowEditUser(false)
   setSelectedUser(null)
 }
+  // =====================================================
+  // DELETE USER
+  // =====================================================
+
+  const handleDeleteUser = async (user: User) => {
+    if (user.id === undefined || user.id === null || String(user.id).trim() === '') {
+      window.alert('User tidak memiliki ID yang valid. Data tidak dapat dihapus.')
+      return
+    }
+
+    const displayName = user.full_name || user.username || user.email || `ID ${user.id}`
+    const confirmed = window.confirm(
+      `Yakin ingin menghapus user "${displayName}"? Tindakan ini tidak dapat dibatalkan.`,
+    )
+    if (!confirmed) return
+
+    try {
+      setDeletingUserId(user.id)
+      setError('')
+
+      const token = localStorage.getItem('smiti_token')
+      const response = await fetch(
+        `${API_URL}/api/users/${encodeURIComponent(String(user.id))}`,
+        {
+          method: 'DELETE',
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        },
+      )
+
+      const responseText = await response.text()
+      let responseData: { message?: string; error?: string } = {}
+      try {
+        responseData = responseText ? JSON.parse(responseText) : {}
+      } catch {
+        // Response may be plain text.
+      }
+
+      if (!response.ok) {
+        const message =
+          responseData.message ||
+          responseData.error ||
+          responseText ||
+          `Server menolak penghapusan (HTTP ${response.status}).`
+        throw new Error(
+          response.status === 404
+            ? 'Endpoint DELETE /api/users/:id tidak ditemukan di backend. Route hapus user perlu ditambahkan.'
+            : response.status === 401 || response.status === 403
+              ? `Tidak memiliki izin untuk menghapus user. ${message}`
+              : message,
+        )
+      }
+
+      await loadUsers()
+      window.alert(`User "${displayName}" berhasil dihapus.`)
+    } catch (err: unknown) {
+      console.error('DELETE USER ERROR:', err)
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Terjadi kesalahan saat menghapus user.'
+      setError(message)
+      window.alert(`Gagal menghapus user: ${message}`)
+    } finally {
+      setDeletingUserId(null)
+    }
+  }
+
   // =====================================================
   // CLOSE ADD USER MODAL
   // =====================================================
@@ -801,8 +871,14 @@ const handleCloseEditUser = () => {
                             className="enterprise-action delete"
                             title="Hapus User"
                             type="button"
+                            disabled={deletingUserId !== null || loading}
+                            onClick={() => handleDeleteUser(user)}
                           >
-                            <CIcon icon={cilTrash} />
+                            {deletingUserId === user.id ? (
+                              <CSpinner size="sm" />
+                            ) : (
+                              <CIcon icon={cilTrash} />
+                            )}
                           </CButton>
 
                         </div>

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -113,6 +113,7 @@ type CatalogPayload = {
   data?:
     | {
         categories?: LayerCategory[];
+  layers?: ApiLayer[];
         statistics?: CatalogStatistics;
         source?: string;
         generatedAt?: string;
@@ -120,6 +121,7 @@ type CatalogPayload = {
     | ApiLayer[];
 
   categories?: LayerCategory[];
+  layers?: ApiLayer[];
   generatedAt?: string;
 };
 
@@ -129,6 +131,15 @@ type LayerDataPayload = {
   error?: string;
   layer?: ApiLayer;
   data?: unknown;
+  type?: string;
+  features?: unknown[];
+  geojsonUrl?: string;
+  dataUrl?: string;
+  endpoint?: string;
+  tableName?: string;
+  name?: string;
+  id?: string | number;
+  section?: string;
 };
 
 type AttributeRow = {
@@ -171,6 +182,21 @@ const API_BASE =
 const CATALOG_URL = `${API_BASE}/layer-overlay/catalog`;
 const DATA_URL = (layerId: string) =>
   `${API_BASE}/layer-overlay/data/${encodeURIComponent(layerId)}`;
+
+// Layer Overlay harus memakai token login yang sama dengan modul SIMITI lain.
+function getSmitiToken(): string | null {
+  return (
+    localStorage.getItem("smiti_token") ||
+    sessionStorage.getItem("smiti_token")
+  );
+}
+
+function getSmitiAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const token = getSmitiToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
 
 /* ============================================================
    HELPERS
@@ -371,10 +397,7 @@ function normalizeFeatureCollection(value: unknown): GeoJsonCollection {
       return value.data as unknown as GeoJsonCollection;
     }
 
-    if (
-      Array.isArray(value.features) &&
-      value.type === "FeatureCollection"
-    ) {
+    if (Array.isArray(value.features) && value.type === "FeatureCollection") {
       return value as unknown as GeoJsonCollection;
     }
 
@@ -415,10 +438,7 @@ function flattenCategories(categories: LayerCategory[]): ApiLayer[] {
       ...child,
       category: child.category || category.title,
       tableName: child.tableName || child.table,
-      icon:
-        typeof child.icon === "string"
-          ? child.icon
-          : undefined,
+      icon: typeof child.icon === "string" ? child.icon : undefined,
     })),
   );
 }
@@ -450,12 +470,15 @@ function normalizeCatalogPayload(payload: CatalogPayload): {
   statistics: CatalogStatistics;
 } {
   const rawData = payload.data;
+  const topLevelLayers = Array.isArray(payload.layers) ? payload.layers : null;
+  const legacyData = Array.isArray(rawData) ? rawData : topLevelLayers;
 
-  if (Array.isArray(rawData)) {
-    const legacyLayers = rawData.map((layer) => ({
+  if (Array.isArray(legacyData)) {
+    const legacyLayers = legacyData.map((layer) => ({
       ...layer,
       id: String(layer.id),
-      title: layer.title || layer.tableName || layer.table || String(layer.id),
+      title: layer.title || layer.tableName || layer.table || layer.name || String(layer.id),
+      category: String(layer.category || layer.section || 'lainnya').trim(),
     }));
 
     const legacyCategories =
@@ -476,39 +499,59 @@ function normalizeCatalogPayload(payload: CatalogPayload): {
               child.table ||
               String(child.id),
             icon: normalizeIcon(
-              typeof child.icon === "string"
-                ? child.icon
-                : source?.icon,
+              typeof child.icon === "string" ? child.icon : source?.icon,
             ),
             checked: false,
-            color: child.color || source?.color || defaultLayerColor(source ?? child),
-            featureCount:
-              child.featureCount ??
-              source?.featureCount ??
-              0,
+            color:
+              child.color ||
+              source?.color ||
+              defaultLayerColor(source ?? child),
+            featureCount: child.featureCount ?? source?.featureCount ?? 0,
             category: child.category || category.title,
           };
         }),
       })) ?? [];
 
-    const categories =
+    const categoryTitles: Record<string, string> = {
+      kerawanan: "Kerawanan",
+      mitigasiadaptasi: "Mitigasi & Adaptasi",
+      kejadian: "Kejadian",
+      lainnya: "Lainnya",
+    };
+
+    const grouped = new Map<string, LayerItem[]>();
+
+    for (const layer of legacyLayers) {
+      const rawCategory = String(layer.category || "lainnya").trim();
+      const key = rawCategory.toLowerCase().replace(/[\s_-]/g, "");
+      const title =
+        categoryTitles[key] ||
+        rawCategory.charAt(0).toUpperCase() + rawCategory.slice(1);
+
+      const child: LayerItem = {
+        ...layer,
+        id: String(layer.id),
+        title: layer.title || layer.tableName || layer.table || String(layer.id),
+        icon: normalizeIcon(layer.icon),
+        checked: false,
+        color: layer.color || defaultLayerColor(layer),
+        featureCount: Number(layer.featureCount ?? 0),
+        category: title,
+      };
+
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)!.push(child);
+    }
+
+    const categories: LayerCategory[] =
       legacyCategories.length > 0
         ? legacyCategories
-        : [
-            {
-              id: "layers",
-              title: "LAYERS",
-              children: legacyLayers.map((layer) => ({
-                ...layer,
-                icon: normalizeIcon(layer.icon),
-                checked: false,
-                color: layer.color || defaultLayerColor(layer),
-                featureCount: layer.featureCount ?? 0,
-                category: layer.category || "Layers",
-              })),
-            },
-          ];
-
+        : Array.from(grouped.entries()).map(([key, children]) => ({
+            id: key,
+            title: categoryTitles[key] ||
+              String(children[0]?.category || key),
+            children,
+          }));
     return {
       categories,
       layers: legacyLayers,
@@ -534,10 +577,7 @@ function normalizeCatalogPayload(payload: CatalogPayload): {
         ...child,
         id: String(child.id),
         title:
-          child.title ||
-          child.tableName ||
-          child.table ||
-          String(child.id),
+          child.title || child.tableName || child.table || String(child.id),
         icon: normalizeIcon(
           typeof child.icon === "string" ? child.icon : undefined,
         ),
@@ -548,10 +588,7 @@ function normalizeCatalogPayload(payload: CatalogPayload): {
             ...child,
             id: String(child.id),
             title:
-              child.title ||
-              child.tableName ||
-              child.table ||
-              String(child.id),
+              child.title || child.tableName || child.table || String(child.id),
           }),
         featureCount: Number(child.featureCount ?? 0),
         category: child.category || category.title,
@@ -563,15 +600,9 @@ function normalizeCatalogPayload(payload: CatalogPayload): {
     (layer) => ({
       ...layer,
       id: String(layer.id),
-      title:
-        layer.title ||
-        layer.tableName ||
-        layer.table ||
-        String(layer.id),
-      icon:
-        typeof layer.icon === "string"
-          ? layer.icon
-          : undefined,
+      title: layer.title || layer.tableName || layer.table || layer.name || String(layer.id),
+      category: String(layer.category || layer.section || 'lainnya').trim(),
+      icon: typeof layer.icon === "string" ? layer.icon : undefined,
     }),
   );
 
@@ -579,9 +610,7 @@ function normalizeCatalogPayload(payload: CatalogPayload): {
     categories: normalizedCategories,
     layers: currentLayers,
     statistics: {
-      totalLayers:
-        rawData?.statistics?.totalLayers ??
-        currentLayers.length,
+      totalLayers: rawData?.statistics?.totalLayers ?? currentLayers.length,
       totalFeatures:
         rawData?.statistics?.totalFeatures ??
         currentLayers.reduce(
@@ -589,8 +618,7 @@ function normalizeCatalogPayload(payload: CatalogPayload): {
           0,
         ),
       categories:
-        rawData?.statistics?.categories ??
-        normalizedCategories.length,
+        rawData?.statistics?.categories ?? normalizedCategories.length,
     },
   };
 }
@@ -693,46 +721,126 @@ function MapActions({ onLocate }: MapActionsProps) {
   );
 }
 
-function FitBoundsFromLayer({
-  data,
-  enabled,
+function MapViewportTracker({
+  onBoundsChange,
 }: {
-  data?: GeoJsonCollection;
-  enabled: boolean;
+  onBoundsChange: (bounds: string, zoom: number) => void;
 }) {
   const map = useMap();
 
   useEffect(() => {
-    if (!enabled || !data || !data.features?.length) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    let mounted = true;
+    const updateBounds = () => {
+      if (timer) clearTimeout(timer);
 
-    const run = async () => {
-      try {
-        const leaflet = await import("leaflet");
+      timer = setTimeout(() => {
+        const bounds = map.getBounds();
+        const value = [
+          bounds.getSouth(),
+          bounds.getWest(),
+          bounds.getNorth(),
+          bounds.getEast(),
+        ]
+          .map((number) => Number(number.toFixed(5)))
+          .join(",");
 
-        if (!mounted) return;
-
-        const layer = leaflet.geoJSON(data as never);
-        const bounds = layer.getBounds();
-
-        if (bounds.isValid()) {
-          map.fitBounds(bounds, {
-            padding: [24, 24],
-            maxZoom: 11,
-          });
-        }
-      } catch {
-        // Ignore fit failures.
-      }
+        onBoundsChange(value, map.getZoom());
+      }, 250);
     };
 
-    void run();
+    updateBounds();
+    map.on("moveend", updateBounds);
+    map.on("zoomend", updateBounds);
 
     return () => {
-      mounted = false;
+      if (timer) clearTimeout(timer);
+      map.off("moveend", updateBounds);
+      map.off("zoomend", updateBounds);
     };
-  }, [data, enabled, map]);
+  }, [map, onBoundsChange]);
+
+  return null;
+}
+function FitBoundsFromLayer({
+  data,
+  enabled,
+  requestId,
+}: {
+  data?: GeoJsonCollection;
+  enabled: boolean;
+  requestId?: number;
+}) {
+  const map = useMap();
+  const lastRequestId = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (
+      !enabled ||
+      !requestId ||
+      !data ||
+      !data.features?.length ||
+      lastRequestId.current === requestId
+    ) return;
+
+    // Hitung bounds langsung dari koordinat GeoJSON. Jangan membangun
+    // layer Leaflet kedua hanya untuk fitBounds, terutama untuk polygon besar.
+    let minLat = Number.POSITIVE_INFINITY;
+    let minLng = Number.POSITIVE_INFINITY;
+    let maxLat = Number.NEGATIVE_INFINITY;
+    let maxLng = Number.NEGATIVE_INFINITY;
+
+    const visitCoordinates = (value: unknown): void => {
+      if (!Array.isArray(value)) return;
+
+      if (
+        value.length >= 2 &&
+        typeof value[0] === "number" &&
+        typeof value[1] === "number"
+      ) {
+        const lng = value[0];
+        const lat = value[1];
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          minLat = Math.min(minLat, lat);
+          minLng = Math.min(minLng, lng);
+          maxLat = Math.max(maxLat, lat);
+          maxLng = Math.max(maxLng, lng);
+        }
+        return;
+      }
+
+      for (const child of value) visitCoordinates(child);
+    };
+
+    const visitGeometry = (geometry: GeoJSON.Geometry | null | undefined): void => {
+      if (!geometry) return;
+      if (geometry.type === "GeometryCollection") {
+        for (const child of geometry.geometries) visitGeometry(child);
+        return;
+      }
+      visitCoordinates(geometry.coordinates);
+    };
+
+    for (const feature of data.features) {
+      visitGeometry(feature.geometry);
+    }
+
+    if (
+      Number.isFinite(minLat) &&
+      Number.isFinite(minLng) &&
+      Number.isFinite(maxLat) &&
+      Number.isFinite(maxLng)
+    ) {
+      lastRequestId.current = requestId;
+      map.fitBounds(
+        [
+          [minLat, minLng],
+          [maxLat, maxLng],
+        ],
+        { padding: [24, 24], maxZoom: 11 },
+      );
+    }
+  }, [data, enabled, map, requestId]);
 
   return null;
 }
@@ -741,22 +849,14 @@ function FitBoundsFromLayer({
    SMALL UI COMPONENTS
 ============================================================ */
 
-function LegendItem({
-  color,
-  label,
-}: {
-  color: string;
-  label: string;
-}) {
+function LegendItem({ color, label }: { color: string; label: string }) {
   return (
     <div className="flex items-center gap-1.5">
       <span
         className="h-2.5 w-2.5 rounded-sm"
         style={{ backgroundColor: color }}
       />
-      <span className="text-[9px] font-medium text-slate-600">
-        {label}
-      </span>
+      <span className="text-[9px] font-medium text-slate-600">{label}</span>
     </div>
   );
 }
@@ -792,8 +892,7 @@ function RiskBadge({ risk }: { risk: string }) {
   const color = riskColor(risk, "#64748b");
   const text = safeString(risk, "-");
 
-  let classes =
-    "border-slate-200 bg-slate-50 text-slate-600";
+  let classes = "border-slate-200 bg-slate-50 text-slate-600";
 
   if (color === "#dc2626") {
     classes = "border-red-200 bg-red-50 text-red-700";
@@ -825,9 +924,7 @@ function StatusCard({
     <div className="rounded-lg border border-slate-100 bg-slate-50 p-2.5">
       <div className="mb-1 flex items-center justify-between">
         <Icon size={13} className="text-slate-400" />
-        <span className="text-[14px] font-bold text-slate-700">
-          {value}
-        </span>
+        <span className="text-[14px] font-bold text-slate-700">{value}</span>
       </div>
       <div className="text-[8px] font-semibold uppercase tracking-wide text-slate-400">
         {label}
@@ -850,9 +947,7 @@ function WorkspaceItem({
       type="button"
       onClick={onClick}
       className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition ${
-        active
-          ? "bg-emerald-50 text-emerald-700"
-          : "hover:bg-slate-50"
+        active ? "bg-emerald-50 text-emerald-700" : "hover:bg-slate-50"
       }`}
     >
       <Layers3 size={13} className="shrink-0" />
@@ -870,24 +965,36 @@ function WorkspaceItem({
 export default function LayerOverlay() {
   const [layers, setLayers] = useState<LayerCategory[]>([]);
   const [apiLayers, setApiLayers] = useState<ApiLayer[]>([]);
-  const [catalogStats, setCatalogStats] =
-    useState<CatalogStatistics | null>(null);
+  const [catalogStats, setCatalogStats] = useState<CatalogStatistics | null>(
+    null,
+  );
 
   const [geoJsonByLayer, setGeoJsonByLayer] = useState<
     Record<string, GeoJsonCollection>
   >({});
 
   const [activeLayer, setActiveLayer] = useState("");
+  const [zoomRequest, setZoomRequest] = useState<{ layerId: string; id: number } | null>(null);
+  const zoomRequestCounter = useRef(0);
+  const [mapBounds, setMapBounds] = useState("");
+  const [mapZoom, setMapZoom] = useState(5);
+  const handleViewportChange = useCallback((bounds: string, zoom: number) => {
+    setMapBounds(bounds);
+    setMapZoom(zoom);
+  }, []);
+  const requestControllers = useRef<Record<string, AbortController>>({});
+  const loadedBounds = useRef<Record<string, string>>({});
+  const requestBounds = useRef<Record<string, string>>({});
   const [loadingLayers, setLoadingLayers] = useState(true);
   const [loadingGeoJson, setLoadingGeoJson] = useState(false);
   const [loadingLayerId, setLoadingLayerId] = useState("");
   const [apiError, setApiError] = useState("");
 
-  const [openCategories, setOpenCategories] =
-    useState<Record<string, boolean>>({});
+  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>(
+    {},
+  );
 
-  const [basemap, setBasemap] =
-    useState<"map" | "satellite">("map");
+  const [basemap, setBasemap] = useState<"map" | "satellite">("map");
 
   const [activeTab, setActiveTab] = useState<
     "attributes" | "overlay" | "history"
@@ -900,22 +1007,19 @@ export default function LayerOverlay() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const [filterText, setFilterText] = useState("");
-  const [workspaceName, setWorkspaceName] =
-    useState("Workspace GIS SIMITI");
+  const [workspaceName, setWorkspaceName] = useState("Workspace GIS SIMITI");
 
-  const [columnVisibility, setColumnVisibility] =
-    useState<ColumnVisibility>({
-      wilayah: true,
-      risiko: true,
-      luas: true,
-      provinsi: true,
-      sumber: true,
-      update: true,
-    });
+  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>({
+    wilayah: true,
+    risiko: true,
+    luas: true,
+    provinsi: true,
+    sumber: true,
+    update: true,
+  });
 
   const [overlayEnabled, setOverlayEnabled] = useState(false);
-  const [spatialQueryEnabled, setSpatialQueryEnabled] =
-    useState(false);
+  const [spatialQueryEnabled, setSpatialQueryEnabled] = useState(false);
   const [measureEnabled, setMeasureEnabled] = useState(false);
 
   /* ==========================================================
@@ -929,9 +1033,7 @@ export default function LayerOverlay() {
     try {
       const response = await fetch(CATALOG_URL, {
         method: "GET",
-        headers: {
-          Accept: "application/json",
-        },
+        headers: getSmitiAuthHeaders(),
       });
 
       const rawText = await response.text();
@@ -948,9 +1050,7 @@ export default function LayerOverlay() {
 
       if (!response.ok) {
         throw new Error(
-          payload.message ||
-            payload.error ||
-            `HTTP ${response.status}`,
+          payload.message || payload.error || `HTTP ${response.status}`,
         );
       }
 
@@ -968,35 +1068,49 @@ export default function LayerOverlay() {
       setApiLayers(normalized.layers);
       setCatalogStats(normalized.statistics);
 
-      const initialOpenState =
-        normalized.categories.reduce<Record<string, boolean>>(
-          (acc, category) => {
-            acc[category.id] = true;
-            return acc;
-          },
-          {},
+      // Model Tree dibuka dalam keadaan ringkas: kategori saja.
+      // Layer di dalam kategori tampil setelah kategori diklik.
+      const categoryOrder = [
+        "kerawanan",
+        "lainnya",
+        "mitigasiadaptasi",
+        "kejadian",
+      ];
+      const categoryRank = (category: LayerCategory) => {
+        const key = (value: string) => value.toLowerCase().replace(/[\s_-]/g, "");
+        const idKey = key(category.id);
+        const titleKey = key(category.title);
+        const index = categoryOrder.findIndex(
+          (item) => item === idKey || item === titleKey,
         );
+        return index < 0 ? categoryOrder.length : index;
+      };
+      const orderedCategories = [...normalized.categories].sort(
+        (a, b) => categoryRank(a) - categoryRank(b),
+      );
+      normalized.categories = orderedCategories;
+
+      const initialOpenState = normalized.categories.reduce<
+        Record<string, boolean>
+      >((acc, category) => {
+        acc[category.id] = false;
+        return acc;
+      }, {});
 
       setOpenCategories(initialOpenState);
 
       const firstLayer =
-        normalized.layers.length > 0
-          ? String(normalized.layers[0].id)
-          : "";
+        normalized.layers.length > 0 ? String(normalized.layers[0].id) : "";
 
       setActiveLayer((previous) =>
         previous &&
-        normalized.layers.some(
-          (layer) => String(layer.id) === previous,
-        )
+        normalized.layers.some((layer) => String(layer.id) === previous)
           ? previous
           : firstLayer,
       );
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message
-          : "Gagal memuat katalog layer.";
+        error instanceof Error ? error.message : "Gagal memuat katalog layer.";
 
       setApiError(message);
       setLayers([]);
@@ -1015,105 +1129,186 @@ export default function LayerOverlay() {
      LOAD GEOJSON
   ========================================================== */
 
-  const loadLayerGeoJson = useCallback(
-    async (layerId: string) => {
-      if (!layerId) return;
+  const loadLayerGeoJson = useCallback(async (layerId: string, bounds?: string) => {
+    if (!layerId) return;
 
-      setLoadingGeoJson(true);
-      setLoadingLayerId(layerId);
-      setApiError("");
+    const requestKey = bounds ? `${bounds}|z${mapZoom}` : "";
+    if (
+      requestKey &&
+      (loadedBounds.current[layerId] === requestKey ||
+        requestBounds.current[layerId] === requestKey)
+    ) {
+      return;
+    }
 
-      try {
-        const response = await fetch(DATA_URL(layerId), {
+    requestControllers.current[layerId]?.abort();
+    const controller = new AbortController();
+    requestControllers.current[layerId] = controller;
+    if (requestKey) requestBounds.current[layerId] = requestKey;
+
+    setLoadingGeoJson(true);
+    setLoadingLayerId(layerId);
+    setApiError("");
+
+    try {
+      const readJson = async (url: string) => {
+        const response = await fetch(url, {
           method: "GET",
-          headers: {
-            Accept: "application/json",
-          },
+          headers: getSmitiAuthHeaders(),
+          signal: controller.signal,
         });
-
         const rawText = await response.text();
-
-        let payload: LayerDataPayload;
+        let body: LayerDataPayload;
 
         try {
-          payload = JSON.parse(rawText) as LayerDataPayload;
+          body = JSON.parse(rawText) as LayerDataPayload;
         } catch {
           throw new Error(
-            `Response data layer bukan JSON valid (HTTP ${response.status}).`,
+            `Response bukan JSON valid (HTTP ${response.status}) dari ${url}.`,
           );
         }
 
         if (!response.ok) {
           throw new Error(
-            payload.message ||
-              payload.error ||
-              `HTTP ${response.status}`,
+            body.message || body.error || `HTTP ${response.status}`,
           );
         }
+        if (body.success === false) {
+          throw new Error(body.message || body.error || "Gagal memuat data layer.");
+        }
+        return body;
+      };
 
-        if (!payload.success) {
+      // Endpoint ini dapat mengembalikan metadata berisi geojsonUrl,
+      // atau langsung FeatureCollection pada versi backend yang lebih lama.
+      const metadata = await readJson(DATA_URL(layerId));
+      let geoJsonPayload: LayerDataPayload = metadata;
+
+      const metadataIsGeoJson =
+        metadata.type === "FeatureCollection" && Array.isArray(metadata.features);
+
+      if (!metadataIsGeoJson) {
+        const returnedUrl =
+          metadata.geojsonUrl || metadata.dataUrl || metadata.endpoint;
+
+        let geoJsonUrl: string;
+        if (returnedUrl) {
+          // Pertahankan host API yang dipakai aplikasi. Backend biasanya
+          // mengembalikan path relatif /api/... meskipun API ada di host lain.
+          const path = returnedUrl.replace(/^\/api(?=\/)/, "");
+          geoJsonUrl = /^https?:\/\//i.test(returnedUrl)
+            ? returnedUrl
+            : `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+        } else if (metadata.tableName || metadata.name) {
+          const tableName = String(metadata.tableName || metadata.name);
+          geoJsonUrl = `${API_BASE}/layers/${encodeURIComponent(tableName)}/geojson`;
+        } else {
           throw new Error(
-            payload.message ||
-              payload.error ||
-              "Gagal memuat data spasial.",
+            "Backend mengembalikan metadata tanpa geojsonUrl/tableName dan tanpa FeatureCollection.",
           );
         }
 
-        const featureCollection =
-          normalizeFeatureCollection(payload.data);
+        const query = new URLSearchParams();
+        if (bounds) query.set("bounds", bounds);
+        query.set("zoom", String(mapZoom));
+        const boundedUrl = `${geoJsonUrl}${geoJsonUrl.includes("?") ? "&" : "?"}${query.toString()}`;
+        geoJsonPayload = await readJson(boundedUrl);
+      }
 
-        setGeoJsonByLayer((previous) => ({
-          ...previous,
-          [layerId]: featureCollection,
-        }));
+      const featureCollection = normalizeFeatureCollection(
+        geoJsonPayload.type === "FeatureCollection"
+          ? geoJsonPayload
+          : geoJsonPayload.data,
+      );
 
-        if (payload.layer) {
-          setApiLayers((previous) =>
-            previous.map((layer) =>
-              String(layer.id) === String(layerId)
-                ? {
-                    ...layer,
-                    ...payload.layer,
-                    id: String(
-                      payload.layer?.id ?? layer.id,
-                    ),
-                  }
-                : layer,
-            ),
-          );
-        }
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Gagal memuat data spasial.";
+      if (
+        geoJsonPayload.type !== "FeatureCollection" &&
+        !Array.isArray(geoJsonPayload.features) &&
+        !isObject(geoJsonPayload.data) &&
+        !Array.isArray(geoJsonPayload.data)
+      ) {
+        throw new Error("Endpoint GeoJSON tidak mengembalikan FeatureCollection yang valid.");
+      }
 
-        setApiError(
-          `${message} Layer: ${layerId}`,
+      setGeoJsonByLayer((previous) => ({
+        ...previous,
+        [layerId]: featureCollection,
+      }));
+
+      if (requestKey) loadedBounds.current[layerId] = requestKey;
+
+      const metadataLayer = metadata.layer || (metadata.tableName
+        ? {
+            id: String(metadata.id ?? layerId),
+            tableName: metadata.tableName,
+            title: metadata.name || metadata.tableName,
+            category: metadata.section || undefined,
+          }
+        : undefined);
+
+      if (metadataLayer) {
+        setApiLayers((previous) =>
+          previous.map((layer) =>
+            String(layer.id) === String(layerId)
+              ? { ...layer, ...metadataLayer, id: String(metadataLayer.id ?? layer.id) }
+              : layer,
+          ),
         );
-      } finally {
+      }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      const message =
+        error instanceof Error ? error.message : "Gagal memuat data spasial.";
+      setApiError(`${message} Layer: ${layerId}`);
+    } finally {
+      if (requestControllers.current[layerId] === controller) {
+        delete requestControllers.current[layerId];
+        if (requestBounds.current[layerId] === requestKey) {
+          delete requestBounds.current[layerId];
+        }
         setLoadingGeoJson(false);
         setLoadingLayerId("");
       }
-    },
-    [],
-  );
+    }
+  }, [mapZoom]);
 
+  useEffect(() => {
+    if (!mapBounds) return;
+
+    let cancelled = false;
+
+    const loadVisibleLayers = async () => {
+      const checkedIds = layers
+        .flatMap((category) => category.children)
+        .filter((layer) => layer.checked)
+        .map((layer) => String(layer.id));
+
+      const targets = Array.from(
+        new Set([...checkedIds, ...(activeLayer ? [activeLayer] : [])]),
+      );
+
+      for (const layerId of targets) {
+        if (cancelled) return;
+        await loadLayerGeoJson(layerId, mapBounds);
+      }
+    };
+
+    void loadVisibleLayers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mapBounds, mapZoom, layers, activeLayer, loadLayerGeoJson]);
   /* ==========================================================
      LAYER ACTIONS
   ========================================================== */
 
-  const updateLayerChecked = (
-    layerId: string,
-    checked: boolean,
-  ) => {
+  const updateLayerChecked = (layerId: string, checked: boolean) => {
     setLayers((previous) =>
       previous.map((category) => ({
         ...category,
         children: category.children.map((layer) =>
-          String(layer.id) === String(layerId)
-            ? { ...layer, checked }
-            : layer,
+          String(layer.id) === String(layerId) ? { ...layer, checked } : layer,
         ),
       })),
     );
@@ -1143,9 +1338,7 @@ export default function LayerOverlay() {
 
     setActiveLayer(String(layerId));
 
-    if (nextChecked && !geoJsonByLayer[layerId]) {
-      void loadLayerGeoJson(String(layerId));
-    }
+
 
     if (currentLayer && !currentLayer.featureCount) {
       // Keep state driven by backend; no mock count is inserted.
@@ -1154,10 +1347,12 @@ export default function LayerOverlay() {
 
   const selectLayer = (layerId: string) => {
     setActiveLayer(String(layerId));
+  };
 
-    if (!geoJsonByLayer[layerId]) {
-      void loadLayerGeoJson(String(layerId));
-    }
+  const zoomToLayer = (layerId: string) => {
+    setActiveLayer(String(layerId));
+    zoomRequestCounter.current += 1;
+    setZoomRequest({ layerId: String(layerId), id: zoomRequestCounter.current });
   };
 
   const clearAllLayers = () => {
@@ -1183,13 +1378,7 @@ export default function LayerOverlay() {
       })),
     );
 
-    const missing = apiLayers.filter(
-      (layer) => !geoJsonByLayer[String(layer.id)],
-    );
 
-    if (missing.length > 0) {
-      void loadLayerGeoJson(String(missing[0].id));
-    }
   };
 
   /* ==========================================================
@@ -1213,9 +1402,7 @@ export default function LayerOverlay() {
             layer.category,
           ]
             .filter(Boolean)
-            .some((value) =>
-              String(value).toLowerCase().includes(keyword),
-            );
+            .some((value) => String(value).toLowerCase().includes(keyword));
         }),
       }))
       .filter((category) => category.children.length > 0);
@@ -1239,19 +1426,15 @@ export default function LayerOverlay() {
           fromApi.tableName ||
           fromApi.table ||
           String(fromApi.id),
-        color:
-          fromApi.color || defaultLayerColor(fromApi),
+        color: fromApi.color || defaultLayerColor(fromApi),
         icon: normalizeIcon(fromApi.icon),
         checked: layers.some((category) =>
           category.children.some(
             (layer) =>
-              String(layer.id) === String(activeLayer) &&
-              layer.checked,
+              String(layer.id) === String(activeLayer) && layer.checked,
           ),
         ),
-        category:
-          fromApi.category ||
-          "Layers",
+        category: fromApi.category || "Layers",
       } as LayerItem;
     }
 
@@ -1272,15 +1455,11 @@ export default function LayerOverlay() {
      GEOJSON POPUP
   ========================================================== */
 
-  const onEachFeature = (
-    feature: GeoJSON.Feature,
-    layer: LeafletLayer,
-  ) => {
+  const onEachFeature = (feature: GeoJSON.Feature, layer: LeafletLayer) => {
     if (!("bindPopup" in layer)) return;
 
     const properties =
-      (feature.properties as Record<string, unknown> | null) ??
-      {};
+      (feature.properties as Record<string, unknown> | null) ?? {};
 
     const name = getFeatureName(properties);
     const risk = getRiskValue(properties);
@@ -1349,27 +1528,17 @@ export default function LayerOverlay() {
   ========================================================== */
 
   const getLayerStyle = useCallback(
-    (
-      layer: LayerItem | undefined,
-      feature?: GeoJSON.Feature,
-    ): PathOptions => {
+    (layer: LayerItem | undefined, feature?: GeoJSON.Feature): PathOptions => {
       const fallback =
-        layer?.color ||
-        (layer ? defaultLayerColor(layer) : "#0f766e");
+        layer?.color || (layer ? defaultLayerColor(layer) : "#0f766e");
 
       const properties =
-        (feature?.properties as Record<string, unknown> | null) ??
-        {};
+        (feature?.properties as Record<string, unknown> | null) ?? {};
 
-      const color = riskColor(
-        getRiskValue(properties),
-        fallback,
-      );
+      const color = riskColor(getRiskValue(properties), fallback);
 
       const hasRisk =
-        String(getRiskValue(properties))
-          .toLowerCase()
-          .trim() !== "-";
+        String(getRiskValue(properties)).toLowerCase().trim() !== "-";
 
       return {
         color,
@@ -1393,8 +1562,7 @@ export default function LayerOverlay() {
     return features
       .map((feature, index) => {
         const props =
-          (feature.properties as Record<string, unknown> | null) ??
-          {};
+          (feature.properties as Record<string, unknown> | null) ?? {};
 
         const luasValue =
           props.luas ??
@@ -1417,10 +1585,7 @@ export default function LayerOverlay() {
         const risikoValue = getRiskValue(props);
 
         const provinsiValue =
-          props.provinsi ??
-          props.wil_kerja ??
-          props.kab_kota ??
-          "-";
+          props.provinsi ?? props.wil_kerja ?? props.kab_kota ?? "-";
 
         const sumberValue =
           props.sumber ??
@@ -1453,15 +1618,9 @@ export default function LayerOverlay() {
           row.provinsi,
           row.sumber,
           row.update,
-        ].some((value) =>
-          value.toLowerCase().includes(keyword),
-        );
+        ].some((value) => value.toLowerCase().includes(keyword));
       });
-  }, [
-    activeGeoJson,
-    activeLayerObject,
-    filterText,
-  ]);
+  }, [activeGeoJson, activeLayerObject, filterText]);
 
   /* ==========================================================
      EXPORT GEOJSON
@@ -1470,12 +1629,9 @@ export default function LayerOverlay() {
   const exportGeoJson = () => {
     if (!activeGeoJson) return;
 
-    const blob = new Blob(
-      [JSON.stringify(activeGeoJson, null, 2)],
-      {
-        type: "application/geo+json;charset=utf-8",
-      },
-    );
+    const blob = new Blob([JSON.stringify(activeGeoJson, null, 2)], {
+      type: "application/geo+json;charset=utf-8",
+    });
 
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -1516,14 +1672,10 @@ export default function LayerOverlay() {
         row.provinsi,
         row.sumber,
         row.update,
-      ].map((value) =>
-        `"${String(value).replaceAll('"', '""')}"`,
-      ),
+      ].map((value) => `"${String(value).replaceAll('"', '""')}"`),
     );
 
-    const csv = [header, ...rows]
-      .map((row) => row.join(","))
-      .join("\n");
+    const csv = [header, ...rows].map((row) => row.join(",")).join("\n");
 
     const blob = new Blob(["\ufeff", csv], {
       type: "text/csv;charset=utf-8",
@@ -1547,9 +1699,7 @@ export default function LayerOverlay() {
      COLUMN VISIBILITY
   ========================================================== */
 
-  const toggleColumn = (
-    key: keyof ColumnVisibility,
-  ) => {
+  const toggleColumn = (key: keyof ColumnVisibility) => {
     setColumnVisibility((previous) => ({
       ...previous,
       [key]: !previous[key],
@@ -1560,18 +1710,14 @@ export default function LayerOverlay() {
      RENDER
   ========================================================== */
 
-  const allLayerItems = layers.flatMap(
-    (category) => category.children,
-  );
+  const allLayerItems = layers.flatMap((category) => category.children);
 
   const activeLayerCount = allLayerItems.filter(
     (layer) => layer.checked,
   ).length;
 
   const activeFeatureCount =
-    activeLayerObject?.featureCount ??
-    activeGeoJson?.features?.length ??
-    0;
+    activeLayerObject?.featureCount ?? activeGeoJson?.features?.length ?? 0;
 
   return (
     <div className="min-h-screen bg-[#f4f7f9] text-slate-800">
@@ -1582,15 +1728,11 @@ export default function LayerOverlay() {
       <div className="border-b border-slate-200 bg-white">
         <div className="px-5 py-4 lg:px-7">
           <div className="mb-3 flex items-center gap-2 text-[12px] font-medium text-slate-400">
-            <span className="text-emerald-600">
-              Home
-            </span>
+            <span className="text-emerald-600">Home</span>
 
             <ChevronRight size={13} />
 
-            <span className="text-emerald-600">
-              WebGIS & Data Spasial
-            </span>
+            <span className="text-emerald-600">WebGIS & Data Spasial</span>
 
             <ChevronRight size={13} />
 
@@ -1606,8 +1748,8 @@ export default function LayerOverlay() {
               </h1>
 
               <p className="mt-1 text-[13px] text-slate-500">
-                Kelola layer, overlay dan analisis data spasial
-                berbasis database SIMITI
+                Kelola layer, overlay dan analisis data spasial berbasis
+                database SIMITI
               </p>
             </div>
 
@@ -1653,13 +1795,9 @@ export default function LayerOverlay() {
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
 
           <div className="min-w-0 flex-1">
-            <div className="font-bold">
-              Koneksi API Layer & Overlay
-            </div>
+            <div className="font-bold">Koneksi API Layer & Overlay</div>
 
-            <div className="mt-0.5 break-words">
-              {apiError}
-            </div>
+            <div className="mt-0.5 break-words">{apiError}</div>
           </div>
 
           <button
@@ -1684,11 +1822,7 @@ export default function LayerOverlay() {
           <div className="relative">
             <button
               type="button"
-              onClick={() =>
-                setShowBasemapMenu(
-                  (previous) => !previous,
-                )
-              }
+              onClick={() => setShowBasemapMenu((previous) => !previous)}
               className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
             >
               <MapIcon size={15} />
@@ -1712,12 +1846,7 @@ export default function LayerOverlay() {
                 >
                   <MapIcon size={14} />
                   Peta
-                  {basemap === "map" && (
-                    <Check
-                      size={13}
-                      className="ml-auto"
-                    />
-                  )}
+                  {basemap === "map" && <Check size={13} className="ml-auto" />}
                 </button>
 
                 <button
@@ -1735,10 +1864,7 @@ export default function LayerOverlay() {
                   <Layers3 size={14} />
                   Satelit
                   {basemap === "satellite" && (
-                    <Check
-                      size={13}
-                      className="ml-auto"
-                    />
+                    <Check size={13} className="ml-auto" />
                   )}
                 </button>
               </div>
@@ -1749,11 +1875,7 @@ export default function LayerOverlay() {
 
           <button
             type="button"
-            onClick={() =>
-              setOverlayEnabled(
-                (previous) => !previous,
-              )
-            }
+            onClick={() => setOverlayEnabled((previous) => !previous)}
             className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-[12px] font-bold shadow-sm transition ${
               overlayEnabled
                 ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
@@ -1768,11 +1890,7 @@ export default function LayerOverlay() {
 
           <button
             type="button"
-            onClick={() =>
-              setSpatialQueryEnabled(
-                (previous) => !previous,
-              )
-            }
+            onClick={() => setSpatialQueryEnabled((previous) => !previous)}
             className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-[12px] font-semibold shadow-sm transition ${
               spatialQueryEnabled
                 ? "border-blue-200 bg-blue-50 text-blue-700"
@@ -1787,11 +1905,7 @@ export default function LayerOverlay() {
 
           <button
             type="button"
-            onClick={() =>
-              setMeasureEnabled(
-                (previous) => !previous,
-              )
-            }
+            onClick={() => setMeasureEnabled((previous) => !previous)}
             className={`flex h-9 items-center gap-2 rounded-lg border px-3 text-[12px] font-semibold shadow-sm transition ${
               measureEnabled
                 ? "border-amber-200 bg-amber-50 text-amber-700"
@@ -1807,11 +1921,7 @@ export default function LayerOverlay() {
           <div className="relative">
             <button
               type="button"
-              onClick={() =>
-                setShowExportMenu(
-                  (previous) => !previous,
-                )
-              }
+              onClick={() => setShowExportMenu((previous) => !previous)}
               className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
             >
               <Download size={15} />
@@ -1843,16 +1953,12 @@ export default function LayerOverlay() {
 
                 <button
                   type="button"
-                  onClick={() =>
-                    setShowExportMenu(false)
-                  }
+                  onClick={() => setShowExportMenu(false)}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-slate-600 hover:bg-slate-50"
                 >
                   <MapIcon size={14} />
                   Export PNG
-                  <span className="ml-auto text-[8px] text-slate-400">
-                    UI
-                  </span>
+                  <span className="ml-auto text-[8px] text-slate-400">UI</span>
                 </button>
               </div>
             )}
@@ -1867,9 +1973,7 @@ export default function LayerOverlay() {
           >
             <RefreshCw
               size={14}
-              className={
-                loadingLayers ? "animate-spin" : ""
-              }
+              className={loadingLayers ? "animate-spin" : ""}
             />
             Refresh
           </button>
@@ -1901,8 +2005,9 @@ export default function LayerOverlay() {
           <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-100 px-3 py-3">
               <div className="mb-2 flex items-center justify-between">
-                <h2 className="text-[11px] font-bold uppercase tracking-wide text-slate-700">
-                  Layer Explorer
+                <h2 className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-700">
+                  <GitMerge size={13} className="text-emerald-600" />
+                  Model Tree
                 </h2>
 
                 <button
@@ -1914,6 +2019,10 @@ export default function LayerOverlay() {
                 </button>
               </div>
 
+              <p className="mb-2 text-[9px] leading-relaxed text-slate-400">
+                Kategori · layer · tampil/sembunyi · zoom ke data
+              </p>
+
               <div className="relative">
                 <Search
                   size={14}
@@ -1922,9 +2031,7 @@ export default function LayerOverlay() {
 
                 <input
                   value={searchLayer}
-                  onChange={(event) =>
-                    setSearchLayer(event.target.value)
-                  }
+                  onChange={(event) => setSearchLayer(event.target.value)}
                   placeholder="Cari layer..."
                   className="h-8 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-8 text-[11px] outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
                 />
@@ -1982,44 +2089,33 @@ export default function LayerOverlay() {
                 </div>
               )}
 
-              {!loadingLayers &&
-                filteredCategories.length === 0 && (
-                  <div className="rounded-lg border border-dashed border-slate-200 px-3 py-5 text-center">
-                    <Layers3
-                      size={20}
-                      className="mx-auto mb-2 text-slate-300"
-                    />
+              {!loadingLayers && filteredCategories.length === 0 && (
+                <div className="rounded-lg border border-dashed border-slate-200 px-3 py-5 text-center">
+                  <Layers3 size={20} className="mx-auto mb-2 text-slate-300" />
 
-                    <div className="text-[10px] font-semibold text-slate-500">
-                      Tidak ada layer
-                    </div>
-
-                    <div className="mt-1 text-[9px] text-slate-400">
-                      Catalog database tidak mengembalikan layer.
-                    </div>
+                  <div className="text-[10px] font-semibold text-slate-500">
+                    Tidak ada layer
                   </div>
-                )}
+
+                  <div className="mt-1 text-[9px] text-slate-400">
+                    Catalog database tidak mengembalikan layer.
+                  </div>
+                </div>
+              )}
 
               {!loadingLayers &&
                 filteredCategories.map((category) => {
-                  const categoryOpen =
-                    openCategories[category.id] ?? true;
+                  const categoryOpen = openCategories[category.id] ?? false;
 
                   return (
-                    <div
-                      key={category.id}
-                      className="mb-2"
-                    >
+                    <div key={category.id} className="mb-2">
                       <button
                         type="button"
                         onClick={() =>
-                          setOpenCategories(
-                            (previous) => ({
-                              ...previous,
-                              [category.id]:
-                                !previous[category.id],
-                            }),
-                          )
+                          setOpenCategories((previous) => ({
+                            ...previous,
+                            [category.id]: !previous[category.id],
+                          }))
                         }
                         className="flex w-full items-center gap-1.5 px-1.5 py-1.5 text-left text-[10px] font-bold tracking-wide text-slate-700 hover:text-emerald-700"
                       >
@@ -2029,9 +2125,7 @@ export default function LayerOverlay() {
                           <ChevronRight size={12} />
                         )}
 
-                        <span className="truncate">
-                          {category.title}
-                        </span>
+                        <span className="min-w-0 flex-1 truncate whitespace-nowrap" title={category.title}>{category.title}</span>
 
                         <span className="ml-auto rounded bg-slate-100 px-1.5 py-0.5 text-[8px] font-semibold text-slate-400">
                           {category.children.length}
@@ -2040,114 +2134,107 @@ export default function LayerOverlay() {
 
                       {categoryOpen && (
                         <div className="space-y-0.5">
-                          {category.children.map(
-                            (layer) => {
-                              const Icon =
-                                layer.icon ||
-                                normalizeIcon();
+                          {category.children.map((layer) => {
+                            const Icon = layer.icon || normalizeIcon();
 
-                              const active =
-                                String(activeLayer) ===
-                                String(layer.id);
+                            const active =
+                              String(activeLayer) === String(layer.id);
 
-                              const loading =
-                                loadingLayerId ===
-                                String(layer.id);
+                            const loading = loadingLayerId === String(layer.id);
 
-                              return (
-                                <div
-                                  key={layer.id}
-                                  onClick={() =>
-                                    selectLayer(
-                                      String(layer.id),
-                                    )
+                            return (
+                              <div
+                                key={layer.id}
+                                onClick={() => selectLayer(String(layer.id))}
+                                className={`group flex min-h-[34px] cursor-pointer items-center gap-2 rounded-lg px-1.5 transition ${
+                                  active ? "bg-emerald-50" : "hover:bg-slate-50"
+                                }`}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+
+                                    toggleLayer(String(layer.id));
+                                  }}
+                                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition ${
+                                    layer.checked
+                                      ? "border-emerald-500 bg-emerald-500 text-white"
+                                      : "border-slate-300 bg-white"
+                                  }`}
+                                  title={
+                                    layer.checked
+                                      ? "Sembunyikan layer"
+                                      : "Tampilkan layer"
                                   }
-                                  className={`group flex min-h-[34px] cursor-pointer items-center gap-2 rounded-lg px-1.5 transition ${
+                                >
+                                  {loading ? (
+                                    <Loader2
+                                      size={10}
+                                      className="animate-spin"
+                                    />
+                                  ) : layer.checked ? (
+                                    <Check size={11} />
+                                  ) : null}
+                                </button>
+
+                                <Icon
+                                  size={13}
+                                  className={
                                     active
-                                      ? "bg-emerald-50"
-                                      : "hover:bg-slate-50"
+                                      ? "text-emerald-600"
+                                      : "text-slate-500"
+                                  }
+                                />
+
+                                <span
+                                  title={layer.title}
+                                  className={`min-w-0 flex-1 truncate whitespace-nowrap text-[11px] ${
+                                    active
+                                      ? "font-semibold text-emerald-700"
+                                      : "text-slate-600"
                                   }`}
                                 >
-                                  <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
+                                  {layer.title}
+                                </span>
 
-                                      toggleLayer(
-                                        String(layer.id),
-                                      );
-                                    }}
-                                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition ${
-                                      layer.checked
-                                        ? "border-emerald-500 bg-emerald-500 text-white"
-                                        : "border-slate-300 bg-white"
-                                    }`}
-                                    title={
-                                      layer.checked
-                                        ? "Sembunyikan layer"
-                                        : "Tampilkan layer"
-                                    }
-                                  >
-                                    {loading ? (
-                                      <Loader2
-                                        size={10}
-                                        className="animate-spin"
-                                      />
-                                    ) : layer.checked ? (
-                                      <Check size={11} />
-                                    ) : null}
-                                  </button>
-
-                                  <Icon
-                                    size={13}
-                                    className={
-                                      active
-                                        ? "text-emerald-600"
-                                        : "text-slate-500"
-                                    }
-                                  />
-
-                                  <span
-                                    className={`min-w-0 flex-1 truncate text-[11px] ${
-                                      active
-                                        ? "font-semibold text-emerald-700"
-                                        : "text-slate-600"
-                                    }`}
-                                  >
-                                    {layer.title}
+                                {layer.featureCount !== undefined && (
+                                  <span className="rounded bg-slate-100 px-1 text-[8px] font-semibold text-slate-400">
+                                    {Number(layer.featureCount).toLocaleString(
+                                      "id-ID",
+                                    )}
                                   </span>
+                                )}
 
-                                  {layer.featureCount !==
-                                    undefined && (
-                                    <span className="rounded bg-slate-100 px-1 text-[8px] font-semibold text-slate-400">
-                                      {Number(
-                                        layer.featureCount,
-                                      ).toLocaleString(
-                                        "id-ID",
-                                      )}
-                                    </span>
-                                  )}
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    zoomToLayer(String(layer.id));
+                                  }}
+                                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 opacity-0 transition hover:bg-emerald-100 hover:text-emerald-700 group-hover:opacity-100 focus:opacity-100"
+                                  title="Zoom ke data layer yang termuat"
+                                  aria-label={`Zoom ke ${layer.title}`}
+                                >
+                                  <Crosshair size={12} />
+                                </button>
 
-                                  {layer.checked ? (
-                                    <Eye
-                                      size={12}
-                                      className="text-emerald-500"
-                                    />
-                                  ) : (
-                                    <EyeOff
-                                      size={12}
-                                      className="text-slate-300"
-                                    />
-                                  )}
-
-                                  <MoreVertical
-                                    size={13}
-                                    className="text-slate-300 opacity-0 transition group-hover:opacity-100"
+                                {layer.checked ? (
+                                  <Eye size={12} className="text-emerald-500" />
+                                ) : (
+                                  <EyeOff
+                                    size={12}
+                                    className="text-slate-300"
                                   />
-                                </div>
-                              );
-                            },
-                          )}
+                                )}
+
+                                <MoreVertical
+                                  size={13}
+                                  className="text-slate-300 opacity-0 transition group-hover:opacity-100"
+                                />
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -2182,6 +2269,8 @@ export default function LayerOverlay() {
                 zoomControl={false}
                 className="h-full w-full"
               >
+                <MapViewportTracker onBoundsChange={handleViewportChange} />
+
                 {basemap === "map" ? (
                   <TileLayer
                     attribution="&copy; OpenStreetMap contributors"
@@ -2195,15 +2284,10 @@ export default function LayerOverlay() {
                 )}
 
                 {layers
-                  .flatMap(
-                    (category) => category.children,
-                  )
+                  .flatMap((category) => category.children)
                   .filter((layer) => layer.checked)
                   .map((layer) => {
-                    const data =
-                      geoJsonByLayer[
-                        String(layer.id)
-                      ];
+                    const data = geoJsonByLayer[String(layer.id)];
 
                     if (!data) return null;
 
@@ -2211,25 +2295,16 @@ export default function LayerOverlay() {
                       <GeoJSON
                         key={`${layer.id}-${opacity}`}
                         data={data as never}
-                        style={(feature) =>
-                          getLayerStyle(
-                            layer,
-                            feature,
-                          )
-                        }
-                        onEachFeature={
-                          onEachFeature
-                        }
+                        style={(feature) => getLayerStyle(layer, feature)}
+                        onEachFeature={onEachFeature}
                       />
                     );
                   })}
 
                 <FitBoundsFromLayer
-                  data={activeGeoJson}
-                  enabled={
-                    Boolean(activeGeoJson) &&
-                    Boolean(activeLayerObject?.checked)
-                  }
+                  data={zoomRequest ? geoJsonByLayer[zoomRequest.layerId] : undefined}
+                  enabled={Boolean(zoomRequest)}
+                  requestId={zoomRequest?.id}
                 />
 
                 <ZoomControl position="bottomright" />
@@ -2254,9 +2329,7 @@ export default function LayerOverlay() {
 
                 <button
                   type="button"
-                  onClick={() =>
-                    setBasemap("satellite")
-                  }
+                  onClick={() => setBasemap("satellite")}
                   className={`px-3 py-2 text-[11px] font-semibold ${
                     basemap === "satellite"
                       ? "bg-white text-slate-800"
@@ -2292,29 +2365,16 @@ export default function LayerOverlay() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
-                  <LegendItem
-                    color="#dc2626"
-                    label="Tinggi"
-                  />
+                  <LegendItem color="#dc2626" label="Tinggi" />
 
-                  <LegendItem
-                    color="#f59e0b"
-                    label="Sedang"
-                  />
+                  <LegendItem color="#f59e0b" label="Sedang" />
 
-                  <LegendItem
-                    color="#10b981"
-                    label="Rendah"
-                  />
+                  <LegendItem color="#10b981" label="Rendah" />
 
                   {activeLayerObject?.color && (
                     <LegendItem
-                      color={
-                        activeLayerObject.color
-                      }
-                      label={
-                        activeLayerObject.title
-                      }
+                      color={activeLayerObject.color}
+                      label={activeLayerObject.title}
                     />
                   )}
                 </div>
@@ -2332,10 +2392,7 @@ export default function LayerOverlay() {
             <section className="mt-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex items-center gap-2">
-                  <SlidersHorizontal
-                    size={14}
-                    className="text-slate-400"
-                  />
+                  <SlidersHorizontal size={14} className="text-slate-400" />
 
                   <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
                     Opacity
@@ -2351,11 +2408,7 @@ export default function LayerOverlay() {
                   min="0"
                   max="100"
                   value={opacity}
-                  onChange={(event) =>
-                    setOpacity(
-                      Number(event.target.value),
-                    )
-                  }
+                  onChange={(event) => setOpacity(Number(event.target.value))}
                   className="h-1.5 w-40 cursor-pointer accent-emerald-600"
                 />
 
@@ -2365,8 +2418,7 @@ export default function LayerOverlay() {
                   </span>
 
                   <span className="max-w-[220px] truncate text-[10px] font-bold text-slate-700">
-                    {activeLayerObject?.title ??
-                      "Belum ada"}
+                    {activeLayerObject?.title ?? "Belum ada"}
                   </span>
                 </div>
               </div>
@@ -2381,36 +2433,24 @@ export default function LayerOverlay() {
 
               <div className="flex items-center overflow-x-auto border-b border-slate-100 px-3">
                 <TableTab
-                  active={
-                    activeTab === "attributes"
-                  }
-                  onClick={() =>
-                    setActiveTab("attributes")
-                  }
+                  active={activeTab === "attributes"}
+                  onClick={() => setActiveTab("attributes")}
                   icon={Table2}
                 >
                   ATTRIBUTE TABLE
                 </TableTab>
 
                 <TableTab
-                  active={
-                    activeTab === "overlay"
-                  }
-                  onClick={() =>
-                    setActiveTab("overlay")
-                  }
+                  active={activeTab === "overlay"}
+                  onClick={() => setActiveTab("overlay")}
                   icon={GitMerge}
                 >
                   HASIL OVERLAY ANALYSIS
                 </TableTab>
 
                 <TableTab
-                  active={
-                    activeTab === "history"
-                  }
-                  onClick={() =>
-                    setActiveTab("history")
-                  }
+                  active={activeTab === "history"}
+                  onClick={() => setActiveTab("history")}
                   icon={Clock3}
                 >
                   RIWAYAT
@@ -2427,15 +2467,11 @@ export default function LayerOverlay() {
                     </span>
 
                     <span className="max-w-[220px] truncate text-[11px] font-bold text-slate-700">
-                      {activeLayerObject?.title ??
-                        "Belum ada layer aktif"}
+                      {activeLayerObject?.title ?? "Belum ada layer aktif"}
                     </span>
 
                     <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[9px] font-bold text-blue-600">
-                      {Number(
-                        activeFeatureCount,
-                      ).toLocaleString("id-ID")}{" "}
-                      Fitur
+                      {Number(activeFeatureCount).toLocaleString("id-ID")} Fitur
                     </span>
 
                     <div className="flex-1" />
@@ -2448,11 +2484,7 @@ export default function LayerOverlay() {
 
                       <input
                         value={filterText}
-                        onChange={(event) =>
-                          setFilterText(
-                            event.target.value,
-                          )
-                        }
+                        onChange={(event) => setFilterText(event.target.value)}
                         placeholder="Filter data..."
                         className="h-7 w-36 rounded-md border border-slate-200 pl-7 pr-2 text-[10px] outline-none focus:border-emerald-400"
                       />
@@ -2460,9 +2492,7 @@ export default function LayerOverlay() {
 
                     <button
                       type="button"
-                      onClick={() =>
-                        setFilterText("")
-                      }
+                      onClick={() => setFilterText("")}
                       className="flex h-7 items-center gap-1 rounded-md border border-slate-200 px-2 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"
                     >
                       <Filter size={12} />
@@ -2473,10 +2503,7 @@ export default function LayerOverlay() {
                       <button
                         type="button"
                         onClick={() =>
-                          setShowColumnMenu(
-                            (previous) =>
-                              !previous,
-                          )
+                          setShowColumnMenu((previous) => !previous)
                         }
                         className="flex h-7 items-center gap-1 rounded-md border border-slate-200 px-2 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"
                       >
@@ -2488,53 +2515,28 @@ export default function LayerOverlay() {
                         <div className="absolute right-0 top-9 z-[100] w-40 rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
                           {(
                             [
-                              [
-                                "wilayah",
-                                "Wilayah",
-                              ],
-                              [
-                                "risiko",
-                                "Risiko",
-                              ],
+                              ["wilayah", "Wilayah"],
+                              ["risiko", "Risiko"],
                               ["luas", "Luas"],
-                              [
-                                "provinsi",
-                                "Provinsi",
-                              ],
-                              [
-                                "sumber",
-                                "Sumber Data",
-                              ],
-                              [
-                                "update",
-                                "Tgl Update",
-                              ],
+                              ["provinsi", "Provinsi"],
+                              ["sumber", "Sumber Data"],
+                              ["update", "Tgl Update"],
                             ] as const
-                          ).map(
-                            ([key, label]) => (
-                              <label
-                                key={key}
-                                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-[10px] text-slate-600 hover:bg-slate-50"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={
-                                    columnVisibility[
-                                      key
-                                    ]
-                                  }
-                                  onChange={() =>
-                                    toggleColumn(
-                                      key,
-                                    )
-                                  }
-                                  className="accent-emerald-600"
-                                />
+                          ).map(([key, label]) => (
+                            <label
+                              key={key}
+                              className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-[10px] text-slate-600 hover:bg-slate-50"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={columnVisibility[key]}
+                                onChange={() => toggleColumn(key)}
+                                className="accent-emerald-600"
+                              />
 
-                                {label}
-                              </label>
-                            ),
-                          )}
+                              {label}
+                            </label>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -2542,9 +2544,7 @@ export default function LayerOverlay() {
                     <button
                       type="button"
                       onClick={exportCsv}
-                      disabled={
-                        !filteredAttributes.length
-                      }
+                      disabled={!filteredAttributes.length}
                       className="flex h-7 items-center gap-1 rounded-md border border-slate-200 px-2 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
                     >
                       <Download size={12} />
@@ -2601,69 +2601,60 @@ export default function LayerOverlay() {
                       </thead>
 
                       <tbody>
-                        {filteredAttributes.map(
-                          (row) => (
-                            <tr
-                              key={row.id}
-                              className="border-t border-slate-100 transition hover:bg-emerald-50/40"
-                            >
-                              <td className="px-3 py-2 text-[10px] text-slate-500">
-                                {row.id}
+                        {filteredAttributes.map((row) => (
+                          <tr
+                            key={row.id}
+                            className="border-t border-slate-100 transition hover:bg-emerald-50/40"
+                          >
+                            <td className="px-3 py-2 text-[10px] text-slate-500">
+                              {row.id}
+                            </td>
+
+                            {columnVisibility.wilayah && (
+                              <td className="px-3 py-2 text-[10px] font-semibold text-slate-700">
+                                {row.wilayah}
                               </td>
+                            )}
 
-                              {columnVisibility.wilayah && (
-                                <td className="px-3 py-2 text-[10px] font-semibold text-slate-700">
-                                  {row.wilayah}
-                                </td>
-                              )}
+                            {columnVisibility.risiko && (
+                              <td className="px-3 py-2">
+                                <RiskBadge risk={row.risiko} />
+                              </td>
+                            )}
 
-                              {columnVisibility.risiko && (
-                                <td className="px-3 py-2">
-                                  <RiskBadge
-                                    risk={
-                                      row.risiko
-                                    }
-                                  />
-                                </td>
-                              )}
+                            {columnVisibility.luas && (
+                              <td className="px-3 py-2 text-[10px] text-slate-600">
+                                {row.luas}
+                              </td>
+                            )}
 
-                              {columnVisibility.luas && (
-                                <td className="px-3 py-2 text-[10px] text-slate-600">
-                                  {row.luas}
-                                </td>
-                              )}
+                            {columnVisibility.provinsi && (
+                              <td className="px-3 py-2 text-[10px] text-slate-600">
+                                {row.provinsi}
+                              </td>
+                            )}
 
-                              {columnVisibility.provinsi && (
-                                <td className="px-3 py-2 text-[10px] text-slate-600">
-                                  {row.provinsi}
-                                </td>
-                              )}
+                            {columnVisibility.sumber && (
+                              <td className="px-3 py-2 text-[10px] text-slate-600">
+                                {row.sumber}
+                              </td>
+                            )}
 
-                              {columnVisibility.sumber && (
-                                <td className="px-3 py-2 text-[10px] text-slate-600">
-                                  {row.sumber}
-                                </td>
-                              )}
-
-                              {columnVisibility.update && (
-                                <td className="px-3 py-2 text-[10px] text-slate-500">
-                                  {row.update}
-                                </td>
-                              )}
-                            </tr>
-                          ),
-                        )}
+                            {columnVisibility.update && (
+                              <td className="px-3 py-2 text-[10px] text-slate-500">
+                                {row.update}
+                              </td>
+                            )}
+                          </tr>
+                        ))}
 
                         {!filteredAttributes.length && (
                           <tr>
                             <td
                               colSpan={
                                 1 +
-                                Object.values(
-                                  columnVisibility,
-                                ).filter(
-                                  Boolean,
-                                ).length
+                                Object.values(columnVisibility).filter(Boolean)
+                                  .length
                               }
                               className="px-4 py-10 text-center"
                             >
@@ -2673,14 +2664,12 @@ export default function LayerOverlay() {
                               />
 
                               <div className="text-[10px] font-semibold text-slate-500">
-                                Belum ada attribute
-                                data
+                                Belum ada attribute data
                               </div>
 
                               <div className="mt-1 text-[9px] text-slate-400">
-                                Aktifkan layer dan pastikan
-                                endpoint data mengembalikan
-                                GeoJSON.
+                                Aktifkan layer dan pastikan endpoint data
+                                mengembalikan GeoJSON.
                               </div>
                             </td>
                           </tr>
@@ -2697,10 +2686,7 @@ export default function LayerOverlay() {
                 <div className="p-4">
                   <div className="rounded-xl border border-dashed border-emerald-200 bg-emerald-50/50 p-5">
                     <div className="mb-2 flex items-center gap-2">
-                      <GitMerge
-                        size={18}
-                        className="text-emerald-600"
-                      />
+                      <GitMerge size={18} className="text-emerald-600" />
 
                       <h3 className="text-[12px] font-bold text-slate-700">
                         Overlay Analysis
@@ -2708,35 +2694,26 @@ export default function LayerOverlay() {
                     </div>
 
                     <p className="max-w-xl text-[10px] leading-5 text-slate-500">
-                      Mode workspace overlay disiapkan
-                      untuk analisis antar-layer. Layer yang
-                      aktif dan data GeoJSON dari API menjadi
-                      sumber analisis.
+                      Mode workspace overlay disiapkan untuk analisis
+                      antar-layer. Layer yang aktif dan data GeoJSON dari API
+                      menjadi sumber analisis.
                     </p>
 
                     <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
                       <StatusCard
-                        value={String(
-                          activeLayerCount,
-                        )}
+                        value={String(activeLayerCount)}
                         label="Layer Aktif"
                         icon={Layers3}
                       />
 
                       <StatusCard
-                        value={String(
-                          activeFeatureCount,
-                        )}
+                        value={String(activeFeatureCount)}
                         label="Fitur Aktif"
                         icon={Activity}
                       />
 
                       <StatusCard
-                        value={
-                          overlayEnabled
-                            ? "ON"
-                            : "OFF"
-                        }
+                        value={overlayEnabled ? "ON" : "OFF"}
                         label="Overlay Mode"
                         icon={GitMerge}
                       />
@@ -2751,10 +2728,7 @@ export default function LayerOverlay() {
                 <div className="p-4">
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
                     <div className="mb-2 flex items-center gap-2">
-                      <Clock3
-                        size={18}
-                        className="text-slate-500"
-                      />
+                      <Clock3 size={18} className="text-slate-500" />
 
                       <h3 className="text-[12px] font-bold text-slate-700">
                         Riwayat Workspace
@@ -2762,9 +2736,8 @@ export default function LayerOverlay() {
                     </div>
 
                     <p className="text-[10px] leading-5 text-slate-500">
-                      Workspace tersimpan belum terhubung ke
-                      endpoint persistence. Tampilan ini tidak
-                      membuat data dummy.
+                      Workspace tersimpan belum terhubung ke endpoint
+                      persistence. Tampilan ini tidak membuat data dummy.
                     </p>
                   </div>
                 </div>
@@ -2788,9 +2761,7 @@ export default function LayerOverlay() {
 
                   <button
                     type="button"
-                    onClick={() =>
-                      setShowInfo(false)
-                    }
+                    onClick={() => setShowInfo(false)}
                     className="text-slate-400 hover:text-slate-700"
                     title="Sembunyikan informasi"
                   >
@@ -2807,15 +2778,12 @@ export default function LayerOverlay() {
                           style={{
                             backgroundColor:
                               activeLayerObject.color ||
-                              defaultLayerColor(
-                                activeLayerObject,
-                              ),
+                              defaultLayerColor(activeLayerObject),
                           }}
                         >
                           {React.createElement(
                             normalizeIcon(
-                              typeof activeLayerObject.icon ===
-                                "string"
+                              typeof activeLayerObject.icon === "string"
                                 ? activeLayerObject.icon
                                 : undefined,
                             ),
@@ -2825,16 +2793,11 @@ export default function LayerOverlay() {
 
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-[12px] font-bold text-slate-800">
-                            {
-                              activeLayerObject.title
-                            }
+                            {activeLayerObject.title}
                           </div>
 
                           <div className="mt-0.5 text-[9px] text-slate-400">
-                            ID:{" "}
-                            {
-                              activeLayerObject.id
-                            }
+                            ID: {activeLayerObject.id}
                           </div>
                         </div>
                       </div>
@@ -2842,10 +2805,7 @@ export default function LayerOverlay() {
                       <div className="space-y-2">
                         <InfoRow
                           label="Kategori"
-                          value={
-                            activeLayerObject.category ||
-                            "-"
-                          }
+                          value={activeLayerObject.category || "-"}
                         />
 
                         <InfoRow
@@ -2860,46 +2820,32 @@ export default function LayerOverlay() {
 
                         <InfoRow
                           label="Schema"
-                          value={
-                            activeLayerObject.schema ||
-                            "public"
-                          }
+                          value={activeLayerObject.schema || "public"}
                         />
 
                         <InfoRow
                           label="Feature Count"
                           value={Number(
                             activeLayerObject.featureCount ??
-                              activeGeoJson?.features
-                                ?.length ??
+                              activeGeoJson?.features?.length ??
                               0,
-                          ).toLocaleString(
-                            "id-ID",
-                          )}
+                          ).toLocaleString("id-ID")}
                         />
 
                         <InfoRow
                           label="Source"
-                          value={
-                            activeLayerObject.sourceType ||
-                            "table"
-                          }
+                          value={activeLayerObject.sourceType || "table"}
                         />
 
                         <InfoRow
                           label="Update"
-                          value={formatDate(
-                            activeLayerObject.updatedAt,
-                          )}
+                          value={formatDate(activeLayerObject.updatedAt)}
                         />
                       </div>
                     </>
                   ) : (
                     <div className="py-7 text-center">
-                      <Info
-                        size={22}
-                        className="mx-auto mb-2 text-slate-300"
-                      />
+                      <Info size={22} className="mx-auto mb-2 text-slate-300" />
 
                       <div className="text-[10px] font-semibold text-slate-500">
                         Belum ada layer aktif
@@ -2911,9 +2857,7 @@ export default function LayerOverlay() {
             ) : (
               <button
                 type="button"
-                onClick={() =>
-                  setShowInfo(true)
-                }
+                onClick={() => setShowInfo(true)}
                 className="flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-bold text-emerald-700"
               >
                 <Info size={14} />
@@ -2945,19 +2889,12 @@ export default function LayerOverlay() {
 
                   <input
                     value={workspaceName}
-                    onChange={(event) =>
-                      setWorkspaceName(
-                        event.target.value,
-                      )
-                    }
+                    onChange={(event) => setWorkspaceName(event.target.value)}
                     className="w-full bg-transparent text-[11px] font-bold text-slate-700 outline-none"
                   />
 
                   <div className="mt-1 text-[9px] text-slate-400">
-                    Catalog:{" "}
-                    {catalogStats?.totalLayers ??
-                      0}{" "}
-                    layer
+                    Catalog: {catalogStats?.totalLayers ?? 0} layer
                   </div>
                 </div>
 
@@ -2975,30 +2912,18 @@ export default function LayerOverlay() {
                   </div>
 
                   <div className="space-y-1.5">
-                    {apiLayers
-                      .slice(0, 5)
-                      .map((layer) => (
-                        <WorkspaceItem
-                          key={layer.id}
-                          title={layer.title}
-                          active={
-                            String(
-                              layer.id,
-                            ) ===
-                            String(activeLayer)
-                          }
-                          onClick={() =>
-                            selectLayer(
-                              String(layer.id),
-                            )
-                          }
-                        />
-                      ))}
+                    {apiLayers.slice(0, 5).map((layer) => (
+                      <WorkspaceItem
+                        key={layer.id}
+                        title={layer.title}
+                        active={String(layer.id) === String(activeLayer)}
+                        onClick={() => selectLayer(String(layer.id))}
+                      />
+                    ))}
 
                     {!apiLayers.length && (
                       <div className="rounded-lg border border-dashed border-slate-200 px-2.5 py-3 text-[10px] text-slate-400">
-                        Belum ada layer tersedia
-                        dari database.
+                        Belum ada layer tersedia dari database.
                       </div>
                     )}
                   </div>
@@ -3014,42 +2939,31 @@ export default function LayerOverlay() {
                   Layer Status
                 </span>
 
-                <RefreshCw
-                  size={13}
-                  className="text-slate-400"
-                />
+                <RefreshCw size={13} className="text-slate-400" />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <StatusCard
-                  value={String(
-                    activeLayerCount,
-                  )}
+                  value={String(activeLayerCount)}
                   label="Layer Aktif"
                   icon={Eye}
                 />
 
                 <StatusCard
-                  value={String(
-                    catalogStats?.totalLayers ??
-                      apiLayers.length,
-                  )}
+                  value={String(catalogStats?.totalLayers ?? apiLayers.length)}
                   label="Total Layer"
                   icon={Layers3}
                 />
 
                 <StatusCard
-                  value={Number(
-                    activeFeatureCount,
-                  ).toLocaleString("id-ID")}
+                  value={Number(activeFeatureCount).toLocaleString("id-ID")}
                   label="Fitur Aktif"
                   icon={Activity}
                 />
 
                 <StatusCard
                   value={
-                    loadingLayers ||
-                    loadingGeoJson
+                    loadingLayers || loadingGeoJson
                       ? "..."
                       : apiError
                         ? "ERROR"
@@ -3065,10 +2979,7 @@ export default function LayerOverlay() {
 
             <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
               <div className="mb-3 flex items-center gap-2">
-                <Database
-                  size={14}
-                  className="text-emerald-600"
-                />
+                <Database size={14} className="text-emerald-600" />
 
                 <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
                   API Endpoint
@@ -3089,12 +3000,7 @@ export default function LayerOverlay() {
                       ? `/api/layer-overlay/data/${activeLayer}`
                       : "/api/layer-overlay/data/:layerId"
                   }
-                  ok={
-                    Boolean(
-                      activeGeoJson ||
-                        !activeLayer,
-                    ) && !apiError
-                  }
+                  ok={Boolean(activeGeoJson || !activeLayer) && !apiError}
                 />
               </div>
             </section>
@@ -3111,9 +3017,7 @@ export default function LayerOverlay() {
           <div className="flex items-center gap-2">
             <span
               className={`h-2 w-2 rounded-full ${
-                apiError
-                  ? "bg-red-500"
-                  : "bg-emerald-500"
+                apiError ? "bg-red-500" : "bg-emerald-500"
               }`}
             />
 
@@ -3125,38 +3029,26 @@ export default function LayerOverlay() {
           <div className="hidden h-4 w-px bg-slate-200 sm:block" />
 
           <span className="text-[9px] text-slate-400">
-            Catalog:
-            {" "}
+            Catalog:{" "}
             {Number(
-              catalogStats?.totalLayers ??
-                apiLayers.length,
-            ).toLocaleString("id-ID")}
-            {" "}
+              catalogStats?.totalLayers ?? apiLayers.length,
+            ).toLocaleString("id-ID")}{" "}
             layer
           </span>
 
           <span className="text-[9px] text-slate-400">
-            Total record:
-            {" "}
-            {Number(
-              catalogStats?.totalFeatures ?? 0,
-            ).toLocaleString("id-ID")}
+            Total record:{" "}
+            {Number(catalogStats?.totalFeatures ?? 0).toLocaleString("id-ID")}
           </span>
 
           <div className="flex-1" />
 
           <span className="text-[9px] text-slate-400">
-            {overlayEnabled
-              ? "Overlay mode ON"
-              : "Overlay mode OFF"}
-            {" • "}
-            {spatialQueryEnabled
-              ? "Spatial Query ON"
-              : "Spatial Query OFF"}
-            {" • "}
-            {measureEnabled
-              ? "Measure ON"
-              : "Measure OFF"}
+            {overlayEnabled ? "Overlay mode ON" : "Overlay mode OFF"}
+            {" Ã¢â‚¬Â¢ "}
+            {spatialQueryEnabled ? "Spatial Query ON" : "Spatial Query OFF"}
+            {" Ã¢â‚¬Â¢ "}
+            {measureEnabled ? "Measure ON" : "Measure OFF"}
           </span>
         </div>
       </div>
@@ -3168,18 +3060,10 @@ export default function LayerOverlay() {
    INFO ROW
 ============================================================ */
 
-function InfoRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2 last:border-0 last:pb-0">
-      <span className="text-[9px] font-medium text-slate-400">
-        {label}
-      </span>
+      <span className="text-[9px] font-medium text-slate-400">{label}</span>
 
       <span className="max-w-[170px] truncate text-right text-[9px] font-semibold text-slate-600">
         {value}
@@ -3204,9 +3088,7 @@ function EndpointRow({
   return (
     <div className="rounded-lg border border-slate-100 bg-slate-50 p-2">
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-[9px] font-bold text-slate-600">
-          {label}
-        </span>
+        <span className="text-[9px] font-bold text-slate-600">{label}</span>
 
         <span
           className={`rounded-full px-1.5 py-0.5 text-[7px] font-bold ${

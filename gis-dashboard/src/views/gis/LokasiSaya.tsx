@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MapPin } from "lucide-react";
 
 import { Circle, MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
 
@@ -247,11 +248,15 @@ type NearbyMitigation = {
 
 type NearbyIncident = {
   id: number | string;
-  disaster_type?: string | null;
-  event_date?: string | null;
-  latitude: number;
-  longitude: number;
-  distanceMeters: number | null;
+  title?: string | null;
+  category?: string | null;
+  date?: string | null;
+  location?: string | null;
+  das?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  distanceMeters?: number | null;
+  description?: string | null;
 };
 
 type LocationProximity = {
@@ -1413,9 +1418,20 @@ export default function LokasiSaya() {
     });
 
     const complete = items.every((item) => item.available);
-    const score = complete
-      ? items.reduce((total, item) => total + Number(item.score), 0)
-      : null;
+    const analyzedParameters = items.filter(
+      (item) => item.available,
+    ).length;
+
+    const partialScore =
+      analyzedParameters > 0
+        ? items.reduce(
+            (total, item) =>
+              total + (item.available ? Number(item.score) : 0),
+            0,
+          )
+        : null;
+
+    const score = complete ? partialScore : null;
 
     let status: string | null = null;
     if (score != null) {
@@ -1428,6 +1444,9 @@ export default function LokasiSaya() {
     return {
       complete,
       score,
+      partialScore,
+      analyzedParameters,
+      totalParameters: items.length,
       minimum: 5,
       maximum: 15,
       status,
@@ -1449,10 +1468,12 @@ export default function LokasiSaya() {
    * 3. Bahaya dari API dinormalisasi
    *    menjadi Rawan.
    */
+  // Status akhir hanya ditentukan jika seluruh 5 parameter risiko tersedia.
+  // API Risk Index tetap menjadi metrik terpisah dan tidak menentukan status ini.
   const overall =
-    myLokasiRisk.complete && myLokasiRisk.status
-      ? myLokasiRisk.status
-      : apiRiskStatus;
+    myLokasiRisk.complete
+      ? (myLokasiRisk.status || "")
+      : "";
 
   const meta = statusMeta(overall);
 
@@ -1775,9 +1796,9 @@ export default function LokasiSaya() {
                     Skor MY Lokasi
                   </span>
                   <span className="text-sm font-black text-slate-100">
-                    {myLokasiRisk.score == null
-                      ? "Belum lengkap"
-                      : `${myLokasiRisk.score} / 15`}
+                    {myLokasiRisk.partialScore == null
+                      ? "Belum ada data"
+                      : `${myLokasiRisk.partialScore} / ${myLokasiRisk.maximum}`}
                   </span>
                 </div>
                 {myLokasiRisk.status && (
@@ -1796,114 +1817,47 @@ export default function LokasiSaya() {
               )}
             </div>
 
+          </aside>
+        </section>
+        <section className="grid grid-cols-1 gap-4">
             <div className="rounded-2xl border border-slate-800 bg-[#08172a] p-4 shadow-xl">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="text-sm font-semibold">
-                  Faktor Risiko di Lokasi
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="text-sm font-semibold">Cuaca Saat Ini</div>
+
+                  <span className="text-[10px] text-slate-500">
+                    {weather?.source || "API"}
+                  </span>
                 </div>
 
-                <span className="text-[10px] text-slate-500">
-                  {factors.length} faktor
-                </span>
-              </div>
-
-              <div className="max-h-[350px] space-y-2 overflow-auto pr-1">
-                {factors.map((factor) => {
-                  const fm = statusMeta(factor.status);
-
-                  const percent = getRiskPercent(factor.level);
-
-                  return (
-                    <div
-                      key={factor.key}
-                      className="rounded-xl border border-slate-800/80 bg-slate-950/20 p-3"
-                    >
-                      <div className="flex items-start gap-2">
-                        <span
-                          className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${fm.dot}`}
-                        />
-
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs font-semibold text-slate-200">
-                            {factor.label || factor.key}
-                          </div>
-
-                          {factor.class && (
-                            <div className="mt-1 text-[10px] text-slate-500">
-                              {factor.class}
-                            </div>
-                          )}
-
-                          {percent != null && (
-                            <div className="mt-2">
-                              <RiskBar value={percent} />
-                            </div>
-                          )}
-
-                          {factor.source && (
-                            <div className="mt-1 text-[9px] text-slate-600">
-                              {factor.source}
-                            </div>
-                          )}
+                {weatherItems.length ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    {weatherItems.map((item) => (
+                      <div
+                        key={item.key}
+                        className="rounded-xl bg-slate-950/30 p-3"
+                      >
+                        <div className="truncate text-[10px] text-slate-500">
+                          {item.label}
                         </div>
 
-                        <span
-                          className={`rounded-md px-2 py-1 text-[10px] font-bold ${fm.bg} ${fm.color}`}
-                        >
-                          {factor.status || "—"}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
+                        <div className="mt-1 text-lg font-bold">
+                          {formatNumber(item.value, 1)}
 
-                {!factors.length && (
-                  <div className="rounded-xl border border-dashed border-slate-700 p-5 text-center text-xs text-slate-500">
-                    Tidak ada faktor risiko yang dikembalikan API.
+                          <span className="ml-1 text-[10px] font-normal text-slate-500">
+                            {item.unit}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-700 p-4 text-center text-xs text-slate-500">
+                    {weatherState === "loading"
+                      ? "Mengambil data cuaca…"
+                      : "Data cuaca tidak tersedia."}
                   </div>
                 )}
               </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-800 bg-[#08172a] p-4 shadow-xl">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="text-sm font-semibold">Cuaca Saat Ini</div>
-
-                <span className="text-[10px] text-slate-500">
-                  {weather?.source || "API"}
-                </span>
-              </div>
-
-              {weatherItems.length ? (
-                <div className="grid grid-cols-2 gap-2">
-                  {weatherItems.map((item) => (
-                    <div
-                      key={item.key}
-                      className="rounded-xl bg-slate-950/30 p-3"
-                    >
-                      <div className="truncate text-[10px] text-slate-500">
-                        {item.label}
-                      </div>
-
-                      <div className="mt-1 text-lg font-bold">
-                        {formatNumber(item.value, 1)}
-
-                        <span className="ml-1 text-[10px] font-normal text-slate-500">
-                          {item.unit}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-xl border border-dashed border-slate-700 p-4 text-center text-xs text-slate-500">
-                  {weatherState === "loading"
-                    ? "Mengambil data cuaca…"
-                    : "Data cuaca tidak tersedia."}
-                </div>
-              )}
-            </div>
-          </aside>
         </section>
 
         <section className="grid grid-cols-1 gap-4 lg:grid-cols-[1.05fr_.95fr]">
@@ -1956,114 +1910,6 @@ export default function LokasiSaya() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-[#08172a] p-4 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-[.16em] text-cyan-300">
-                  Risk intelligence
-                </div>
-
-                <div className="mt-1 text-sm font-semibold">
-                  Indeks Risiko Lokasi
-                </div>
-              </div>
-
-              <span className="text-[10px] text-slate-500">
-                {assessment?.risk?.scale || "Scale dari API"}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-5 rounded-xl border border-slate-800 bg-slate-950/20 p-4">
-              <div
-                className="relative flex h-28 w-28 shrink-0 items-center justify-center rounded-full"
-                style={{
-                  background: `conic-gradient(#22d3ee ${
-                    myLokasiPercent * 3.6
-                  }deg, #14253a 0deg)`,
-                }}
-              >
-                <div className="flex h-20 w-20 flex-col items-center justify-center rounded-full bg-[#08172a]">
-                  <div className="text-2xl font-black">
-                    {index == null ? "—" : formatNumber(index, 1)}
-                  </div>
-
-                  <div className="text-[9px] text-slate-500">
-                    {assessment?.risk?.scale || "API INDEX"}
-                  </div>
-                </div>
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <div className={`text-lg font-bold ${meta.color}`}>
-                  {overall || "Belum tersedia"}
-                </div>
-
-                <div className="mt-2">
-                  <div className="mb-1 flex items-center justify-between text-[9px] text-slate-500">
-                    <span>API Risk Index</span>
-
-                    <span>{index == null ? "—" : formatNumber(index, 1)}</span>
-                  </div>
-
-                  <RiskBar
-                    value={
-                      index == null
-                        ? null
-                        : Math.min(100, Math.max(0, Number(index)))
-                    }
-                  />
-                </div>
-
-                <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/30 px-3 py-2">
-                  <div className="text-[9px] uppercase tracking-wider text-slate-500">
-                    MY Lokasi • data BNPB
-                  </div>
-
-                  <div className="mt-1 flex items-center justify-between gap-3">
-                    <span className="text-[10px] text-slate-400">
-                      {myLokasiRisk.complete
-                        ? "5 parameter • Tinggi 3 • Sedang 2 • Rendah 1"
-                        : "Menunggu 5 parameter risiko lengkap"}
-                    </span>
-
-                    <span
-                      className={`text-sm font-black ${
-                        statusMeta(myLokasiRisk.status || "").color
-                      }`}
-                    >
-                      {myLokasiScore == null
-                        ? "—"
-                        : `${myLokasiScore}/${myLokasiMaximum}`}
-                    </span>
-                  </div>
-                </div>
-
-                {dynamicRiskDetails.length > 0 && (
-                  <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                    {dynamicRiskDetails.map((item) => (
-                      <div
-                        key={item.key}
-                        className="rounded-lg bg-slate-950/30 px-2.5 py-2"
-                      >
-                        <div className="text-[9px] text-slate-500">
-                          {item.label}
-                        </div>
-
-                        <div className="mt-0.5 truncate text-[10px] font-semibold text-slate-200">
-                          {item.value}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="mt-3 text-[10px] text-slate-500">
-                  Analysis type: {assessment?.analysisType || "—"} • Source:{" "}
-                  {assessment?.source || "—"}
-                </div>
-              </div>
-            </div>
-          </div>
         </section>
 
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_.8fr]">
@@ -2132,62 +1978,75 @@ export default function LokasiSaya() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 shadow-xl">
-            <div className="text-[10px] font-bold uppercase tracking-[.16em] text-emerald-300">
-              Safe location intelligence
+          <div className="rounded-2xl border border-cyan-500/20 bg-[#08172a] p-4 shadow-xl">
+            <div className="text-[10px] font-bold uppercase tracking-[.16em] text-cyan-300">
+              SIMITI · Data Kejadian
             </div>
             <div className="mt-1 text-sm font-semibold">
-              Lokasi Terdekat yang Aman
+              Kejadian Terdekat
+            </div>
+            <div className="mt-1 text-[10px] text-slate-400">
+              Diurutkan berdasarkan jarak dari koordinat lokasi terpilih
             </div>
 
-            {nearestSafeLocation ? (
-              <div className="mt-4 rounded-xl border border-emerald-500/20 bg-slate-950/20 p-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-400/10 text-lg text-emerald-300">
-                    ✓
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-bold text-emerald-200">
-                      Titik aman terdekat dari BNPB
-                    </div>
-                    <div className="mt-1 text-[10px] text-slate-400">
-                      Koordinat hasil pencarian spasial pada layer BNPB
-                    </div>
-                    <div className="mt-2 grid grid-cols-2 gap-2 text-[10px]">
-                      <div className="rounded-lg bg-slate-950/30 p-2">
-                        <div className="text-slate-500">Latitude</div>
-                        <div className="mt-1 font-bold text-slate-100">
-                          {nearestSafeLocation.latitude.toFixed(7)}
+            {nearbyIncidents.length > 0 ? (
+              <div className="mt-4 space-y-3">
+                {nearbyIncidents.map((incident, index) => (
+                  <div
+                    key={`${incident.id}-${index}`}
+                    className="rounded-xl border border-slate-700/70 bg-slate-950/40 p-3"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-400/10 text-cyan-300">
+                        <MapPin size={17} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold text-slate-100">
+                          {incident.title || incident.category || `Kejadian #${incident.id}`}
                         </div>
-                      </div>
-                      <div className="rounded-lg bg-slate-950/30 p-2">
-                        <div className="text-slate-500">Longitude</div>
-                        <div className="mt-1 font-bold text-slate-100">
-                          {nearestSafeLocation.longitude.toFixed(7)}
+                        {incident.category && incident.title && (
+                          <div className="mt-1 text-[10px] text-cyan-200">
+                            {incident.category}
+                          </div>
+                        )}
+                        {(incident.date || incident.location || incident.das) && (
+                          <div className="mt-2 space-y-1 text-[10px] text-slate-400">
+                            {incident.date && (
+                              <div>
+                                Tanggal: {String(incident.date).slice(0, 10)}
+                              </div>
+                            )}
+                            {incident.location && (
+                              <div>Lokasi: {incident.location}</div>
+                            )}
+                            {incident.das && (
+                              <div>DAS: {incident.das}</div>
+                            )}
+                          </div>
+                        )}
+                        <div className="mt-2 text-xs font-bold text-cyan-200">
+                          {incident.distanceMeters != null
+                            ? formatDistance(incident.distanceMeters)
+                            : "Jarak tidak tersedia"}
                         </div>
+                        {typeof incident.latitude === "number" &&
+                          typeof incident.longitude === "number" && (
+                            <div className="mt-1 break-all text-[9px] text-slate-500">
+                              {incident.latitude.toFixed(6)}, {incident.longitude.toFixed(6)}
+                            </div>
+                          )}
                       </div>
                     </div>
-                    <div className="mt-2 text-lg font-black text-slate-100">
-                      {formatDistance(nearestSafeLocation.distanceMeters)}
-                    </div>
-                    {nearestSafeLocation.bearingDegrees != null && (
-                      <div className="mt-1 text-[10px] text-slate-400">
-                        Arah dari GPS:{" "}
-                        {Math.round(nearestSafeLocation.bearingDegrees)}°
-                      </div>
-                    )}
                   </div>
-                </div>
-                <div className="mt-3 rounded-lg border border-emerald-500/10 bg-emerald-500/5 px-3 py-2 text-[9px] leading-4 text-emerald-200">
-                  Titik dipilih dari pencarian spasial dan diverifikasi ulang
-                  terhadap seluruh layer BNPB yang dikonfigurasi.
-                </div>
+                ))}
               </div>
             ) : (
-              <div className="mt-4 rounded-xl border border-dashed border-slate-700 p-5 text-center text-xs text-slate-500">
-                {bnpbState === "loading"
-                  ? "Mencari kandidat lokasi aman terdekat…"
-                  : "Belum ditemukan lokasi yang dapat diverifikasi aman."}
+              <div className="mt-4 rounded-xl border border-dashed border-slate-700 p-5 text-center text-xs text-slate-400">
+                {proximityState === "loading"
+                  ? "Memuat kejadian dari database SIMITI..."
+                  : proximityState === "error"
+                    ? "Data kejadian belum dapat dimuat. Periksa koneksi API SIMITI."
+                    : "Belum ada data kejadian berkoordinat yang dikembalikan untuk lokasi ini."}
               </div>
             )}
           </div>

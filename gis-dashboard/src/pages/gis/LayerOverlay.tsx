@@ -1,4 +1,4 @@
-import React, {
+﻿import React, {
   useCallback,
   useEffect,
   useMemo,
@@ -133,6 +133,17 @@ const CATALOG_URL = `${API_BASE}/layer-overlay/catalog`;
 
 const DATA_URL = (layerId: string) =>
   `${API_BASE}/layer-overlay/data/${encodeURIComponent(layerId)}`;
+
+const getLayerAuthHeaders = (): HeadersInit => {
+  const token =
+    localStorage.getItem("smiti_token") ||
+    sessionStorage.getItem("smiti_token");
+
+  return {
+    Accept: "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+};
 
 /* ============================================================
    MAP CONFIG
@@ -581,9 +592,7 @@ const LayerOverlay: React.FC = () => {
     try {
       const response = await fetch(CATALOG_URL, {
         method: "GET",
-        headers: {
-          Accept: "application/json",
-        },
+        headers: getLayerAuthHeaders(),
       });
 
       const payload: CatalogResponse = await response.json();
@@ -727,9 +736,7 @@ const LayerOverlay: React.FC = () => {
       try {
         const response = await fetch(DATA_URL(layer.id), {
           method: "GET",
-          headers: {
-            Accept: "application/json",
-          },
+          headers: getLayerAuthHeaders(),
         });
 
         const payload: LayerDataResponse = await response.json();
@@ -1865,7 +1872,7 @@ const LayerOverlay: React.FC = () => {
                           <span>
                             {category.children.length} layer
                             {category.children.length !== 1 ? "s" : ""}
-                            {activeCount > 0 && ` • ${activeCount} aktif`}
+                            {activeCount > 0 && ` â€¢ ${activeCount} aktif`}
                           </span>
                         </div>
 
@@ -2061,7 +2068,7 @@ const LayerOverlay: React.FC = () => {
 
               {selectedLayer && (
                 <>
-                  <span>•</span>
+                  <span>â€¢</span>
 
                   <strong>{selectedLayer.title}</strong>
                 </>
