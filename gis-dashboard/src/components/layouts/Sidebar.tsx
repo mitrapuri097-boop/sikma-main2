@@ -140,11 +140,6 @@ const mainMenus: MenuItem[] = [
         icon: Bot,
         badge: "AI",
       },
-      {
-        title: "Peta Rekomendasi",
-        href: "/rekomendasi/peta",
-        icon: MapPinned,
-      },
     ],
   },
 
@@ -171,21 +166,6 @@ const mainMenus: MenuItem[] = [
         href: "/lokasi/peta",
         icon: MapPinned,
       },
-      {
-        title: "Verifikasi Lokasi",
-        href: "/lokasi/verifikasi",
-        icon: CheckCircle2,
-      },
-      {
-        title: "Dokumentasi Kegiatan",
-        href: "/lokasi/dokumentasi",
-        icon: FileImage,
-      },
-      {
-        title: "Import Data",
-        href: "/lokasi/import",
-        icon: Database,
-      },
     ],
   },
 
@@ -204,11 +184,6 @@ const mainMenus: MenuItem[] = [
         badge: "GPS",
       },
       {
-        title: "Deteksi GPS",
-        href: "/kerawanan/gps",
-        icon: MapPinned,
-      },
-      {
         title: "Status Kerawanan",
         href: "/kerawanan/status",
         icon: ShieldCheck,
@@ -222,11 +197,6 @@ const mainMenus: MenuItem[] = [
         title: "Peta Kerawanan",
         href: "/kerawanan/peta",
         icon: AlertTriangle,
-      },
-      {
-        title: "Historis Kerawanan",
-        href: "/kerawanan/historis",
-        icon: History,
       },
     ],
   },
@@ -270,11 +240,6 @@ const mainMenus: MenuItem[] = [
     description: "Laporan dan ekspor data",
     icon: FileBarChart,
     children: [
-      {
-        title: "Dashboard Laporan",
-        href: "/laporan",
-        icon: FileBarChart,
-      },
       {
         title: "Laporan Pengguna",
         href: "/laporan/pengguna",

@@ -7662,7 +7662,7 @@ const Kerawanan = () => {
 
   const buildMitigationContext = (areasOverride?: any[]) => {
     const areas = areasOverride ?? selectedAreas;
-    const selectedArea = areas?.[0] || null;
+    const selectedArea = areas?.[areas.length - 1] || null;
     const riskMap: Record<string, any[]> = {
       karhutla: risikoData.risiko_karhutla,
       banjir: risikoData.risiko_banjir,

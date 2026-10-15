@@ -1530,7 +1530,45 @@ export default function LokasiSaya() {
   }, [assessment]);
 
   return (
-    <div className="min-h-screen bg-[#06111f] text-slate-100">
+    <div className="lokasi-saya-enterprise min-h-screen bg-[#06111f] text-slate-100">
+      <style>{`
+        .lokasi-saya-enterprise { width:100%; min-width:0; overflow-x:clip; }
+        .lokasi-saya-enterprise *, .lokasi-saya-enterprise *::before, .lokasi-saya-enterprise *::after { box-sizing:border-box; }
+        .lokasi-saya-enterprise main { width:100%; min-width:0; }
+        .lokasi-saya-enterprise main > section,
+        .lokasi-saya-enterprise main > section > *,
+        .lokasi-saya-enterprise [class*="grid-cols-"] > * { min-width:0; }
+        .lokasi-saya-enterprise .smiti-location-map { height:clamp(380px, 58vh, 700px); min-height:380px; }
+        .lokasi-saya-enterprise .leaflet-container { width:100%; height:100%; background:#e2e8f0; z-index:0; }
+        .lokasi-saya-enterprise button { touch-action:manipulation; }
+        .lokasi-saya-enterprise h1, .lokasi-saya-enterprise h2,
+        .lokasi-saya-enterprise h3, .lokasi-saya-enterprise p { overflow-wrap:anywhere; }
+        @media (max-width: 1279px) {
+          .lokasi-saya-enterprise main { padding:16px; }
+          .lokasi-saya-enterprise .smiti-location-map { height:clamp(390px, 55vh, 600px); }
+        }
+        @media (max-width: 767px) {
+          .lokasi-saya-enterprise header { padding:12px 14px; }
+          .lokasi-saya-enterprise header > div { align-items:center; }
+          .lokasi-saya-enterprise main { padding:12px; gap:12px; }
+          .lokasi-saya-enterprise main > section { gap:12px; }
+          .lokasi-saya-enterprise .smiti-location-map { height: min(62vh, 520px); min-height:360px; }
+          .lokasi-saya-enterprise .smiti-map-coordinates { left:10px !important; top:10px !important; max-width:calc(100% - 20px); }
+          .lokasi-saya-enterprise .smiti-map-coordinates > div:last-child { overflow-wrap:anywhere; }
+          .lokasi-saya-enterprise .smiti-map-threats { top:86px !important; right:10px !important; width:min(48%, 230px) !important; max-height:48%; overflow:auto; }
+          .lokasi-saya-enterprise .smiti-map-threats > div { padding:8px 9px; }
+          .lokasi-saya-enterprise .smiti-map-legend { left:10px !important; bottom:10px !important; max-width:calc(100% - 20px); }
+          .lokasi-saya-enterprise [class*="rounded-2xl"] { border-radius:14px; }
+          .lokasi-saya-enterprise .leaflet-control-zoom { margin-top:86px !important; }
+        }
+        @media (max-width: 420px) {
+          .lokasi-saya-enterprise main { padding:9px; }
+          .lokasi-saya-enterprise .smiti-location-map { min-height:340px; height:55vh; }
+          .lokasi-saya-enterprise .smiti-map-threats { top:94px !important; width:46% !important; }
+          .lokasi-saya-enterprise .smiti-map-threats > div { padding:7px; }
+          .lokasi-saya-enterprise .smiti-map-threats .text-xs { font-size:10px; }
+        }
+      `}</style>
       <header className="sticky top-0 z-[1000] border-b border-slate-800/80 bg-[#071426]/95 px-4 py-3 backdrop-blur-xl md:px-6">
         <div className="mx-auto flex max-w-[1800px] items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3">
@@ -1551,7 +1589,7 @@ export default function LokasiSaya() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1800px] space-y-4 p-4 md:p-5">
+      <main className="mx-auto max-w-[1800px] space-y-4 p-3 sm:p-4 md:p-5">
         {errorMessage && (
           <div className="flex items-start justify-between gap-3 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-xs text-red-200">
             <span>⚠ {errorMessage}</span>
@@ -1569,7 +1607,7 @@ export default function LokasiSaya() {
 
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
           <div className="overflow-hidden rounded-2xl border border-slate-800 bg-[#08172a] shadow-2xl">
-            <div className="relative h-[540px]">
+            <div className="smiti-location-map relative">
               <MapContainer
                 center={position || [0, 0]}
                 zoom={position ? mapZoom : 2}
@@ -1611,7 +1649,7 @@ export default function LokasiSaya() {
                 )}
               </MapContainer>
 
-              <div className="pointer-events-none absolute left-4 top-4 z-[500] rounded-xl border border-slate-700 bg-[#071426]/90 px-3 py-2 shadow-xl backdrop-blur-md">
+              <div className="smiti-map-coordinates pointer-events-none absolute left-4 top-4 z-[500] max-w-[calc(100%-2rem)] rounded-xl border border-slate-700 bg-[#071426]/90 px-3 py-2 shadow-xl backdrop-blur-md">
                 <div className="text-xs font-semibold">Lokasi GPS Anda</div>
 
                 <div className="mt-0.5 text-[10px] text-slate-400">
@@ -1624,7 +1662,7 @@ export default function LokasiSaya() {
               </div>
 
               {position && (
-                <div className="pointer-events-none absolute bottom-4 left-4 z-[500] rounded-xl border border-slate-700 bg-[#071426]/90 px-3 py-2 text-[10px] text-slate-300 backdrop-blur-md">
+                <div className="smiti-map-legend pointer-events-none absolute bottom-4 left-4 z-[500] rounded-xl border border-slate-700 bg-[#071426]/90 px-3 py-2 text-[10px] text-slate-300 backdrop-blur-md">
                   ● Titik GPS
                   {accuracy != null && (
                     <span className="ml-4">
@@ -1635,7 +1673,7 @@ export default function LokasiSaya() {
               )}
 
               {position && (nearbyThreats.length > 0 || nearestMitigation) && (
-                <div className="pointer-events-none absolute right-4 top-4 z-[500] w-[280px] space-y-2">
+                <div className="smiti-map-threats pointer-events-none absolute right-4 top-4 z-[500] w-[min(280px,40%)] space-y-2">
                   {nearbyThreats.slice(0, 2).map((threat) => {
                     const tm = statusMeta(threat.status || "");
                     return (
