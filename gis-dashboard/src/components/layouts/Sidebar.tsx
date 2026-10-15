@@ -183,21 +183,6 @@ const mainMenus: MenuItem[] = [
         icon: Navigation,
         badge: "GPS",
       },
-      {
-        title: "Status Kerawanan",
-        href: "/kerawanan/status",
-        icon: ShieldCheck,
-      },
-      {
-        title: "Analisis Risiko",
-        href: "/kerawanan/analisis",
-        icon: Activity,
-      },
-      {
-        title: "Peta Kerawanan",
-        href: "/kerawanan/peta",
-        icon: AlertTriangle,
-      },
     ],
   },
 
