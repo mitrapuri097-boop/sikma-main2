@@ -17819,7 +17819,7 @@ const requireAdminMemberRegistration = (req, res, next) => {
     const role = String(
       decoded?.role_name || decoded?.role || "",
     ).toLowerCase().trim();
-    if (!["admin", "administrator", "superadmin", "super administrator"].includes(role)) {
+    if (!["admin", "administrator", "superadmin", "super administrator", "super admin"].includes(role)) {
       return res
         .status(403)
         .json({ success: false, message: "Admin access required" });
