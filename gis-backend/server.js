@@ -17818,8 +17818,8 @@ const requireAdminMemberRegistration = (req, res, next) => {
         .json({ success: false, message: "Invalid or expired token" });
     const role = String(
       decoded?.role_name || decoded?.role || "",
-    ).toLowerCase();
-    if (!["admin", "administrator", "superadmin"].includes(role)) {
+    ).toLowerCase().trim();
+    if (!["admin", "administrator", "superadmin", "super administrator"].includes(role)) {
       return res
         .status(403)
         .json({ success: false, message: "Admin access required" });
@@ -17829,6 +17829,11 @@ const requireAdminMemberRegistration = (req, res, next) => {
   });
 };
 
+const { createExternalApiManagementRouter } = require("./externalApiManagement");
+app.use(
+  "/api/external-management",
+  createExternalApiManagementRouter({ pool, adminOnly: requireAdminMemberRegistration }),
+);
 app.post("/api/member-registrations", async (req, res) => {
   try {
     const {

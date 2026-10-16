@@ -1,0 +1,473 @@
+"use strict";
+
+const express = require("express");
+const crypto = require("crypto");
+
+const ALLOWED_SCOPES = new Set([
+  "mitigation:model:read",
+  "mitigation:locations:read",
+  "my-location:assessment",
+  "my-location:proximity",
+]);
+
+function cleanText(value, maxLength = 500) {
+  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function normalizeScopes(value) {
+  if (!Array.isArray(value)) return null;
+  const scopes = [...new Set(value.map((item) => cleanText(item, 100)))];
+  if (!scopes.length || scopes.some((scope) => !ALLOWED_SCOPES.has(scope))) return null;
+  return scopes;
+}
+
+function sha256(value) {
+  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function createExternalApiManagementRouter({ pool, adminOnly }) {
+  if (!pool || typeof pool.query !== "function") {
+    throw new Error("External API Management membutuhkan PostgreSQL pool yang valid.");
+  }
+  if (typeof adminOnly !== "function") {
+    throw new Error("External API Management membutuhkan middleware admin yang sudah ada.");
+  }
+
+  const router = express.Router();
+  const safeAdminOnly = (req, res, next) => {
+    const configuredSecret = process.env.JWT_SECRET;
+    if (!configuredSecret || configuredSecret === "your_secret_key_change_in_production") {
+      return res.status(503).json({
+        success: false,
+        message: "Manajemen API dinonaktifkan: JWT_SECRET yang kuat belum dikonfigurasi di backend .env.",
+      });
+    }
+    return adminOnly(req, res, next);
+  };
+  const submitAttempts = new Map();
+  const WINDOW_MS = 15 * 60 * 1000;
+  const MAX_SUBMISSIONS = 10;
+
+  async function audit(req, action, resourceType, resourceId, metadata = {}) {
+    try {
+      await pool.query(
+        `INSERT INTO external_api_audit_logs
+          (actor_type, actor_id, action, resource_type, resource_id, ip_address, user_agent, metadata)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`,
+        [
+          req.user ? "admin" : "partner",
+          req.user ? String(req.user.id || req.user.username || req.user.email || "admin") : null,
+          action,
+          resourceType,
+          resourceId == null ? null : String(resourceId),
+          cleanText(req.ip || req.socket?.remoteAddress || "", 100) || null,
+          cleanText(req.get("user-agent") || "", 500) || null,
+          JSON.stringify(metadata),
+        ],
+      );
+    } catch (error) {
+      // Audit failures are logged, but do not expose database details to clients.
+      console.error("[External API Management] audit insert failed:", error.message);
+    }
+  }
+
+  async function auditGateway(req, action, scope, statusCode, credential = null, reason = null) {
+    try {
+      await pool.query(
+        `INSERT INTO external_api_audit_logs
+          (actor_type, actor_id, action, resource_type, resource_id, ip_address, user_agent, metadata)
+         VALUES ('partner',$1,$2,'external_api_gateway',$3,$4,$5,$6::jsonb)`,
+        [
+          credential ? String(credential.application_id) : null,
+          action,
+          cleanText(req.path, 200) || null,
+          cleanText(req.ip || req.socket?.remoteAddress || "", 100) || null,
+          cleanText(req.get("user-agent") || "", 500) || null,
+          JSON.stringify({
+            requiredScope: scope,
+            httpStatus: statusCode,
+            credentialId: credential ? String(credential.credential_id) : null,
+            applicationId: credential ? String(credential.application_id) : null,
+            ...(reason ? { reason } : {}),
+          }),
+        ],
+      );
+    } catch (error) {
+      // Gateway access must not expose audit/database errors or API-key material.
+      console.error("[External API Management] gateway audit insert failed:", error.message);
+    }
+  }
+
+  function requireApiScope(requiredScope) {
+    return async (req, res, next) => {
+      const rawKey = cleanText(req.get("x-api-key"), 256);
+      if (!rawKey || !rawKey.startsWith("simiti_demo_")) {
+        await auditGateway(req, "gateway.auth_failed", requiredScope, 401, null, "missing_or_malformed_key");
+        return res.status(401).json({ success: false, message: "API key tidak valid atau tidak diberikan." });
+      }
+
+      let credential;
+      try {
+        const found = await pool.query(
+          `SELECT c.id AS credential_id, c.application_id, c.scopes AS credential_scopes,
+                  c.status AS credential_status, c.expires_at,
+                  a.status AS application_status, a.approved_scopes
+             FROM external_api_credentials c
+             JOIN external_api_applications a ON a.id = c.application_id
+            WHERE c.key_hash = $1
+            LIMIT 1`,
+          [sha256(rawKey)],
+        );
+        credential = found.rows[0] || null;
+      } catch (error) {
+        console.error("[External API Management] gateway credential lookup failed:", error.message);
+        await auditGateway(req, "gateway.validation_error", requiredScope, 503, null, "credential_store_unavailable");
+        return res.status(503).json({ success: false, message: "Validasi API key sementara tidak tersedia." });
+      }
+
+      // Never include the submitted key or its hash in logs, metadata, or responses.
+      if (!credential) {
+        await auditGateway(req, "gateway.auth_failed", requiredScope, 401, null, "unknown_key");
+        return res.status(401).json({ success: false, message: "API key tidak valid atau tidak diberikan." });
+      }
+      if (credential.credential_status !== "active") {
+        await auditGateway(req, "gateway.auth_failed", requiredScope, 401, credential, "credential_not_active");
+        return res.status(401).json({ success: false, message: "API key tidak aktif." });
+      }
+      if (!credential.expires_at || new Date(credential.expires_at).getTime() <= Date.now()) {
+        await auditGateway(req, "gateway.auth_failed", requiredScope, 401, credential, "credential_expired");
+        return res.status(401).json({ success: false, message: "Masa berlaku API key telah berakhir." });
+      }
+      if (credential.application_status !== "approved") {
+        await auditGateway(req, "gateway.auth_failed", requiredScope, 403, credential, "application_not_approved");
+        return res.status(403).json({ success: false, message: "Aplikasi mitra belum disetujui atau tidak lagi aktif." });
+      }
+
+      const keyScopes = new Set(Array.isArray(credential.credential_scopes) ? credential.credential_scopes : []);
+      const approvedScopes = new Set(Array.isArray(credential.approved_scopes) ? credential.approved_scopes : []);
+      if (!keyScopes.has(requiredScope) || !approvedScopes.has(requiredScope)) {
+        await auditGateway(req, "gateway.scope_denied", requiredScope, 403, credential, "scope_not_granted");
+        return res.status(403).json({ success: false, message: "API key tidak memiliki scope untuk layanan ini." });
+      }
+
+      req.externalApiCredential = credential;
+      res.on("finish", () => {
+        void auditGateway(
+          req,
+          "gateway.request",
+          requiredScope,
+          res.statusCode,
+          credential,
+        );
+      });
+      return next();
+    };
+  }
+
+  async function proxyInternal(req, res, targetPath) {
+    // Static internal destinations only: request input cannot choose a host or route.
+    const port = Number.parseInt(process.env.PORT || "3001", 10);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return res.status(503).json({ success: false, message: "Konfigurasi gateway internal belum valid." });
+    }
+    const queryIndex = req.originalUrl.indexOf("?");
+    const queryString = queryIndex >= 0 ? req.originalUrl.slice(queryIndex + 1) : "";
+    const targetUrl = `http://127.0.0.1:${port}${targetPath}${queryString ? `?${queryString}` : ""}`;
+    const options = {
+      method: req.method,
+      headers: { accept: req.get("accept") || "application/json" },
+      signal: AbortSignal.timeout(120000),
+    };
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      options.headers["content-type"] = "application/json";
+      options.body = JSON.stringify(req.body ?? {});
+    }
+    try {
+      const upstream = await fetch(targetUrl, options);
+      const body = await upstream.text();
+      res.status(upstream.status);
+      const contentType = upstream.headers.get("content-type");
+      if (contentType) res.set("content-type", contentType);
+      const cacheControl = upstream.headers.get("cache-control");
+      if (cacheControl) res.set("cache-control", cacheControl);
+      return res.send(body);
+    } catch (error) {
+      const timedOut = error?.name === "TimeoutError" || error?.name === "AbortError";
+      console.error("[External API Management] internal gateway request failed:", error.message);
+      return res.status(timedOut ? 504 : 502).json({
+        success: false,
+        message: timedOut ? "Layanan internal melewati batas waktu." : "Layanan internal sementara tidak dapat dijangkau.",
+      });
+    }
+  }
+
+  // Partner API gateway. Every route validates the API key, application approval,
+  // expiry, and both credential + application scopes before proxying to existing handlers.
+  router.post("/v1/mitigation-recommendation", requireApiScope("mitigation:model:read"), (req, res) =>
+    proxyInternal(req, res, "/api/ai/mitigation-recommendation"));
+
+  router.get("/v1/mitigation-locations", requireApiScope("mitigation:locations:read"), (req, res) =>
+    proxyInternal(req, res, "/api/lokasi-kegiatan"));
+
+  router.get("/v1/mitigation-locations/:id", requireApiScope("mitigation:locations:read"), (req, res) => {
+    if (!/^\d+$/.test(req.params.id) || Number(req.params.id) < 1) {
+      return res.status(400).json({ success: false, message: "ID lokasi mitigasi tidak valid." });
+    }
+    return proxyInternal(req, res, `/api/lokasi-kegiatan/${Number(req.params.id)}`);
+  });
+
+  router.get("/v1/my-location/assessment", requireApiScope("my-location:assessment"), (req, res) =>
+    proxyInternal(req, res, "/api/location-assessment"));
+
+  router.get("/v1/my-location/proximity", requireApiScope("my-location:proximity"), (req, res) =>
+    proxyInternal(req, res, "/api/location-proximity"));
+
+  function submissionRateLimit(req, res, next) {
+    const now = Date.now();
+    const ip = String(req.ip || req.socket?.remoteAddress || "unknown");
+    const current = submitAttempts.get(ip);
+    if (!current || now - current.startedAt >= WINDOW_MS) {
+      submitAttempts.set(ip, { startedAt: now, count: 1 });
+      return next();
+    }
+    if (current.count >= MAX_SUBMISSIONS) {
+      return res.status(429).json({
+        success: false,
+        message: "Terlalu banyak pengajuan dari alamat ini. Coba lagi setelah 15 menit.",
+      });
+    }
+    current.count += 1;
+    return next();
+  }
+
+  // Public partner application request. It does not issue credentials or grant API access.
+  router.post("/applications", submissionRateLimit, async (req, res) => {
+    try {
+      const applicationName = cleanText(req.body?.applicationName, 150);
+      const organizationName = cleanText(req.body?.organizationName, 200);
+      const contactName = cleanText(req.body?.contactName, 150);
+      const email = cleanText(req.body?.email, 254).toLowerCase();
+      const purpose = cleanText(req.body?.purpose, 2000);
+      const callbackUrl = cleanText(req.body?.callbackUrl, 1000);
+      const requestedScopes = normalizeScopes(req.body?.requestedScopes);
+
+      if (!applicationName || !organizationName || !contactName || !purpose) {
+        return res.status(400).json({ success: false, message: "Nama aplikasi, organisasi, kontak, dan tujuan wajib diisi." });
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ success: false, message: "Alamat email tidak valid." });
+      }
+      if (!requestedScopes) {
+        return res.status(400).json({ success: false, message: "Scope kosong atau tidak dikenal.", allowedScopes: [...ALLOWED_SCOPES] });
+      }
+      if (callbackUrl) {
+        let parsed;
+        try { parsed = new URL(callbackUrl); } catch { parsed = null; }
+        if (!parsed || parsed.protocol !== "https:") {
+          return res.status(400).json({ success: false, message: "Callback URL harus menggunakan HTTPS." });
+        }
+      }
+
+      const result = await pool.query(
+        `INSERT INTO external_api_applications
+          (application_name, organization_name, contact_name, email, purpose, callback_url, requested_scopes, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'pending')
+         RETURNING id, application_name, organization_name, status, requested_at`,
+        [applicationName, organizationName, contactName, email, purpose, callbackUrl || null, requestedScopes],
+      );
+      const application = result.rows[0];
+      await audit(req, "application.submitted", "application", application.id, { requestedScopes });
+      return res.status(201).json({ success: true, message: "Pengajuan diterima dan menunggu pemeriksaan admin.", application });
+    } catch (error) {
+      console.error("[External API Management] application submit failed:", error.message);
+      return res.status(500).json({ success: false, message: "Pengajuan belum dapat diproses." });
+    }
+  });
+
+  // Admin-only management endpoints reuse the backend's existing JWT/admin middleware.
+  router.get("/applications", safeAdminOnly, async (req, res) => {
+    try {
+      const status = cleanText(req.query.status, 30);
+      const params = [];
+      let where = "";
+      if (status) {
+        if (!["pending", "approved", "rejected", "suspended"].includes(status)) {
+          return res.status(400).json({ success: false, message: "Filter status tidak valid." });
+        }
+        params.push(status);
+        where = "WHERE status = $1";
+      }
+      const result = await pool.query(
+        `SELECT id, application_name, organization_name, contact_name, email, purpose, callback_url,
+                requested_scopes, approved_scopes, status, requested_at, reviewed_at, reviewed_by, review_note
+           FROM external_api_applications ${where} ORDER BY requested_at DESC LIMIT 500`, params,
+      );
+      return res.json({ success: true, applications: result.rows });
+    } catch (error) {
+      console.error("[External API Management] application list failed:", error.message);
+      return res.status(500).json({ success: false, message: "Daftar pengajuan belum dapat dimuat." });
+    }
+  });
+
+  router.patch("/applications/:id/review", safeAdminOnly, async (req, res) => {
+    const id = Number(req.params.id);
+    const decision = cleanText(req.body?.decision, 20).toLowerCase();
+    const reviewNote = cleanText(req.body?.reviewNote, 2000);
+    const approvedScopes = normalizeScopes(req.body?.approvedScopes);
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ success: false, message: "ID pengajuan tidak valid." });
+    if (!["approved", "rejected", "suspended"].includes(decision)) return res.status(400).json({ success: false, message: "Keputusan harus approved, rejected, atau suspended." });
+    if (decision === "approved" && !approvedScopes) return res.status(400).json({ success: false, message: "approvedScopes wajib diisi dengan scope yang diizinkan." });
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const found = await client.query("SELECT id, status, requested_scopes FROM external_api_applications WHERE id=$1 FOR UPDATE", [id]);
+      if (!found.rowCount) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ success: false, message: "Pengajuan tidak ditemukan." });
+      }
+      if (decision === "approved") {
+        const requested = new Set(found.rows[0].requested_scopes || []);
+        if (approvedScopes.some((scope) => !requested.has(scope))) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ success: false, message: "Scope yang disetujui tidak boleh melebihi scope yang diajukan." });
+        }
+      }
+      const result = await client.query(
+        `UPDATE external_api_applications
+            SET status=$2, approved_scopes=$3, reviewed_at=NOW(), reviewed_by=$4, review_note=$5
+          WHERE id=$1
+          RETURNING id, application_name, status, approved_scopes, reviewed_at, reviewed_by, review_note`,
+        [id, decision, decision === "approved" ? approvedScopes : [], String(req.user?.id || req.user?.username || req.user?.email || "admin"), reviewNote || null],
+      );
+      await client.query("COMMIT");
+      await audit(req, `application.${decision}`, "application", id, { approvedScopes: decision === "approved" ? approvedScopes : [], reviewNote });
+      return res.json({ success: true, application: result.rows[0] });
+    } catch (error) {
+      try { await client.query("ROLLBACK"); } catch {}
+      console.error("[External API Management] application review failed:", error.message);
+      return res.status(500).json({ success: false, message: "Keputusan pengajuan belum dapat disimpan." });
+    } finally {
+      client.release();
+    }
+  });
+
+  router.post("/applications/:id/keys", safeAdminOnly, async (req, res) => {
+    const id = Number(req.params.id);
+    const scopes = normalizeScopes(req.body?.scopes);
+    const expiresInDays = Number(req.body?.expiresInDays ?? 90);
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ success: false, message: "ID aplikasi tidak valid." });
+    if (!scopes) return res.status(400).json({ success: false, message: "Scope key wajib diisi." });
+    if (!Number.isInteger(expiresInDays) || expiresInDays < 1 || expiresInDays > 365) {
+      return res.status(400).json({ success: false, message: "Masa berlaku key harus 1–365 hari." });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const appResult = await client.query("SELECT id, status, approved_scopes FROM external_api_applications WHERE id=$1 FOR UPDATE", [id]);
+      if (!appResult.rowCount) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ success: false, message: "Aplikasi tidak ditemukan." });
+      }
+      const application = appResult.rows[0];
+      if (application.status !== "approved") {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ success: false, message: "Aplikasi harus disetujui sebelum API key diterbitkan." });
+      }
+      const approved = new Set(application.approved_scopes || []);
+      if (scopes.some((scope) => !approved.has(scope))) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ success: false, message: "Scope key tidak boleh melebihi scope yang disetujui." });
+      }
+
+      const rawKey = `simiti_demo_${crypto.randomBytes(32).toString("base64url")}`;
+      const keyPrefix = rawKey.slice(0, 20);
+      const keyHash = sha256(rawKey);
+      const expiresAt = new Date(Date.now() + expiresInDays * 86400000);
+      const inserted = await client.query(
+        `INSERT INTO external_api_credentials
+          (application_id, key_prefix, key_hash, scopes, status, expires_at, created_by)
+         VALUES ($1,$2,$3,$4,'active',$5,$6)
+         RETURNING id, application_id, key_prefix, scopes, status, expires_at, created_at`,
+        [id, keyPrefix, keyHash, scopes, expiresAt, String(req.user?.id || req.user?.username || req.user?.email || "admin")],
+      );
+      await client.query("COMMIT");
+      await audit(req, "credential.issued", "credential", inserted.rows[0].id, { applicationId: id, scopes, expiresAt: expiresAt.toISOString() });
+      // The raw key is intentionally returned only once and is never stored in the database.
+      return res.status(201).json({ success: true, message: "API key diterbitkan. Salin sekarang; key tidak dapat ditampilkan kembali.", credential: inserted.rows[0], apiKey: rawKey });
+    } catch (error) {
+      try { await client.query("ROLLBACK"); } catch {}
+      console.error("[External API Management] key issue failed:", error.message);
+      return res.status(500).json({ success: false, message: "API key belum dapat diterbitkan." });
+    } finally {
+      client.release();
+    }
+  });
+
+  router.get("/applications/:id/keys", safeAdminOnly, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ success: false, message: "ID aplikasi tidak valid." });
+    try {
+      const result = await pool.query(
+        `SELECT id, application_id, key_prefix, scopes, status, expires_at, created_by, created_at, revoked_at
+           FROM external_api_credentials WHERE application_id=$1 ORDER BY created_at DESC`, [id],
+      );
+      return res.json({ success: true, credentials: result.rows });
+    } catch (error) {
+      console.error("[External API Management] key list failed:", error.message);
+      return res.status(500).json({ success: false, message: "Daftar API key belum dapat dimuat." });
+    }
+  });
+
+  router.post("/keys/:id/revoke", safeAdminOnly, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ success: false, message: "ID key tidak valid." });
+    try {
+      const result = await pool.query(
+        `UPDATE external_api_credentials SET status='revoked', revoked_at=NOW()
+          WHERE id=$1 AND status='active'
+          RETURNING id, application_id, key_prefix, status, revoked_at`, [id],
+      );
+      if (!result.rowCount) return res.status(404).json({ success: false, message: "Key aktif tidak ditemukan atau sudah dicabut." });
+      await audit(req, "credential.revoked", "credential", id, { applicationId: result.rows[0].application_id });
+      return res.json({ success: true, credential: result.rows[0] });
+    } catch (error) {
+      console.error("[External API Management] key revoke failed:", error.message);
+      return res.status(500).json({ success: false, message: "Pencabutan API key belum dapat diproses." });
+    }
+  });
+
+  router.get("/audit", safeAdminOnly, async (req, res) => {
+    const limit = Math.min(500, Math.max(1, Number.parseInt(req.query.limit, 10) || 100));
+    try {
+      const result = await pool.query(
+        `SELECT id, actor_type, actor_id, action, resource_type, resource_id, ip_address, user_agent, metadata, created_at
+           FROM external_api_audit_logs ORDER BY created_at DESC LIMIT $1`, [limit],
+      );
+      return res.json({ success: true, logs: result.rows });
+    } catch (error) {
+      console.error("[External API Management] audit list failed:", error.message);
+      return res.status(500).json({ success: false, message: "Audit log belum dapat dimuat." });
+    }
+  });
+
+  router.get("/catalog", (_req, res) => {
+    return res.json({
+      success: true,
+      stage: "gateway-added-needs-verification",
+      message: "Gateway layanan eksternal sudah ditambahkan. Wajib uji lokal di lingkungan DEMO sebelum deployment.",
+      scopes: [...ALLOWED_SCOPES],
+      services: [
+        { name: "Model Mitigasi", scope: "mitigation:model:read", enabled: true, method: "POST", path: "/api/external-management/v1/mitigation-recommendation" },
+        { name: "Inventarisasi Lokasi Mitigasi", scope: "mitigation:locations:read", enabled: true, methods: ["GET"], path: "/api/external-management/v1/mitigation-locations" },
+        { name: "My Lokasi - Assessment", scope: "my-location:assessment", enabled: true, method: "GET", path: "/api/external-management/v1/my-location/assessment" },
+        { name: "My Lokasi - Proximity", scope: "my-location:proximity", enabled: true, method: "GET", path: "/api/external-management/v1/my-location/proximity" },
+      ],
+    });
+  });
+
+  return router;
+}
+
+module.exports = { createExternalApiManagementRouter, ALLOWED_SCOPES };

@@ -332,6 +332,11 @@ const systemMenus: MenuItem[] = [
          USER MANAGEMENT
       -------------------------------------------------------- */
       {
+        title: "External API Management",
+        href: "/system/external-api",
+        icon: Network,
+      },
+      {
         title: "Dashboard User",
         href: "/system/users",
         icon: LayoutDashboard,

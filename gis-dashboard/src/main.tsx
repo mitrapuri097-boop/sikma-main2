@@ -32,6 +32,7 @@ import AuthGuard from "./components/auth/AuthGuard";
 // ======================================================
 
 import AIRecommendationEnterprise from "./views/rekomendasi/AIRecommendationEnterprise";
+import ExternalApiManagement from "./views/system/external-api/ExternalApiManagement";
 
 // ======================================================
 // DASHBOARD
@@ -125,7 +126,7 @@ createRoot(rootElement).render(
             DEFAULT
         ================================================== */}
 
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/" element={<Navigate to="/kerawanan" replace />} />
 
         {/* ==================================================
             PROTECTED ENTERPRISE APPLICATION
@@ -226,6 +227,7 @@ createRoot(rootElement).render(
             ================================================== */}
 
             <Route path="/system/users" element={<UserManagement />} />
+            <Route path="/system/external-api" element={<ExternalApiManagement />} />
 
             <Route path="/system/users/directory" element={<UserIndex />} />
 

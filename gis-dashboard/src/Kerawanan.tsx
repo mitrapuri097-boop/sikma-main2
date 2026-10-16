@@ -345,14 +345,9 @@ const Kerawanan = () => {
     return aliases[normalized] || normalized;
   };
 
-  const isLayerAuthorized = (name: string) => {
-    // Layer dinamis kejadian dan service eksternal tidak berada di layer_metadata.
-    if (String(name || "").startsWith("kejadian_")) return true;
-    if (authorizedLayerNames === null) return false;
-
-    const normalized = normalizeAuthorizationLayerName(name);
-    return authorizedLayerNames.has(normalized);
-  };
+  // Halaman Kerawanan adalah WebGIS publik untuk masyarakat umum.
+  // Layer publik tidak mensyaratkan login/token authorization.
+  const isLayerAuthorized = (_name: string) => true;
 
   const filterAuthorizedLayerList = (items: any[] = []) =>
     items.filter((item) => isLayerAuthorized(item?.name ?? item?.id));
@@ -372,52 +367,12 @@ const Kerawanan = () => {
     };
   };
 
+  // Tidak memanggil /api/my-layer-authorizations pada halaman publik.
+  // Authorization khusus pengguna tetap dapat diterapkan pada halaman admin terpisah.
   const loadMyLayerAuthorizations = async () => {
-    const token = getAuthToken();
-
-    if (!token) {
-      console.warn(
-        "🔐 Tidak ada token SIMITI; authorization layer tidak dapat diterapkan.",
-      );
-      setAuthorizedLayerNames(null);
-      setAuthorizationLoaded(true);
-      return;
-    }
-
-    try {
-      setAuthorizationError("");
-      const response = await fetch(`${API_URL}/api/my-layer-authorizations`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/json",
-        },
-      });
-
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(result?.message || `HTTP ${response.status}`);
-      }
-
-      const rows = Array.isArray(result?.data) ? result.data : [];
-      const names = new Set<string>(
-        rows
-          .filter((item: any) => item?.can_view === true)
-          .map((item: any) => normalizeAuthorizationLayerName(item.table_name)),
-      );
-
-      setAuthorizedLayerNames(names);
-      setAuthorizationLoaded(true);
-
-      console.log("🔐 SIMITI authorized layers:", Array.from(names));
-    } catch (error: any) {
-      console.error("❌ Gagal mengambil authorization layer:", error);
-      // Fail closed: token ada tetapi authorization gagal -> jangan tampilkan layer lokal.
-      setAuthorizedLayerNames(new Set());
-      setAuthorizationError(
-        error?.message || "Authorization layer gagal dimuat.",
-      );
-      setAuthorizationLoaded(true);
-    }
+    setAuthorizationError("");
+    setAuthorizedLayerNames(null);
+    setAuthorizationLoaded(true);
   };
 
   const layerCacheRef = useRef<Map<string, any>>(new Map());
@@ -2962,7 +2917,7 @@ const Kerawanan = () => {
             fillColor: featureColor,
             weight: zoom > 10 ? 1.8 : 1.2,
             opacity: 0.95,
-            fillOpacity: 0.58,
+            fillOpacity: 0.32,
           };
         };
       } else if (tableName === "tutupan_lahan") {
@@ -3516,16 +3471,16 @@ const Kerawanan = () => {
               layer.setStyle({
                 color: forcedBencanaColor,
                 fillColor: forcedBencanaColor,
-                weight: zoom > 10 ? 1.2 : 0.8,
-                opacity: 0.95,
-                fillOpacity: 1,
+                weight: zoom > 10 ? 1.6 : 1.1,
+                opacity: 1,
+                fillOpacity: 0.32,
               });
             }
             if (layer?.options) {
               layer.options.color = forcedBencanaColor;
               layer.options.fillColor = forcedBencanaColor;
-              layer.options.opacity = 0.95;
-              layer.options.fillOpacity = 1;
+              layer.options.opacity = 1;
+              layer.options.fillOpacity = 0.32;
             }
           } catch (styleError) {
             console.warn("SIMITI: gagal force style bencana:", tableName, styleError);
@@ -6172,7 +6127,7 @@ const Kerawanan = () => {
           weight: zoom > 10 ? 2.2 : 1.5,
           opacity: 1,
           fillColor: color,
-          fillOpacity: 0.65,
+          fillOpacity: 0.32,
         });
 
         // Sinkronkan juga options Leaflet supaya style berikutnya
@@ -6181,7 +6136,7 @@ const Kerawanan = () => {
           layer.options.color = color;
           layer.options.fillColor = color;
           layer.options.opacity = 1;
-          layer.options.fillOpacity = 0.65;
+          layer.options.fillOpacity = 0.32;
         }
 
         return;
@@ -6319,12 +6274,12 @@ const Kerawanan = () => {
   // Fetch layers from database on mount
   useEffect(() => {
     const bootstrapLayerAccess = async () => {
-      // Authorization wajib selesai sebelum katalog layer dimuat.
+      // Katalog layer dimuat langsung untuk akses publik.
       await loadMyLayerAuthorizations();
       await fetchLayers();
 
       // Defense-in-depth: jika ada layer aktif dari state/cache lama,
-      // hanya layer yang can_view=true yang boleh tetap hidup.
+      // layer publik tetap dapat ditampilkan tanpa token.
       setActiveLayers((prev) => {
         const next = new Set<string>();
         for (const name of prev) {
@@ -14049,15 +14004,6 @@ const Kerawanan = () => {
                 {layerError && (
                   <div className="mx-3 mt-3 rounded-lg bg-red-50 border border-red-100 p-2 text-[9px] text-red-700">
                     {layerError}
-                  </div>
-                )}
-
-                {authorizationError && (
-                  <div className="mx-3 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[9px] text-amber-800">
-                    <div className="font-bold">
-                      Authorization layer bermasalah
-                    </div>
-                    <div className="mt-0.5">{authorizationError}</div>
                   </div>
                 )}
 
