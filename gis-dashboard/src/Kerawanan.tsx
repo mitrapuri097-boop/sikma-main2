@@ -3457,11 +3457,9 @@ const Kerawanan = () => {
 
       cleanupLegacyBencanaCircleMarkers();
 
-      // SIMITI: WARNA BENCANA SOLID + IRISAN TANPA BLENDING
-      // Setiap jenis bencana memakai warna tematik sendiri dan fillOpacity=1.
-      // Dengan fill solid, dua layer yang beririsan tidak menghasilkan warna
-      // campuran/transparan. Area irisan mengikuti urutan render deterministik
-      // di bawah; ketika layer teratas dimatikan, layer di bawah tetap terlihat.
+      // SIMITI: WARNA TEMATIK + BLEND UNTUK MEMPERJELAS IRISAN BENCANA
+      // Pertahankan warna dasar layer dan gunakan blend multiply pada SVG polygon.
+      // Tidak mengubah checkbox, filter wilayah, data, atau endpoint API.
       if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
         const forcedBencanaColor = getBencanaLayerColor(String(tableName));
 
@@ -3473,23 +3471,25 @@ const Kerawanan = () => {
                 fillColor: forcedBencanaColor,
                 weight: zoom > 10 ? 1.6 : 1.1,
                 opacity: 1,
-                fillOpacity: 0.32,
+                fillOpacity: 0.62,
               });
             }
             if (layer?.options) {
               layer.options.color = forcedBencanaColor;
               layer.options.fillColor = forcedBencanaColor;
               layer.options.opacity = 1;
-              layer.options.fillOpacity = 0.32;
+              layer.options.fillOpacity = 0.62;
+            }
+            if (layer?._path && layer.feature?.geometry?.type !== "Point") {
+              layer._path.style.mixBlendMode = "multiply";
             }
           } catch (styleError) {
-            console.warn("SIMITI: gagal force style bencana:", tableName, styleError);
+            console.warn("SIMITI: gagal menerapkan style irisan:", tableName, styleError);
           }
         });
 
-        console.log(`🎨 SIMITI SOLID BENCANA COLOR: ${tableName} → ${forcedBencanaColor}`);
+        console.log(`SIMITI OVERLAP BLEND: ${tableName} -> ${forcedBencanaColor}`);
       }
-
       layerGroupsRef.current[tableName] = layerGroup;
 
       // Urutan layer stabil, tidak bergantung urutan checkbox diklik.
