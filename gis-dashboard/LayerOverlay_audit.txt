@@ -1,0 +1,642 @@
+﻿
+  src\views\gis\LayerOverlay.tsx:1:import React, { useCallback, useEffect, useMemo, useState } from "react";
+  src\views\gis\LayerOverlay.tsx:2:import {
+  src\views\gis\LayerOverlay.tsx:3:  MapContainer,
+  src\views\gis\LayerOverlay.tsx:4:  TileLayer,
+> src\views\gis\LayerOverlay.tsx:5:  GeoJSON,
+  src\views\gis\LayerOverlay.tsx:6:  ZoomControl,
+  src\views\gis\LayerOverlay.tsx:7:  useMap,
+  src\views\gis\LayerOverlay.tsx:8:} from "react-leaflet";
+  src\views\gis\LayerOverlay.tsx:9:import type { Layer as LeafletLayer, PathOptions } from "leaflet";
+  src\views\gis\LayerOverlay.tsx:10:import {
+  src\views\gis\LayerOverlay.tsx:11:  Layers3,
+  src\views\gis\LayerOverlay.tsx:12:  GitMerge,
+  src\views\gis\LayerOverlay.tsx:13:  Search,
+  src\views\gis\LayerOverlay.tsx:52:
+  src\views\gis\LayerOverlay.tsx:53:/* ============================================================
+  src\views\gis\LayerOverlay.tsx:54:   TYPES
+  src\views\gis\LayerOverlay.tsx:55:============================================================ */
+  src\views\gis\LayerOverlay.tsx:56:
+> src\views\gis\LayerOverlay.tsx:57:type GeoJsonCollection = GeoJSON.FeatureCollection;
+  src\views\gis\LayerOverlay.tsx:58:
+  src\views\gis\LayerOverlay.tsx:59:type ApiLayer = {
+  src\views\gis\LayerOverlay.tsx:60:  id: string;
+  src\views\gis\LayerOverlay.tsx:61:  tableName?: string;
+  src\views\gis\LayerOverlay.tsx:62:  table?: string;
+  src\views\gis\LayerOverlay.tsx:63:  title: string;
+  src\views\gis\LayerOverlay.tsx:64:  icon?: string;
+  src\views\gis\LayerOverlay.tsx:65:  color?: string;
+  src\views\gis\LayerOverlay.tsx:129:  error?: string;
+  src\views\gis\LayerOverlay.tsx:130:  layer?: ApiLayer;
+  src\views\gis\LayerOverlay.tsx:131:  data?: unknown;
+  src\views\gis\LayerOverlay.tsx:132:  type?: string;
+  src\views\gis\LayerOverlay.tsx:133:  features?: unknown[];
+> src\views\gis\LayerOverlay.tsx:134:  geojsonUrl?: string;
+  src\views\gis\LayerOverlay.tsx:135:  dataUrl?: string;
+  src\views\gis\LayerOverlay.tsx:136:  endpoint?: string;
+  src\views\gis\LayerOverlay.tsx:137:  tableName?: string;
+  src\views\gis\LayerOverlay.tsx:138:  name?: string;
+  src\views\gis\LayerOverlay.tsx:139:  id?: string | number;
+  src\views\gis\LayerOverlay.tsx:140:  section?: string;
+  src\views\gis\LayerOverlay.tsx:141:};
+  src\views\gis\LayerOverlay.tsx:142:
+  src\views\gis\LayerOverlay.tsx:175:const API_BASE =
+  src\views\gis\LayerOverlay.tsx:176:  API_ROOT === "/api" || API_ROOT.endsWith("/api")
+  src\views\gis\LayerOverlay.tsx:177:    ? API_ROOT
+  src\views\gis\LayerOverlay.tsx:178:    : `${API_ROOT}/api`;
+  src\views\gis\LayerOverlay.tsx:179:
+> src\views\gis\LayerOverlay.tsx:180:const CATALOG_URL = `${API_BASE}/layer-overlay/catalog`;
+  src\views\gis\LayerOverlay.tsx:181:const DATA_URL = (layerId: string) =>
+> src\views\gis\LayerOverlay.tsx:182:  `${API_BASE}/layer-overlay/data/${encodeURIComponent(layerId)}`;
+  src\views\gis\LayerOverlay.tsx:183:
+  src\views\gis\LayerOverlay.tsx:184:// Layer Overlay harus memakai token login yang sama dengan modul SIMITI lain.
+  src\views\gis\LayerOverlay.tsx:185:function getSmitiToken(): string | null {
+  src\views\gis\LayerOverlay.tsx:186:  return (
+> src\views\gis\LayerOverlay.tsx:187:    localStorage.getItem("smiti_token") ||
+> src\views\gis\LayerOverlay.tsx:188:    sessionStorage.getItem("smiti_token")
+  src\views\gis\LayerOverlay.tsx:189:  );
+  src\views\gis\LayerOverlay.tsx:190:}
+  src\views\gis\LayerOverlay.tsx:191:
+  src\views\gis\LayerOverlay.tsx:192:function getSmitiAuthHeaders(): Record<string, string> {
+  src\views\gis\LayerOverlay.tsx:193:  const headers: Record<string, string> = { Accept: "application/json" };
+  src\views\gis\LayerOverlay.tsx:194:  const token = getSmitiToken();
+> src\views\gis\LayerOverlay.tsx:195:  if (token) headers.Authorization = `Bearer ${token}`;
+  src\views\gis\LayerOverlay.tsx:196:  return headers;
+  src\views\gis\LayerOverlay.tsx:197:}
+  src\views\gis\LayerOverlay.tsx:198:
+  src\views\gis\LayerOverlay.tsx:199:/* ============================================================
+  src\views\gis\LayerOverlay.tsx:200:   HELPERS
+  src\views\gis\LayerOverlay.tsx:201:============================================================ */
+  src\views\gis\LayerOverlay.tsx:202:
+  src\views\gis\LayerOverlay.tsx:203:function isObject(value: unknown): value is Record<string, unknown> {
+  src\views\gis\LayerOverlay.tsx:365:  }
+  src\views\gis\LayerOverlay.tsx:366:
+  src\views\gis\LayerOverlay.tsx:367:  return fallback;
+  src\views\gis\LayerOverlay.tsx:368:}
+  src\views\gis\LayerOverlay.tsx:369:
+> src\views\gis\LayerOverlay.tsx:370:function normalizeFeatureCollection(value: unknown): GeoJsonCollection {
+  src\views\gis\LayerOverlay.tsx:371:  if (
+  src\views\gis\LayerOverlay.tsx:372:    isObject(value) &&
+  src\views\gis\LayerOverlay.tsx:373:    value.type === "FeatureCollection" &&
+  src\views\gis\LayerOverlay.tsx:374:    Array.isArray(value.features)
+  src\views\gis\LayerOverlay.tsx:375:  ) {
+> src\views\gis\LayerOverlay.tsx:376:    return value as unknown as GeoJsonCollection;
+  src\views\gis\LayerOverlay.tsx:377:  }
+  src\views\gis\LayerOverlay.tsx:378:
+  src\views\gis\LayerOverlay.tsx:379:  if (Array.isArray(value)) {
+  src\views\gis\LayerOverlay.tsx:380:    return {
+  src\views\gis\LayerOverlay.tsx:381:      type: "FeatureCollection",
+  src\views\gis\LayerOverlay.tsx:382:      features: value.filter(
+> src\views\gis\LayerOverlay.tsx:383:        (item): item is GeoJSON.Feature =>
+  src\views\gis\LayerOverlay.tsx:384:          isObject(item) && item.type === "Feature",
+  src\views\gis\LayerOverlay.tsx:385:      ),
+  src\views\gis\LayerOverlay.tsx:386:    };
+  src\views\gis\LayerOverlay.tsx:387:  }
+  src\views\gis\LayerOverlay.tsx:388:
+  src\views\gis\LayerOverlay.tsx:389:  if (isObject(value)) {
+  src\views\gis\LayerOverlay.tsx:390:    if (
+  src\views\gis\LayerOverlay.tsx:391:      isObject(value.data) &&
+  src\views\gis\LayerOverlay.tsx:392:      value.data.type === "FeatureCollection" &&
+  src\views\gis\LayerOverlay.tsx:393:      Array.isArray(value.data.features)
+  src\views\gis\LayerOverlay.tsx:394:    ) {
+> src\views\gis\LayerOverlay.tsx:395:      return value.data as unknown as GeoJsonCollection;
+  src\views\gis\LayerOverlay.tsx:396:    }
+  src\views\gis\LayerOverlay.tsx:397:
+  src\views\gis\LayerOverlay.tsx:398:    if (Array.isArray(value.features) && value.type === "FeatureCollection") {
+> src\views\gis\LayerOverlay.tsx:399:      return value as unknown as GeoJsonCollection;
+  src\views\gis\LayerOverlay.tsx:400:    }
+  src\views\gis\LayerOverlay.tsx:401:
+  src\views\gis\LayerOverlay.tsx:402:    /*
+  src\views\gis\LayerOverlay.tsx:403:     * Defensive compatibility:
+  src\views\gis\LayerOverlay.tsx:404:     * Some backend responses may return:
+  src\views\gis\LayerOverlay.tsx:405:     * { featureCollection: {...} }
+  src\views\gis\LayerOverlay.tsx:406:     * or
+> src\views\gis\LayerOverlay.tsx:407:     * { geojson: {...} }
+  src\views\gis\LayerOverlay.tsx:408:     */
+  src\views\gis\LayerOverlay.tsx:409:    const possible = [
+> src\views\gis\LayerOverlay.tsx:410:      value.geojson,
+> src\views\gis\LayerOverlay.tsx:411:      value.geoJSON,
+  src\views\gis\LayerOverlay.tsx:412:      value.featureCollection,
+  src\views\gis\LayerOverlay.tsx:413:      value.feature_collection,
+  src\views\gis\LayerOverlay.tsx:414:    ];
+  src\views\gis\LayerOverlay.tsx:415:
+  src\views\gis\LayerOverlay.tsx:416:    for (const candidate of possible) {
+  src\views\gis\LayerOverlay.tsx:417:      if (
+  src\views\gis\LayerOverlay.tsx:418:        isObject(candidate) &&
+  src\views\gis\LayerOverlay.tsx:419:        candidate.type === "FeatureCollection" &&
+  src\views\gis\LayerOverlay.tsx:420:        Array.isArray(candidate.features)
+  src\views\gis\LayerOverlay.tsx:421:      ) {
+> src\views\gis\LayerOverlay.tsx:422:        return candidate as unknown as GeoJsonCollection;
+  src\views\gis\LayerOverlay.tsx:423:      }
+  src\views\gis\LayerOverlay.tsx:424:    }
+  src\views\gis\LayerOverlay.tsx:425:  }
+  src\views\gis\LayerOverlay.tsx:426:
+  src\views\gis\LayerOverlay.tsx:427:  return {
+  src\views\gis\LayerOverlay.tsx:428:    type: "FeatureCollection",
+  src\views\gis\LayerOverlay.tsx:429:    features: [],
+  src\views\gis\LayerOverlay.tsx:430:  };
+  src\views\gis\LayerOverlay.tsx:695:
+  src\views\gis\LayerOverlay.tsx:696:function FitBoundsFromLayer({
+  src\views\gis\LayerOverlay.tsx:697:  data,
+  src\views\gis\LayerOverlay.tsx:698:  enabled,
+  src\views\gis\LayerOverlay.tsx:699:}: {
+> src\views\gis\LayerOverlay.tsx:700:  data?: GeoJsonCollection;
+  src\views\gis\LayerOverlay.tsx:701:  enabled: boolean;
+  src\views\gis\LayerOverlay.tsx:702:}) {
+  src\views\gis\LayerOverlay.tsx:703:  const map = useMap();
+  src\views\gis\LayerOverlay.tsx:704:
+  src\views\gis\LayerOverlay.tsx:705:  useEffect(() => {
+  src\views\gis\LayerOverlay.tsx:706:    if (!enabled || !data || !data.features?.length) return;
+  src\views\gis\LayerOverlay.tsx:707:
+> src\views\gis\LayerOverlay.tsx:708:    // Hitung bounds langsung dari koordinat GeoJSON. Jangan membangun
+  src\views\gis\LayerOverlay.tsx:709:    // layer Leaflet kedua hanya untuk fitBounds, terutama untuk polygon besar.
+  src\views\gis\LayerOverlay.tsx:710:    let minLat = Number.POSITIVE_INFINITY;
+  src\views\gis\LayerOverlay.tsx:711:    let minLng = Number.POSITIVE_INFINITY;
+  src\views\gis\LayerOverlay.tsx:712:    let maxLat = Number.NEGATIVE_INFINITY;
+  src\views\gis\LayerOverlay.tsx:713:    let maxLng = Number.NEGATIVE_INFINITY;
+  src\views\gis\LayerOverlay.tsx:714:
+  src\views\gis\LayerOverlay.tsx:715:    const visitCoordinates = (value: unknown): void => {
+  src\views\gis\LayerOverlay.tsx:716:      if (!Array.isArray(value)) return;
+  src\views\gis\LayerOverlay.tsx:732:      }
+  src\views\gis\LayerOverlay.tsx:733:
+  src\views\gis\LayerOverlay.tsx:734:      for (const child of value) visitCoordinates(child);
+  src\views\gis\LayerOverlay.tsx:735:    };
+  src\views\gis\LayerOverlay.tsx:736:
+> src\views\gis\LayerOverlay.tsx:737:    const visitGeometry = (geometry: GeoJSON.Geometry | null | undefined): void 
+=> {
+  src\views\gis\LayerOverlay.tsx:738:      if (!geometry) return;
+  src\views\gis\LayerOverlay.tsx:739:      if (geometry.type === "GeometryCollection") {
+  src\views\gis\LayerOverlay.tsx:740:        for (const child of geometry.geometries) visitGeometry(child);
+  src\views\gis\LayerOverlay.tsx:741:        return;
+  src\views\gis\LayerOverlay.tsx:742:      }
+  src\views\gis\LayerOverlay.tsx:743:      visitCoordinates(geometry.coordinates);
+  src\views\gis\LayerOverlay.tsx:744:    };
+  src\views\gis\LayerOverlay.tsx:745:
+  src\views\gis\LayerOverlay.tsx:888:  const [apiLayers, setApiLayers] = useState<ApiLayer[]>([]);
+  src\views\gis\LayerOverlay.tsx:889:  const [catalogStats, setCatalogStats] = useState<CatalogStatistics | null>(
+  src\views\gis\LayerOverlay.tsx:890:    null,
+  src\views\gis\LayerOverlay.tsx:891:  );
+  src\views\gis\LayerOverlay.tsx:892:
+> src\views\gis\LayerOverlay.tsx:893:  const [geoJsonByLayer, setGeoJsonByLayer] = useState<
+> src\views\gis\LayerOverlay.tsx:894:    Record<string, GeoJsonCollection>
+  src\views\gis\LayerOverlay.tsx:895:  >({});
+  src\views\gis\LayerOverlay.tsx:896:
+  src\views\gis\LayerOverlay.tsx:897:  const [activeLayer, setActiveLayer] = useState("");
+  src\views\gis\LayerOverlay.tsx:898:  const [loadingLayers, setLoadingLayers] = useState(true);
+> src\views\gis\LayerOverlay.tsx:899:  const [loadingGeoJson, setLoadingGeoJson] = useState(false);
+  src\views\gis\LayerOverlay.tsx:900:  const [loadingLayerId, setLoadingLayerId] = useState("");
+  src\views\gis\LayerOverlay.tsx:901:  const [apiError, setApiError] = useState("");
+  src\views\gis\LayerOverlay.tsx:902:
+  src\views\gis\LayerOverlay.tsx:903:  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>(
+  src\views\gis\LayerOverlay.tsx:904:    {},
+  src\views\gis\LayerOverlay.tsx:905:  );
+  src\views\gis\LayerOverlay.tsx:906:
+  src\views\gis\LayerOverlay.tsx:907:  const [basemap, setBasemap] = useState<"map" | "satellite">("map");
+  src\views\gis\LayerOverlay.tsx:939:  const loadCatalog = useCallback(async () => {
+  src\views\gis\LayerOverlay.tsx:940:    setLoadingLayers(true);
+  src\views\gis\LayerOverlay.tsx:941:    setApiError("");
+  src\views\gis\LayerOverlay.tsx:942:
+  src\views\gis\LayerOverlay.tsx:943:    try {
+> src\views\gis\LayerOverlay.tsx:944:      const response = await fetch(CATALOG_URL, {
+  src\views\gis\LayerOverlay.tsx:945:        method: "GET",
+  src\views\gis\LayerOverlay.tsx:946:        headers: getSmitiAuthHeaders(),
+  src\views\gis\LayerOverlay.tsx:947:      });
+  src\views\gis\LayerOverlay.tsx:948:
+  src\views\gis\LayerOverlay.tsx:949:      const rawText = await response.text();
+  src\views\gis\LayerOverlay.tsx:950:
+  src\views\gis\LayerOverlay.tsx:951:      let payload: CatalogPayload;
+  src\views\gis\LayerOverlay.tsx:952:
+  src\views\gis\LayerOverlay.tsx:1012:  useEffect(() => {
+  src\views\gis\LayerOverlay.tsx:1013:    void loadCatalog();
+  src\views\gis\LayerOverlay.tsx:1014:  }, [loadCatalog]);
+  src\views\gis\LayerOverlay.tsx:1015:
+  src\views\gis\LayerOverlay.tsx:1016:  /* ==========================================================
+> src\views\gis\LayerOverlay.tsx:1017:     LOAD GEOJSON
+  src\views\gis\LayerOverlay.tsx:1018:  ========================================================== */
+  src\views\gis\LayerOverlay.tsx:1019:
+> src\views\gis\LayerOverlay.tsx:1020:  const loadLayerGeoJson = useCallback(async (layerId: string) => {
+  src\views\gis\LayerOverlay.tsx:1021:    if (!layerId) return;
+  src\views\gis\LayerOverlay.tsx:1022:
+> src\views\gis\LayerOverlay.tsx:1023:    setLoadingGeoJson(true);
+  src\views\gis\LayerOverlay.tsx:1024:    setLoadingLayerId(layerId);
+  src\views\gis\LayerOverlay.tsx:1025:    setApiError("");
+  src\views\gis\LayerOverlay.tsx:1026:
+  src\views\gis\LayerOverlay.tsx:1027:    try {
+> src\views\gis\LayerOverlay.tsx:1028:      const readJson = async (url: string) => {
+> src\views\gis\LayerOverlay.tsx:1029:        const response = await fetch(url, {
+  src\views\gis\LayerOverlay.tsx:1030:          method: "GET",
+  src\views\gis\LayerOverlay.tsx:1031:          headers: getSmitiAuthHeaders(),
+  src\views\gis\LayerOverlay.tsx:1032:        });
+  src\views\gis\LayerOverlay.tsx:1033:        const rawText = await response.text();
+  src\views\gis\LayerOverlay.tsx:1034:        let body: LayerDataPayload;
+  src\views\gis\LayerOverlay.tsx:1035:
+  src\views\gis\LayerOverlay.tsx:1036:        try {
+  src\views\gis\LayerOverlay.tsx:1037:          body = JSON.parse(rawText) as LayerDataPayload;
+  src\views\gis\LayerOverlay.tsx:1050:          throw new Error(body.message || body.error || "Gagal memuat data 
+layer.");
+  src\views\gis\LayerOverlay.tsx:1051:        }
+  src\views\gis\LayerOverlay.tsx:1052:        return body;
+  src\views\gis\LayerOverlay.tsx:1053:      };
+  src\views\gis\LayerOverlay.tsx:1054:
+> src\views\gis\LayerOverlay.tsx:1055:      // Endpoint ini dapat mengembalikan metadata berisi geojsonUrl,
+  src\views\gis\LayerOverlay.tsx:1056:      // atau langsung FeatureCollection pada versi backend yang lebih lama.
+  src\views\gis\LayerOverlay.tsx:1057:      const metadata = await readJson(DATA_URL(layerId));
+> src\views\gis\LayerOverlay.tsx:1058:      let geoJsonPayload: LayerDataPayload = metadata;
+  src\views\gis\LayerOverlay.tsx:1059:
+> src\views\gis\LayerOverlay.tsx:1060:      const metadataIsGeoJson =
+  src\views\gis\LayerOverlay.tsx:1061:        metadata.type === "FeatureCollection" && 
+Array.isArray(metadata.features);
+  src\views\gis\LayerOverlay.tsx:1062:
+> src\views\gis\LayerOverlay.tsx:1063:      if (!metadataIsGeoJson) {
+  src\views\gis\LayerOverlay.tsx:1064:        const returnedUrl =
+> src\views\gis\LayerOverlay.tsx:1065:          metadata.geojsonUrl || metadata.dataUrl || metadata.endpoint;
+  src\views\gis\LayerOverlay.tsx:1066:
+> src\views\gis\LayerOverlay.tsx:1067:        let geoJsonUrl: string;
+  src\views\gis\LayerOverlay.tsx:1068:        if (returnedUrl) {
+  src\views\gis\LayerOverlay.tsx:1069:          // Pertahankan host API yang dipakai aplikasi. Backend biasanya
+  src\views\gis\LayerOverlay.tsx:1070:          // mengembalikan path relatif /api/... meskipun API ada di host lain.
+  src\views\gis\LayerOverlay.tsx:1071:          const path = returnedUrl.replace(/^\/api(?=\/)/, "");
+> src\views\gis\LayerOverlay.tsx:1072:          geoJsonUrl = /^https?:\/\//i.test(returnedUrl)
+  src\views\gis\LayerOverlay.tsx:1073:            ? returnedUrl
+  src\views\gis\LayerOverlay.tsx:1074:            : `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+  src\views\gis\LayerOverlay.tsx:1075:        } else if (metadata.tableName || metadata.name) {
+  src\views\gis\LayerOverlay.tsx:1076:          const tableName = String(metadata.tableName || metadata.name);
+> src\views\gis\LayerOverlay.tsx:1077:          geoJsonUrl = 
+`${API_BASE}/layers/${encodeURIComponent(tableName)}/geojson`;
+  src\views\gis\LayerOverlay.tsx:1078:        } else {
+  src\views\gis\LayerOverlay.tsx:1079:          throw new Error(
+> src\views\gis\LayerOverlay.tsx:1080:            "Backend mengembalikan metadata tanpa geojsonUrl/tableName dan tanpa 
+FeatureCollection.",
+  src\views\gis\LayerOverlay.tsx:1081:          );
+  src\views\gis\LayerOverlay.tsx:1082:        }
+  src\views\gis\LayerOverlay.tsx:1083:
+> src\views\gis\LayerOverlay.tsx:1084:        geoJsonPayload = await readJson(geoJsonUrl);
+  src\views\gis\LayerOverlay.tsx:1085:      }
+  src\views\gis\LayerOverlay.tsx:1086:
+  src\views\gis\LayerOverlay.tsx:1087:      const featureCollection = normalizeFeatureCollection(
+> src\views\gis\LayerOverlay.tsx:1088:        geoJsonPayload.type === "FeatureCollection"
+> src\views\gis\LayerOverlay.tsx:1089:          ? geoJsonPayload
+> src\views\gis\LayerOverlay.tsx:1090:          : geoJsonPayload.data,
+  src\views\gis\LayerOverlay.tsx:1091:      );
+  src\views\gis\LayerOverlay.tsx:1092:
+  src\views\gis\LayerOverlay.tsx:1093:      if (
+> src\views\gis\LayerOverlay.tsx:1094:        geoJsonPayload.type !== "FeatureCollection" &&
+> src\views\gis\LayerOverlay.tsx:1095:        !Array.isArray(geoJsonPayload.features) &&
+> src\views\gis\LayerOverlay.tsx:1096:        !isObject(geoJsonPayload.data) &&
+> src\views\gis\LayerOverlay.tsx:1097:        !Array.isArray(geoJsonPayload.data)
+  src\views\gis\LayerOverlay.tsx:1098:      ) {
+> src\views\gis\LayerOverlay.tsx:1099:        throw new Error("Endpoint GeoJSON tidak mengembalikan FeatureCollection 
+yang valid.");
+  src\views\gis\LayerOverlay.tsx:1100:      }
+  src\views\gis\LayerOverlay.tsx:1101:
+> src\views\gis\LayerOverlay.tsx:1102:      setGeoJsonByLayer((previous) => ({
+  src\views\gis\LayerOverlay.tsx:1103:        ...previous,
+  src\views\gis\LayerOverlay.tsx:1104:        [layerId]: featureCollection,
+  src\views\gis\LayerOverlay.tsx:1105:      }));
+  src\views\gis\LayerOverlay.tsx:1106:
+  src\views\gis\LayerOverlay.tsx:1107:      const metadataLayer = metadata.layer || (metadata.tableName
+  src\views\gis\LayerOverlay.tsx:1108:        ? {
+  src\views\gis\LayerOverlay.tsx:1109:            id: String(metadata.id ?? layerId),
+  src\views\gis\LayerOverlay.tsx:1110:            tableName: metadata.tableName,
+  src\views\gis\LayerOverlay.tsx:1125:    } catch (error) {
+  src\views\gis\LayerOverlay.tsx:1126:      const message =
+  src\views\gis\LayerOverlay.tsx:1127:        error instanceof Error ? error.message : "Gagal memuat data spasial.";
+  src\views\gis\LayerOverlay.tsx:1128:      setApiError(`${message} Layer: ${layerId}`);
+  src\views\gis\LayerOverlay.tsx:1129:    } finally {
+> src\views\gis\LayerOverlay.tsx:1130:      setLoadingGeoJson(false);
+  src\views\gis\LayerOverlay.tsx:1131:      setLoadingLayerId("");
+  src\views\gis\LayerOverlay.tsx:1132:    }
+  src\views\gis\LayerOverlay.tsx:1133:  }, []);
+  src\views\gis\LayerOverlay.tsx:1134:
+  src\views\gis\LayerOverlay.tsx:1135:  /* ==========================================================
+  src\views\gis\LayerOverlay.tsx:1136:     LAYER ACTIONS
+  src\views\gis\LayerOverlay.tsx:1137:  ========================================================== */
+  src\views\gis\LayerOverlay.tsx:1138:
+  src\views\gis\LayerOverlay.tsx:1169:
+  src\views\gis\LayerOverlay.tsx:1170:    updateLayerChecked(layerId, nextChecked);
+  src\views\gis\LayerOverlay.tsx:1171:
+  src\views\gis\LayerOverlay.tsx:1172:    setActiveLayer(String(layerId));
+  src\views\gis\LayerOverlay.tsx:1173:
+> src\views\gis\LayerOverlay.tsx:1174:    if (nextChecked && !geoJsonByLayer[layerId]) {
+> src\views\gis\LayerOverlay.tsx:1175:      void loadLayerGeoJson(String(layerId));
+  src\views\gis\LayerOverlay.tsx:1176:    }
+  src\views\gis\LayerOverlay.tsx:1177:
+  src\views\gis\LayerOverlay.tsx:1178:    if (currentLayer && !currentLayer.featureCount) {
+  src\views\gis\LayerOverlay.tsx:1179:      // Keep state driven by backend; no mock count is inserted.
+  src\views\gis\LayerOverlay.tsx:1180:    }
+  src\views\gis\LayerOverlay.tsx:1181:  };
+  src\views\gis\LayerOverlay.tsx:1182:
+  src\views\gis\LayerOverlay.tsx:1183:  const selectLayer = (layerId: string) => {
+  src\views\gis\LayerOverlay.tsx:1184:    setActiveLayer(String(layerId));
+  src\views\gis\LayerOverlay.tsx:1185:
+> src\views\gis\LayerOverlay.tsx:1186:    if (!geoJsonByLayer[layerId]) {
+> src\views\gis\LayerOverlay.tsx:1187:      void loadLayerGeoJson(String(layerId));
+  src\views\gis\LayerOverlay.tsx:1188:    }
+  src\views\gis\LayerOverlay.tsx:1189:  };
+  src\views\gis\LayerOverlay.tsx:1190:
+  src\views\gis\LayerOverlay.tsx:1191:  const clearAllLayers = () => {
+  src\views\gis\LayerOverlay.tsx:1192:    setLayers((previous) =>
+  src\views\gis\LayerOverlay.tsx:1193:      previous.map((category) => ({
+  src\views\gis\LayerOverlay.tsx:1194:        ...category,
+  src\views\gis\LayerOverlay.tsx:1195:        children: category.children.map((layer) => ({
+  src\views\gis\LayerOverlay.tsx:1210:        })),
+  src\views\gis\LayerOverlay.tsx:1211:      })),
+  src\views\gis\LayerOverlay.tsx:1212:    );
+  src\views\gis\LayerOverlay.tsx:1213:
+  src\views\gis\LayerOverlay.tsx:1214:    const missing = apiLayers.filter(
+> src\views\gis\LayerOverlay.tsx:1215:      (layer) => !geoJsonByLayer[String(layer.id)],
+  src\views\gis\LayerOverlay.tsx:1216:    );
+  src\views\gis\LayerOverlay.tsx:1217:
+  src\views\gis\LayerOverlay.tsx:1218:    if (missing.length > 0) {
+> src\views\gis\LayerOverlay.tsx:1219:      void loadLayerGeoJson(String(missing[0].id));
+  src\views\gis\LayerOverlay.tsx:1220:    }
+  src\views\gis\LayerOverlay.tsx:1221:  };
+  src\views\gis\LayerOverlay.tsx:1222:
+  src\views\gis\LayerOverlay.tsx:1223:  /* ==========================================================
+  src\views\gis\LayerOverlay.tsx:1224:     FILTER CATEGORIES
+  src\views\gis\LayerOverlay.tsx:1225:  ========================================================== */
+  src\views\gis\LayerOverlay.tsx:1226:
+  src\views\gis\LayerOverlay.tsx:1227:  const filteredCategories = useMemo(() => {
+  src\views\gis\LayerOverlay.tsx:1286:    }
+  src\views\gis\LayerOverlay.tsx:1287:
+  src\views\gis\LayerOverlay.tsx:1288:    return undefined;
+  src\views\gis\LayerOverlay.tsx:1289:  }, [apiLayers, activeLayer, layers]);
+  src\views\gis\LayerOverlay.tsx:1290:
+> src\views\gis\LayerOverlay.tsx:1291:  const activeGeoJson = geoJsonByLayer[activeLayer];
+  src\views\gis\LayerOverlay.tsx:1292:
+  src\views\gis\LayerOverlay.tsx:1293:  /* ==========================================================
+> src\views\gis\LayerOverlay.tsx:1294:     GEOJSON POPUP
+  src\views\gis\LayerOverlay.tsx:1295:  ========================================================== */
+  src\views\gis\LayerOverlay.tsx:1296:
+> src\views\gis\LayerOverlay.tsx:1297:  const onEachFeature = (feature: GeoJSON.Feature, layer: LeafletLayer) => {
+  src\views\gis\LayerOverlay.tsx:1298:    if (!("bindPopup" in layer)) return;
+  src\views\gis\LayerOverlay.tsx:1299:
+  src\views\gis\LayerOverlay.tsx:1300:    const properties =
+  src\views\gis\LayerOverlay.tsx:1301:      (feature.properties as Record<string, unknown> | null) ?? {};
+  src\views\gis\LayerOverlay.tsx:1302:
+  src\views\gis\LayerOverlay.tsx:1303:    const name = getFeatureName(properties);
+  src\views\gis\LayerOverlay.tsx:1304:    const risk = getRiskValue(properties);
+  src\views\gis\LayerOverlay.tsx:1305:
+  src\views\gis\LayerOverlay.tsx:1361:      </div>
+  src\views\gis\LayerOverlay.tsx:1362:    `);
+  src\views\gis\LayerOverlay.tsx:1363:  };
+  src\views\gis\LayerOverlay.tsx:1364:
+  src\views\gis\LayerOverlay.tsx:1365:  /* ==========================================================
+> src\views\gis\LayerOverlay.tsx:1366:     GEOJSON STYLE
+  src\views\gis\LayerOverlay.tsx:1367:  ========================================================== */
+  src\views\gis\LayerOverlay.tsx:1368:
+  src\views\gis\LayerOverlay.tsx:1369:  const getLayerStyle = useCallback(
+> src\views\gis\LayerOverlay.tsx:1370:    (layer: LayerItem | undefined, feature?: GeoJSON.Feature): PathOptions => {
+  src\views\gis\LayerOverlay.tsx:1371:      const fallback =
+  src\views\gis\LayerOverlay.tsx:1372:        layer?.color || (layer ? defaultLayerColor(layer) : "#0f766e");
+  src\views\gis\LayerOverlay.tsx:1373:
+  src\views\gis\LayerOverlay.tsx:1374:      const properties =
+  src\views\gis\LayerOverlay.tsx:1375:        (feature?.properties as Record<string, unknown> | null) ?? {};
+  src\views\gis\LayerOverlay.tsx:1376:
+  src\views\gis\LayerOverlay.tsx:1377:      const color = riskColor(getRiskValue(properties), fallback);
+  src\views\gis\LayerOverlay.tsx:1378:
+  src\views\gis\LayerOverlay.tsx:1393:  /* ==========================================================
+  src\views\gis\LayerOverlay.tsx:1394:     ATTRIBUTE TABLE
+  src\views\gis\LayerOverlay.tsx:1395:  ========================================================== */
+  src\views\gis\LayerOverlay.tsx:1396:
+  src\views\gis\LayerOverlay.tsx:1397:  const filteredAttributes = useMemo<AttributeRow[]>(() => {
+> src\views\gis\LayerOverlay.tsx:1398:    const features = activeGeoJson?.features ?? [];
+  src\views\gis\LayerOverlay.tsx:1399:    const keyword = filterText.trim().toLowerCase();
+  src\views\gis\LayerOverlay.tsx:1400:
+  src\views\gis\LayerOverlay.tsx:1401:    return features
+  src\views\gis\LayerOverlay.tsx:1402:      .map((feature, index) => {
+  src\views\gis\LayerOverlay.tsx:1403:        const props =
+  src\views\gis\LayerOverlay.tsx:1404:          (feature.properties as Record<string, unknown> | null) ?? {};
+  src\views\gis\LayerOverlay.tsx:1405:
+  src\views\gis\LayerOverlay.tsx:1406:        const luasValue =
+  src\views\gis\LayerOverlay.tsx:1457:          row.provinsi,
+  src\views\gis\LayerOverlay.tsx:1458:          row.sumber,
+  src\views\gis\LayerOverlay.tsx:1459:          row.update,
+  src\views\gis\LayerOverlay.tsx:1460:        ].some((value) => value.toLowerCase().includes(keyword));
+  src\views\gis\LayerOverlay.tsx:1461:      });
+> src\views\gis\LayerOverlay.tsx:1462:  }, [activeGeoJson, activeLayerObject, filterText]);
+  src\views\gis\LayerOverlay.tsx:1463:
+  src\views\gis\LayerOverlay.tsx:1464:  /* ==========================================================
+> src\views\gis\LayerOverlay.tsx:1465:     EXPORT GEOJSON
+  src\views\gis\LayerOverlay.tsx:1466:  ========================================================== */
+  src\views\gis\LayerOverlay.tsx:1467:
+> src\views\gis\LayerOverlay.tsx:1468:  const exportGeoJson = () => {
+> src\views\gis\LayerOverlay.tsx:1469:    if (!activeGeoJson) return;
+  src\views\gis\LayerOverlay.tsx:1470:
+> src\views\gis\LayerOverlay.tsx:1471:    const blob = new Blob([JSON.stringify(activeGeoJson, null, 2)], {
+  src\views\gis\LayerOverlay.tsx:1472:      type: "application/geo+json;charset=utf-8",
+  src\views\gis\LayerOverlay.tsx:1473:    });
+  src\views\gis\LayerOverlay.tsx:1474:
+  src\views\gis\LayerOverlay.tsx:1475:    const url = URL.createObjectURL(blob);
+  src\views\gis\LayerOverlay.tsx:1476:    const anchor = document.createElement("a");
+  src\views\gis\LayerOverlay.tsx:1477:
+  src\views\gis\LayerOverlay.tsx:1478:    anchor.href = url;
+> src\views\gis\LayerOverlay.tsx:1479:    anchor.download = `${activeLayer || "layer"}.geojson`;
+  src\views\gis\LayerOverlay.tsx:1480:    document.body.appendChild(anchor);
+  src\views\gis\LayerOverlay.tsx:1481:    anchor.click();
+  src\views\gis\LayerOverlay.tsx:1482:    anchor.remove();
+  src\views\gis\LayerOverlay.tsx:1483:
+  src\views\gis\LayerOverlay.tsx:1484:    URL.revokeObjectURL(url);
+  src\views\gis\LayerOverlay.tsx:1485:    setShowExportMenu(false);
+  src\views\gis\LayerOverlay.tsx:1486:  };
+  src\views\gis\LayerOverlay.tsx:1487:
+  src\views\gis\LayerOverlay.tsx:1554:  const activeLayerCount = allLayerItems.filter(
+  src\views\gis\LayerOverlay.tsx:1555:    (layer) => layer.checked,
+  src\views\gis\LayerOverlay.tsx:1556:  ).length;
+  src\views\gis\LayerOverlay.tsx:1557:
+  src\views\gis\LayerOverlay.tsx:1558:  const activeFeatureCount =
+> src\views\gis\LayerOverlay.tsx:1559:    activeLayerObject?.featureCount ?? activeGeoJson?.features?.length ?? 0;
+  src\views\gis\LayerOverlay.tsx:1560:
+  src\views\gis\LayerOverlay.tsx:1561:  return (
+  src\views\gis\LayerOverlay.tsx:1562:    <div className="min-h-screen bg-[#f4f7f9] text-slate-800">
+  src\views\gis\LayerOverlay.tsx:1563:      {/* ======================================================
+  src\views\gis\LayerOverlay.tsx:1564:          PAGE HEADER
+  src\views\gis\LayerOverlay.tsx:1565:      ====================================================== */}
+  src\views\gis\LayerOverlay.tsx:1566:
+  src\views\gis\LayerOverlay.tsx:1567:      <div className="border-b border-slate-200 bg-white">
+  src\views\gis\LayerOverlay.tsx:1592:              </p>
+  src\views\gis\LayerOverlay.tsx:1593:            </div>
+  src\views\gis\LayerOverlay.tsx:1594:
+  src\views\gis\LayerOverlay.tsx:1595:            <div
+  src\views\gis\LayerOverlay.tsx:1596:              className={`flex items-center gap-2 rounded-full border px-3 
+py-1.5 ${
+> src\views\gis\LayerOverlay.tsx:1597:                loadingLayers || loadingGeoJson
+  src\views\gis\LayerOverlay.tsx:1598:                  ? "border-amber-100 bg-amber-50 text-amber-700"
+  src\views\gis\LayerOverlay.tsx:1599:                  : apiError
+  src\views\gis\LayerOverlay.tsx:1600:                    ? "border-red-100 bg-red-50 text-red-700"
+  src\views\gis\LayerOverlay.tsx:1601:                    : "border-emerald-100 bg-emerald-50 text-emerald-700"
+  src\views\gis\LayerOverlay.tsx:1602:              }`}
+  src\views\gis\LayerOverlay.tsx:1603:            >
+  src\views\gis\LayerOverlay.tsx:1604:              <span
+  src\views\gis\LayerOverlay.tsx:1605:                className={`h-2 w-2 rounded-full ${
+> src\views\gis\LayerOverlay.tsx:1606:                  loadingLayers || loadingGeoJson
+  src\views\gis\LayerOverlay.tsx:1607:                    ? "bg-amber-500"
+  src\views\gis\LayerOverlay.tsx:1608:                    : apiError
+  src\views\gis\LayerOverlay.tsx:1609:                      ? "bg-red-500"
+  src\views\gis\LayerOverlay.tsx:1610:                      : "bg-emerald-500"
+  src\views\gis\LayerOverlay.tsx:1611:                }`}
+  src\views\gis\LayerOverlay.tsx:1612:              />
+  src\views\gis\LayerOverlay.tsx:1613:
+  src\views\gis\LayerOverlay.tsx:1614:              <span className="text-[11px] font-semibold">
+  src\views\gis\LayerOverlay.tsx:1615:                {loadingLayers
+  src\views\gis\LayerOverlay.tsx:1616:                  ? "Memuat Catalog..."
+> src\views\gis\LayerOverlay.tsx:1617:                  : loadingGeoJson
+  src\views\gis\LayerOverlay.tsx:1618:                    ? "Memuat Data GIS..."
+  src\views\gis\LayerOverlay.tsx:1619:                    : apiError
+  src\views\gis\LayerOverlay.tsx:1620:                      ? "API Bermasalah"
+  src\views\gis\LayerOverlay.tsx:1621:                      : "Database Connected"}
+  src\views\gis\LayerOverlay.tsx:1622:              </span>
+  src\views\gis\LayerOverlay.tsx:1623:            </div>
+  src\views\gis\LayerOverlay.tsx:1624:          </div>
+  src\views\gis\LayerOverlay.tsx:1625:        </div>
+  src\views\gis\LayerOverlay.tsx:1770:
+  src\views\gis\LayerOverlay.tsx:1771:            {showExportMenu && (
+  src\views\gis\LayerOverlay.tsx:1772:              <div className="absolute left-0 top-11 z-[2000] w-48 rounded-xl 
+border border-slate-200 bg-white p-1.5 shadow-xl">
+  src\views\gis\LayerOverlay.tsx:1773:                <button
+  src\views\gis\LayerOverlay.tsx:1774:                  type="button"
+> src\views\gis\LayerOverlay.tsx:1775:                  onClick={exportGeoJson}
+> src\views\gis\LayerOverlay.tsx:1776:                  disabled={!activeGeoJson}
+  src\views\gis\LayerOverlay.tsx:1777:                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 
+text-xs text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+  src\views\gis\LayerOverlay.tsx:1778:                >
+  src\views\gis\LayerOverlay.tsx:1779:                  <FileJson size={14} />
+> src\views\gis\LayerOverlay.tsx:1780:                  Export GeoJSON
+  src\views\gis\LayerOverlay.tsx:1781:                </button>
+  src\views\gis\LayerOverlay.tsx:1782:
+  src\views\gis\LayerOverlay.tsx:1783:                <button
+  src\views\gis\LayerOverlay.tsx:1784:                  type="button"
+  src\views\gis\LayerOverlay.tsx:1785:                  onClick={exportCsv}
+  src\views\gis\LayerOverlay.tsx:1786:                  disabled={!filteredAttributes.length}
+  src\views\gis\LayerOverlay.tsx:1787:                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 
+text-xs text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+  src\views\gis\LayerOverlay.tsx:1788:                >
+  src\views\gis\LayerOverlay.tsx:2103:
+  src\views\gis\LayerOverlay.tsx:2104:                {layers
+  src\views\gis\LayerOverlay.tsx:2105:                  .flatMap((category) => category.children)
+  src\views\gis\LayerOverlay.tsx:2106:                  .filter((layer) => layer.checked)
+  src\views\gis\LayerOverlay.tsx:2107:                  .map((layer) => {
+> src\views\gis\LayerOverlay.tsx:2108:                    const data = geoJsonByLayer[String(layer.id)];
+  src\views\gis\LayerOverlay.tsx:2109:
+  src\views\gis\LayerOverlay.tsx:2110:                    if (!data) return null;
+  src\views\gis\LayerOverlay.tsx:2111:
+  src\views\gis\LayerOverlay.tsx:2112:                    return (
+> src\views\gis\LayerOverlay.tsx:2113:                      <GeoJSON
+  src\views\gis\LayerOverlay.tsx:2114:                        key={`${layer.id}-${opacity}`}
+  src\views\gis\LayerOverlay.tsx:2115:                        data={data as never}
+  src\views\gis\LayerOverlay.tsx:2116:                        style={(feature) => getLayerStyle(layer, feature)}
+  src\views\gis\LayerOverlay.tsx:2117:                        onEachFeature={onEachFeature}
+  src\views\gis\LayerOverlay.tsx:2118:                      />
+  src\views\gis\LayerOverlay.tsx:2119:                    );
+  src\views\gis\LayerOverlay.tsx:2120:                  })}
+  src\views\gis\LayerOverlay.tsx:2121:
+  src\views\gis\LayerOverlay.tsx:2122:                <FitBoundsFromLayer
+> src\views\gis\LayerOverlay.tsx:2123:                  data={activeGeoJson}
+  src\views\gis\LayerOverlay.tsx:2124:                  enabled={
+> src\views\gis\LayerOverlay.tsx:2125:                    Boolean(activeGeoJson) &&
+  src\views\gis\LayerOverlay.tsx:2126:                    Boolean(activeLayerObject?.checked)
+  src\views\gis\LayerOverlay.tsx:2127:                  }
+  src\views\gis\LayerOverlay.tsx:2128:                />
+  src\views\gis\LayerOverlay.tsx:2129:
+  src\views\gis\LayerOverlay.tsx:2130:                <ZoomControl position="bottomright" />
+  src\views\gis\LayerOverlay.tsx:2131:
+  src\views\gis\LayerOverlay.tsx:2132:                <MapActions />
+  src\views\gis\LayerOverlay.tsx:2133:              </MapContainer>
+  src\views\gis\LayerOverlay.tsx:2160:                </button>
+  src\views\gis\LayerOverlay.tsx:2161:              </div>
+  src\views\gis\LayerOverlay.tsx:2162:
+  src\views\gis\LayerOverlay.tsx:2163:              {/* LOADING MAP */}
+  src\views\gis\LayerOverlay.tsx:2164:
+> src\views\gis\LayerOverlay.tsx:2165:              {loadingGeoJson && (
+  src\views\gis\LayerOverlay.tsx:2166:                <div className="absolute left-1/2 top-1/2 z-[1100] 
+-translate-x-1/2 -translate-y-1/2 rounded-xl border border-slate-200 bg-white/95 px-4 py-3 shadow-xl backdrop-blur">
+  src\views\gis\LayerOverlay.tsx:2167:                  <div className="flex items-center gap-2">
+  src\views\gis\LayerOverlay.tsx:2168:                    <Loader2
+  src\views\gis\LayerOverlay.tsx:2169:                      size={15}
+  src\views\gis\LayerOverlay.tsx:2170:                      className="animate-spin text-emerald-600"
+  src\views\gis\LayerOverlay.tsx:2171:                    />
+  src\views\gis\LayerOverlay.tsx:2172:
+  src\views\gis\LayerOverlay.tsx:2173:                    <span className="text-[11px] font-semibold text-slate-700">
+  src\views\gis\LayerOverlay.tsx:2487:                                Belum ada attribute data
+  src\views\gis\LayerOverlay.tsx:2488:                              </div>
+  src\views\gis\LayerOverlay.tsx:2489:
+  src\views\gis\LayerOverlay.tsx:2490:                              <div className="mt-1 text-[9px] text-slate-400">
+  src\views\gis\LayerOverlay.tsx:2491:                                Aktifkan layer dan pastikan endpoint data
+> src\views\gis\LayerOverlay.tsx:2492:                                mengembalikan GeoJSON.
+  src\views\gis\LayerOverlay.tsx:2493:                              </div>
+  src\views\gis\LayerOverlay.tsx:2494:                            </td>
+  src\views\gis\LayerOverlay.tsx:2495:                          </tr>
+  src\views\gis\LayerOverlay.tsx:2496:                        )}
+  src\views\gis\LayerOverlay.tsx:2497:                      </tbody>
+  src\views\gis\LayerOverlay.tsx:2498:                    </table>
+  src\views\gis\LayerOverlay.tsx:2499:                  </div>
+  src\views\gis\LayerOverlay.tsx:2500:                </>
+  src\views\gis\LayerOverlay.tsx:2513:                      </h3>
+  src\views\gis\LayerOverlay.tsx:2514:                    </div>
+  src\views\gis\LayerOverlay.tsx:2515:
+  src\views\gis\LayerOverlay.tsx:2516:                    <p className="max-w-xl text-[10px] leading-5 text-slate-500">
+  src\views\gis\LayerOverlay.tsx:2517:                      Mode workspace overlay disiapkan untuk analisis
+> src\views\gis\LayerOverlay.tsx:2518:                      antar-layer. Layer yang aktif dan data GeoJSON dari API
+  src\views\gis\LayerOverlay.tsx:2519:                      menjadi sumber analisis.
+  src\views\gis\LayerOverlay.tsx:2520:                    </p>
+  src\views\gis\LayerOverlay.tsx:2521:
+  src\views\gis\LayerOverlay.tsx:2522:                    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+  src\views\gis\LayerOverlay.tsx:2523:                      <StatusCard
+  src\views\gis\LayerOverlay.tsx:2524:                        value={String(activeLayerCount)}
+  src\views\gis\LayerOverlay.tsx:2525:                        label="Layer Aktif"
+  src\views\gis\LayerOverlay.tsx:2526:                        icon={Layers3}
+  src\views\gis\LayerOverlay.tsx:2645:
+  src\views\gis\LayerOverlay.tsx:2646:                        <InfoRow
+  src\views\gis\LayerOverlay.tsx:2647:                          label="Feature Count"
+  src\views\gis\LayerOverlay.tsx:2648:                          value={Number(
+  src\views\gis\LayerOverlay.tsx:2649:                            activeLayerObject.featureCount ??
+> src\views\gis\LayerOverlay.tsx:2650:                              activeGeoJson?.features?.length ??
+  src\views\gis\LayerOverlay.tsx:2651:                              0,
+  src\views\gis\LayerOverlay.tsx:2652:                          ).toLocaleString("id-ID")}
+  src\views\gis\LayerOverlay.tsx:2653:                        />
+  src\views\gis\LayerOverlay.tsx:2654:
+  src\views\gis\LayerOverlay.tsx:2655:                        <InfoRow
+  src\views\gis\LayerOverlay.tsx:2656:                          label="Source"
+  src\views\gis\LayerOverlay.tsx:2657:                          value={activeLayerObject.sourceType || "table"}
+  src\views\gis\LayerOverlay.tsx:2658:                        />
+  src\views\gis\LayerOverlay.tsx:2781:                  icon={Activity}
+  src\views\gis\LayerOverlay.tsx:2782:                />
+  src\views\gis\LayerOverlay.tsx:2783:
+  src\views\gis\LayerOverlay.tsx:2784:                <StatusCard
+  src\views\gis\LayerOverlay.tsx:2785:                  value={
+> src\views\gis\LayerOverlay.tsx:2786:                    loadingLayers || loadingGeoJson
+  src\views\gis\LayerOverlay.tsx:2787:                      ? "..."
+  src\views\gis\LayerOverlay.tsx:2788:                      : apiError
+  src\views\gis\LayerOverlay.tsx:2789:                        ? "ERROR"
+  src\views\gis\LayerOverlay.tsx:2790:                        : "OK"
+  src\views\gis\LayerOverlay.tsx:2791:                  }
+  src\views\gis\LayerOverlay.tsx:2792:                  label="Data Health"
+  src\views\gis\LayerOverlay.tsx:2793:                  icon={ShieldAlert}
+  src\views\gis\LayerOverlay.tsx:2794:                />
+  src\views\gis\LayerOverlay.tsx:2807:              </div>
+  src\views\gis\LayerOverlay.tsx:2808:
+  src\views\gis\LayerOverlay.tsx:2809:              <div className="space-y-2">
+  src\views\gis\LayerOverlay.tsx:2810:                <EndpointRow
+  src\views\gis\LayerOverlay.tsx:2811:                  label="Catalog"
+> src\views\gis\LayerOverlay.tsx:2812:                  value="/api/layer-overlay/catalog"
+  src\views\gis\LayerOverlay.tsx:2813:                  ok={!loadingLayers && !apiError}
+  src\views\gis\LayerOverlay.tsx:2814:                />
+  src\views\gis\LayerOverlay.tsx:2815:
+  src\views\gis\LayerOverlay.tsx:2816:                <EndpointRow
+  src\views\gis\LayerOverlay.tsx:2817:                  label="Layer Data"
+  src\views\gis\LayerOverlay.tsx:2818:                  value={
+  src\views\gis\LayerOverlay.tsx:2819:                    activeLayer
+> src\views\gis\LayerOverlay.tsx:2820:                      ? `/api/layer-overlay/data/${activeLayer}`
+> src\views\gis\LayerOverlay.tsx:2821:                      : "/api/layer-overlay/data/:layerId"
+  src\views\gis\LayerOverlay.tsx:2822:                  }
+> src\views\gis\LayerOverlay.tsx:2823:                  ok={Boolean(activeGeoJson || !activeLayer) && !apiError}
+  src\views\gis\LayerOverlay.tsx:2824:                />
+  src\views\gis\LayerOverlay.tsx:2825:              </div>
+  src\views\gis\LayerOverlay.tsx:2826:            </section>
+  src\views\gis\LayerOverlay.tsx:2827:          </div>
+  src\views\gis\LayerOverlay.tsx:2828:        </div>
+  src\views\gis\LayerOverlay.tsx:2829:      </div>
+  src\views\gis\LayerOverlay.tsx:2830:
+  src\views\gis\LayerOverlay.tsx:2831:      {/* ======================================================
+
+

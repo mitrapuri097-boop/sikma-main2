@@ -1,0 +1,2710 @@
+﻿
+> src\Kerawanan.tsx:1:import React, { useState, useEffect, useRef } from "react";
+  src\Kerawanan.tsx:2:import { useNavigate } from "react-router-dom";
+  src\Kerawanan.tsx:3:import { API_URL } from "./api";
+  src\Kerawanan.tsx:4:import Header from "./header";
+  src\Kerawanan.tsx:5:import Sidebar from "./components/layouts/Sidebar";
+  src\Kerawanan.tsx:6:
+  src\Kerawanan.tsx:43:  // ENTERPRISE SIDEBAR — UI ONLY
+  src\Kerawanan.tsx:44:  // Tidak mengubah logic GIS, API, layer, legend, atau data.
+  src\Kerawanan.tsx:45:  // ============================================================
+> src\Kerawanan.tsx:46:  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+> src\Kerawanan.tsx:47:  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  src\Kerawanan.tsx:48:
+  src\Kerawanan.tsx:49:  // ============================================================
+  src\Kerawanan.tsx:50:  // SIMITI Leaflet safety:
+  src\Kerawanan.tsx:51:  // Bersihkan CircleMarker legacy/stale dari layer bencana.
+  src\Kerawanan.tsx:52:  // CircleMarker tidak digunakan untuk layer bencana polygon.
+  src\Kerawanan.tsx:86:
+  src\Kerawanan.tsx:87:      remove.forEach((layer) => {
+  src\Kerawanan.tsx:88:        try {
+> src\Kerawanan.tsx:89:          map.removeLayer(layer);
+  src\Kerawanan.tsx:90:        } catch (error) {
+  src\Kerawanan.tsx:91:          console.warn(
+  src\Kerawanan.tsx:92:            "SIMITI: gagal remove legacy bencana CircleMarker:",
+  src\Kerawanan.tsx:93:            error,
+  src\Kerawanan.tsx:94:          );
+  src\Kerawanan.tsx:137:      // GPS circle tidak diubah; hanya dikeluarkan sementara
+  src\Kerawanan.tsx:138:      // dari renderer saat resize.
+  src\Kerawanan.tsx:139:      if (gpsCircleIsOnMap) {
+> src\Kerawanan.tsx:140:        map.removeLayer(gpsCircle);
+  src\Kerawanan.tsx:141:      }
+  src\Kerawanan.tsx:142:
+  src\Kerawanan.tsx:143:      map.invalidateSize({
+  src\Kerawanan.tsx:144:        pan: false,
+  src\Kerawanan.tsx:145:        animate: false,
+  src\Kerawanan.tsx:153:        gpsCircle &&
+  src\Kerawanan.tsx:154:        map &&
+  src\Kerawanan.tsx:155:        map._loaded &&
+> src\Kerawanan.tsx:156:        typeof map.addLayer === "function"
+  src\Kerawanan.tsx:157:      ) {
+  src\Kerawanan.tsx:158:        try {
+> src\Kerawanan.tsx:159:          map.addLayer(gpsCircle);
+  src\Kerawanan.tsx:160:        } catch (restoreError) {
+  src\Kerawanan.tsx:161:          console.warn(
+  src\Kerawanan.tsx:162:            "SIMITI: gagal restore GPS accuracy circle setelah resize:",
+  src\Kerawanan.tsx:163:            restoreError,
+  src\Kerawanan.tsx:164:          );
+  src\Kerawanan.tsx:168:  };
+  src\Kerawanan.tsx:169:
+  src\Kerawanan.tsx:170:  // UI-only state; declared before every hook/render reference.
+> src\Kerawanan.tsx:171:  const [isBottomSummaryOpen, setIsBottomSummaryOpen] = useState(true);
+  src\Kerawanan.tsx:172:
+  src\Kerawanan.tsx:173:  // Leaflet needs a size recalculation after the bottom grid row collapses/expands.
+> src\Kerawanan.tsx:174:  useEffect(() => {
+  src\Kerawanan.tsx:175:    const frame = requestAnimationFrame(() => {
+  src\Kerawanan.tsx:176:      safeInvalidateMapSize();
+  src\Kerawanan.tsx:177:    });
+  src\Kerawanan.tsx:178:    return () => cancelAnimationFrame(frame);
+  src\Kerawanan.tsx:179:  }, [isBottomSummaryOpen]);
+  src\Kerawanan.tsx:180:
+> src\Kerawanan.tsx:181:  const [isRightLayerPanelOpen, setIsRightLayerPanelOpen] = useState(true);
+  src\Kerawanan.tsx:182:
+  src\Kerawanan.tsx:183:  const mapRef = useRef(null);
+> src\Kerawanan.tsx:184:  const [baseMapType, setBaseMapType] = useState<"road" | "satellite">("road");
+  src\Kerawanan.tsx:185:  const roadBaseLayerRef = useRef<any>(null);
+  src\Kerawanan.tsx:186:  const satelliteBaseLayerRef = useRef<any>(null);
+  src\Kerawanan.tsx:187:  const mapInstanceRef = useRef(null);
+  src\Kerawanan.tsx:188:  const mapInitializingRef = useRef(false);
+  src\Kerawanan.tsx:189:  const mapWeatherMarkerRef = useRef<any>(null);
+  src\Kerawanan.tsx:196:    null,
+  src\Kerawanan.tsx:197:  );
+  src\Kerawanan.tsx:198:  const locationSearchRequestRef = useRef(0);
+> src\Kerawanan.tsx:199:  const layerGroupsRef = useRef({});
+  src\Kerawanan.tsx:200:
+> src\Kerawanan.tsx:201:  const [enterpriseIdentify, setEnterpriseIdentify] = useState<{
+  src\Kerawanan.tsx:202:    open: boolean;
+  src\Kerawanan.tsx:203:    loading: boolean;
+  src\Kerawanan.tsx:204:    layerName: string;
+  src\Kerawanan.tsx:205:    layerLabel: string;
+  src\Kerawanan.tsx:206:    objectLabel: string;
+  src\Kerawanan.tsx:226:  const enterpriseIdentifyHighlightRef = useRef<any>(null);
+  src\Kerawanan.tsx:227:
+  src\Kerawanan.tsx:228:  const navigate = useNavigate();
+> src\Kerawanan.tsx:229:  const [showMenuDropdown, setShowMenuDropdown] = useState(false);
+> src\Kerawanan.tsx:230:  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+> src\Kerawanan.tsx:231:  const [isUploading, setIsUploading] = useState(false);
+> src\Kerawanan.tsx:232:  const [uploadProgress, setUploadProgress] = useState(0);
+> src\Kerawanan.tsx:233:  const [activeLayers, setActiveLayers] = useState<Set<string>>(new Set());
+> src\Kerawanan.tsx:234:  const [sigapKawasanHutanLegend, setSigapKawasanHutanLegend] = useState<
+  src\Kerawanan.tsx:235:    Array<{
+  src\Kerawanan.tsx:236:      label: string;
+  src\Kerawanan.tsx:237:      imageData?: string;
+  src\Kerawanan.tsx:238:      contentType?: string;
+  src\Kerawanan.tsx:239:      color?: string;
+  src\Kerawanan.tsx:241:    }>
+  src\Kerawanan.tsx:242:  >([]);
+  src\Kerawanan.tsx:243:  const [sigapKawasanHutanLegendLoading, setSigapKawasanHutanLegendLoading] =
+> src\Kerawanan.tsx:244:    useState(false);
+> src\Kerawanan.tsx:245:  const [sigapKawasanHutanSearch, setSigapKawasanHutanSearch] = useState("");
+  src\Kerawanan.tsx:246:  const [selectedSigapKawasanHutanClass, setSelectedSigapKawasanHutanClass] =
+> src\Kerawanan.tsx:247:    useState<string | null>(null);
+  src\Kerawanan.tsx:248:  const selectedSigapKawasanHutanClassRef = useRef<string | null>(null);
+  src\Kerawanan.tsx:249:  // UI-only: synchronize Leaflet with the map container after panel resize.
+> src\Kerawanan.tsx:250:  useEffect(() => {
+  src\Kerawanan.tsx:251:    const el = mapRef.current;
+  src\Kerawanan.tsx:252:    if (!el) return;
+  src\Kerawanan.tsx:253:
+  src\Kerawanan.tsx:254:    const refresh = () => {
+  src\Kerawanan.tsx:255:      try {
+  src\Kerawanan.tsx:296:    };
+  src\Kerawanan.tsx:297:  }, [isRightLayerPanelOpen]);
+  src\Kerawanan.tsx:298:
+> src\Kerawanan.tsx:299:  useEffect(() => {
+  src\Kerawanan.tsx:300:    selectedSigapKawasanHutanClassRef.current = selectedSigapKawasanHutanClass;
+  src\Kerawanan.tsx:301:  }, [selectedSigapKawasanHutanClass]);
+> src\Kerawanan.tsx:302:  const activeLayersRef = useRef<Set<string>>(new Set());
+> src\Kerawanan.tsx:303:  useEffect(() => {
+> src\Kerawanan.tsx:304:    activeLayersRef.current = activeLayers;
+> src\Kerawanan.tsx:305:  }, [activeLayers]);
+> src\Kerawanan.tsx:306:  const [isLoadingLayer, setIsLoadingLayer] = useState(false);
+> src\Kerawanan.tsx:307:  const [loadingLayerNames, setLoadingLayerNames] = useState<Set<string>>(
+  src\Kerawanan.tsx:308:    new Set(),
+  src\Kerawanan.tsx:309:  );
+> src\Kerawanan.tsx:310:  const [layerError, setLayerError] = useState<string>("");
+> src\Kerawanan.tsx:311:  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  src\Kerawanan.tsx:312:
+  src\Kerawanan.tsx:313:  // ======================================================
+  src\Kerawanan.tsx:314:  // ENTERPRISE USER LAYER AUTHORIZATION
+  src\Kerawanan.tsx:315:  // can_view menjadi sumber kebenaran untuk layer lokal.
+  src\Kerawanan.tsx:316:  // null = belum ada token/authorization belum diterapkan.
+  src\Kerawanan.tsx:317:  // Set kosong = user terautentikasi tetapi tidak punya akses layer.
+  src\Kerawanan.tsx:318:  // ======================================================
+  src\Kerawanan.tsx:319:  const [authorizedLayerNames, setAuthorizedLayerNames] =
+> src\Kerawanan.tsx:320:    useState<Set<string> | null>(null);
+> src\Kerawanan.tsx:321:  const [authorizationLoaded, setAuthorizationLoaded] = useState(false);
+> src\Kerawanan.tsx:322:  const [authorizationError, setAuthorizationError] = useState("");
+  src\Kerawanan.tsx:323:
+  src\Kerawanan.tsx:324:  const getAuthToken = () => {
+  src\Kerawanan.tsx:325:    return (
+  src\Kerawanan.tsx:326:      localStorage.getItem("smiti_token") ||
+  src\Kerawanan.tsx:327:      sessionStorage.getItem("smiti_token") ||
+  src\Kerawanan.tsx:376:  };
+  src\Kerawanan.tsx:377:
+  src\Kerawanan.tsx:378:  const layerCacheRef = useRef<Map<string, any>>(new Map());
+> src\Kerawanan.tsx:379:  const [hoveredLayerKey, setHoveredLayerKey] = useState<string | null>(null);
+> src\Kerawanan.tsx:380:  const [hoveredLayerType, setHoveredLayerType] = useState<string | null>(null);
+> src\Kerawanan.tsx:381:  const [hoveredLayerColor, setHoveredLayerColor] = useState<string | null>(
+  src\Kerawanan.tsx:382:    null,
+  src\Kerawanan.tsx:383:  );
+  src\Kerawanan.tsx:384:
+  src\Kerawanan.tsx:385:  // Legend yang dipilih dengan CLICK harus tetap aktif setelah mouse keluar.
+  src\Kerawanan.tsx:386:  // Hover tetap bersifat sementara; click menjadi highlight/pilihan permanen.
+> src\Kerawanan.tsx:387:  const [selectedLegendKey, setSelectedLegendKey] = useState<string | null>(
+  src\Kerawanan.tsx:388:    null,
+  src\Kerawanan.tsx:389:  );
+> src\Kerawanan.tsx:390:  const [selectedLegendType, setSelectedLegendType] = useState<string | null>(
+  src\Kerawanan.tsx:391:    null,
+  src\Kerawanan.tsx:392:  );
+> src\Kerawanan.tsx:393:  const [selectedLegendColor, setSelectedLegendColor] = useState<string | null>(
+  src\Kerawanan.tsx:394:    null,
+  src\Kerawanan.tsx:395:  );
+  src\Kerawanan.tsx:396:
+  src\Kerawanan.tsx:397:  // ============================================================
+  src\Kerawanan.tsx:398:  // SIMITI - SELECTED SPATIAL FEATURE
+  src\Kerawanan.tsx:410:
+  src\Kerawanan.tsx:411:  // Legenda layer: awalnya hanya nama layer yang tampil.
+  src\Kerawanan.tsx:412:  // Klik nama layer untuk membuka/menutup kelas + warna legend.
+> src\Kerawanan.tsx:413:  const [expandedRiskLegendLayers, setExpandedRiskLegendLayers] = useState<
+  src\Kerawanan.tsx:414:    Set<string>
+  src\Kerawanan.tsx:415:  >(new Set());
+  src\Kerawanan.tsx:416:
+  src\Kerawanan.tsx:417:  const toggleRiskLegendLayer = (name: string) => {
+  src\Kerawanan.tsx:418:    setExpandedRiskLegendLayers((prev) => {
+  src\Kerawanan.tsx:423:    });
+  src\Kerawanan.tsx:424:  };
+  src\Kerawanan.tsx:425:
+> src\Kerawanan.tsx:426:  const [selectedAreas, setSelectedAreas] = useState<
+  src\Kerawanan.tsx:427:    Array<{
+  src\Kerawanan.tsx:428:      label: string;
+  src\Kerawanan.tsx:429:      level: "provinsi" | "kabupaten" | "kecamatan" | "kelurahan";
+  src\Kerawanan.tsx:430:      provinsi?: string;
+  src\Kerawanan.tsx:431:      kab_kota?: string;
+  src\Kerawanan.tsx:439:      lng?: number | string | null;
+  src\Kerawanan.tsx:440:    }>
+  src\Kerawanan.tsx:441:  >([]);
+> src\Kerawanan.tsx:442:  const [adminLevel, setAdminLevel] = useState<
+  src\Kerawanan.tsx:443:    "provinsi" | "kabupaten" | "kecamatan" | "kelurahan"
+  src\Kerawanan.tsx:444:  >("provinsi");
+> src\Kerawanan.tsx:445:  const [areaSearchQuery, setAreaSearchQuery] = useState("");
+> src\Kerawanan.tsx:446:  const [areaSearchResults, setAreaSearchResults] = useState<Array<any>>([]);
+> src\Kerawanan.tsx:447:  const [showAreaSearchDropdown, setShowAreaSearchDropdown] = useState(false);
+> src\Kerawanan.tsx:448:  const [locationSearchLoading, setLocationSearchLoading] = useState(false);
+> src\Kerawanan.tsx:449:  const [selectedDas, setSelectedDas] = useState<
+  src\Kerawanan.tsx:450:    Array<{
+  src\Kerawanan.tsx:451:      label: string;
+  src\Kerawanan.tsx:452:      nama_das: string;
+  src\Kerawanan.tsx:453:    }>
+  src\Kerawanan.tsx:454:  >([]);
+> src\Kerawanan.tsx:455:  const [dasSearchQuery, setDasSearchQuery] = useState("");
+> src\Kerawanan.tsx:456:  const [dasSearchResults, setDasSearchResults] = useState<Array<any>>([]);
+> src\Kerawanan.tsx:457:  const [showDasSearchDropdown, setShowDasSearchDropdown] = useState(false);
+> src\Kerawanan.tsx:458:  const [currentBounds, setCurrentBounds] = useState<
+  src\Kerawanan.tsx:459:    [[number, number], [number, number]] | null
+  src\Kerawanan.tsx:460:  >(null);
+> src\Kerawanan.tsx:461:  const [availableLayers, setAvailableLayers] = useState<{
+  src\Kerawanan.tsx:462:    kerawanan: Array<{ id: string; name: string }>;
+  src\Kerawanan.tsx:463:    mitigasiAdaptasi: Array<{ id: string; name: string }>;
+  src\Kerawanan.tsx:464:    lainnya: Array<{ id: string; name: string }>;
+  src\Kerawanan.tsx:465:    kejadian: Array<{ id: string; name: string; year: number }>;
+  src\Kerawanan.tsx:466:  }>({
+  src\Kerawanan.tsx:469:    lainnya: [],
+  src\Kerawanan.tsx:470:    kejadian: [],
+  src\Kerawanan.tsx:471:  });
+> src\Kerawanan.tsx:472:  const [mapReady, setMapReady] = useState(false);
+> src\Kerawanan.tsx:473:  const [insertProgress, setInsertProgress] = useState(0);
+> src\Kerawanan.tsx:474:  const [insertStatus, setInsertStatus] = useState("");
+  src\Kerawanan.tsx:475:
+> src\Kerawanan.tsx:476:  const [layerData, setLayerData] = useState<{
+  src\Kerawanan.tsx:477:    kerawanan: Array<{ id: string; name: string }>;
+  src\Kerawanan.tsx:478:    mitigasiAdaptasi: Array<{ id: string; name: string }>;
+  src\Kerawanan.tsx:479:    lainnya: Array<{ id: string; name: string }>;
+  src\Kerawanan.tsx:480:    kejadian: Array<{ id: string; name: string; year: number }>; // Tambahan untuk kejadian
+  src\Kerawanan.tsx:481:  }>({
+  src\Kerawanan.tsx:531:  };
+  src\Kerawanan.tsx:532:
+  src\Kerawanan.tsx:533:  const [openMeteoWeather, setOpenMeteoWeather] =
+> src\Kerawanan.tsx:534:    useState<OpenMeteoWeatherState>({
+  src\Kerawanan.tsx:535:      loading: false,
+  src\Kerawanan.tsx:536:      error: "",
+  src\Kerawanan.tsx:537:      latitude: null,
+  src\Kerawanan.tsx:538:      longitude: null,
+  src\Kerawanan.tsx:539:      current: null,
+  src\Kerawanan.tsx:541:      updatedAt: null,
+  src\Kerawanan.tsx:542:    });
+  src\Kerawanan.tsx:543:
+> src\Kerawanan.tsx:544:  const [mapWeatherPopup, setMapWeatherPopup] = useState<MapWeatherPopupState>({
+  src\Kerawanan.tsx:545:    open: false,
+  src\Kerawanan.tsx:546:    loading: false,
+  src\Kerawanan.tsx:547:    error: "",
+  src\Kerawanan.tsx:548:    latitude: null,
+  src\Kerawanan.tsx:549:    longitude: null,
+  src\Kerawanan.tsx:555:    updatedAt: null,
+  src\Kerawanan.tsx:556:  });
+  src\Kerawanan.tsx:557:
+> src\Kerawanan.tsx:558:  const [showAddModal, setShowAddModal] = useState(false);
+> src\Kerawanan.tsx:559:  const [showDeleteModal, setShowDeleteModal] = useState(false);
+> src\Kerawanan.tsx:560:  const [currentSection, setCurrentSection] = useState<
+  src\Kerawanan.tsx:561:    "kerawanan" | "mitigasiAdaptasi" | "lainnya"
+  src\Kerawanan.tsx:562:  >("kerawanan");
+> src\Kerawanan.tsx:563:  const [newLayerName, setNewLayerName] = useState("");
+> src\Kerawanan.tsx:564:  const [layerToDelete, setLayerToDelete] = useState<{
+  src\Kerawanan.tsx:565:    section: string;
+  src\Kerawanan.tsx:566:    id: string;
+  src\Kerawanan.tsx:567:    name: string;
+  src\Kerawanan.tsx:568:  } | null>(null);
+  src\Kerawanan.tsx:569:  const formatTableName = (tableName: string): string => {
+  src\Kerawanan.tsx:575:      })
+  src\Kerawanan.tsx:576:      .join(" ");
+  src\Kerawanan.tsx:577:  };
+> src\Kerawanan.tsx:578:  const [tutupanLahanData, setTutupanLahanData] = useState<
+  src\Kerawanan.tsx:579:    Array<{
+  src\Kerawanan.tsx:580:      pl2024_id: number;
+  src\Kerawanan.tsx:581:      deskripsi_domain: string;
+  src\Kerawanan.tsx:582:      luas_total: number;
+  src\Kerawanan.tsx:583:      color?: string;
+  src\Kerawanan.tsx:584:    }>
+  src\Kerawanan.tsx:585:  >([]);
+  src\Kerawanan.tsx:586:
+> src\Kerawanan.tsx:587:  const [penutupanLahan2024Data, setPenutupanLahan2024Data] = useState<
+  src\Kerawanan.tsx:588:    Array<{
+  src\Kerawanan.tsx:589:      pl2024_id: number;
+  src\Kerawanan.tsx:590:      deskripsi_domain: string;
+  src\Kerawanan.tsx:591:      luas_total: number;
+  src\Kerawanan.tsx:592:      color?: string;
+  src\Kerawanan.tsx:593:    }>
+  src\Kerawanan.tsx:594:  >([]);
+  src\Kerawanan.tsx:595:
+> src\Kerawanan.tsx:596:  const [pl2024Data, setPL2024Data] = useState<
+  src\Kerawanan.tsx:597:    Array<{
+  src\Kerawanan.tsx:598:      pl2024_id: number;
+  src\Kerawanan.tsx:599:      deskripsi_domain: string;
+  src\Kerawanan.tsx:600:      luas_total: number;
+  src\Kerawanan.tsx:601:      color?: string;
+  src\Kerawanan.tsx:602:    }>
+  src\Kerawanan.tsx:603:  >([]);
+  src\Kerawanan.tsx:604:
+> src\Kerawanan.tsx:605:  const [geologiData, setGeologiData] = useState<
+  src\Kerawanan.tsx:606:    Array<{
+  src\Kerawanan.tsx:607:      namobj: string;
+  src\Kerawanan.tsx:608:      umurobj: string;
+  src\Kerawanan.tsx:609:      keliling_total: number;
+  src\Kerawanan.tsx:610:      color?: string;
+  src\Kerawanan.tsx:611:    }>
+  src\Kerawanan.tsx:612:  >([]);
+  src\Kerawanan.tsx:613:
+> src\Kerawanan.tsx:614:  const [jenisTanahData, setJenisTanahData] = useState<
+  src\Kerawanan.tsx:615:    Array<{
+  src\Kerawanan.tsx:616:      jntnh1: string;
+  src\Kerawanan.tsx:617:      color?: string;
+  src\Kerawanan.tsx:618:    }>
+  src\Kerawanan.tsx:619:  >([]);
+  src\Kerawanan.tsx:620:
+> src\Kerawanan.tsx:621:  const [lahanKritisData, setLahanKritisData] = useState<
+  src\Kerawanan.tsx:622:    Array<{
+  src\Kerawanan.tsx:623:      kritis: string;
+  src\Kerawanan.tsx:624:      luas_ha: number;
+  src\Kerawanan.tsx:625:      color?: string;
+  src\Kerawanan.tsx:626:    }>
+  src\Kerawanan.tsx:627:  >([]);
+> src\Kerawanan.tsx:628:  const [rawanErosiData, setRawanErosiData] = useState<
+  src\Kerawanan.tsx:629:    Array<{
+  src\Kerawanan.tsx:630:      tingkat: string;
+  src\Kerawanan.tsx:631:      luas_ha: number;
+  src\Kerawanan.tsx:632:      color?: string;
+  src\Kerawanan.tsx:633:    }>
+  src\Kerawanan.tsx:634:  >([]);
+> src\Kerawanan.tsx:635:  const [rawanLongsorData, setRawanLongsorData] = useState<
+  src\Kerawanan.tsx:636:    Array<{
+  src\Kerawanan.tsx:637:      tingkat: string;
+  src\Kerawanan.tsx:638:      luas_ha: number;
+  src\Kerawanan.tsx:639:      color?: string;
+  src\Kerawanan.tsx:640:    }>
+  src\Kerawanan.tsx:641:  >([]);
+> src\Kerawanan.tsx:642:  const [rawanLimpasanData, setRawanLimpasanData] = useState<
+  src\Kerawanan.tsx:643:    Array<{
+  src\Kerawanan.tsx:644:      tingkat: string;
+  src\Kerawanan.tsx:645:      luas_ha: number;
+  src\Kerawanan.tsx:646:      color?: string;
+  src\Kerawanan.tsx:647:    }>
+  src\Kerawanan.tsx:648:  >([]);
+> src\Kerawanan.tsx:649:  const [rawanKarhutlaData, setRawanKarhutlaData] = useState<
+  src\Kerawanan.tsx:650:    Array<{
+  src\Kerawanan.tsx:651:      tingkat: string;
+  src\Kerawanan.tsx:652:      luas_ha: number;
+  src\Kerawanan.tsx:653:      color?: string;
+  src\Kerawanan.tsx:654:    }>
+  src\Kerawanan.tsx:655:  >([]);
+  src\Kerawanan.tsx:656:
+> src\Kerawanan.tsx:657:  const [risikoData, setRisikoData] = useState<{
+  src\Kerawanan.tsx:658:    risiko_banjir: Array<{ kelas: string; luas: number; color?: string }>;
+  src\Kerawanan.tsx:659:    risiko_banjir_bandang: Array<{
+  src\Kerawanan.tsx:660:      kelas: string;
+  src\Kerawanan.tsx:661:      luas: number;
+  src\Kerawanan.tsx:662:      color?: string;
+  src\Kerawanan.tsx:674:    risiko_karhutla: [],
+  src\Kerawanan.tsx:675:  });
+  src\Kerawanan.tsx:676:
+> src\Kerawanan.tsx:677:  const [khdtkData, setKhdtkData] = useState<
+  src\Kerawanan.tsx:678:    Array<{
+  src\Kerawanan.tsx:679:      namobj: string;
+  src\Kerawanan.tsx:680:      lsktap: number;
+  src\Kerawanan.tsx:681:      jnskhdtk: string;
+  src\Kerawanan.tsx:682:      color?: string;
+  src\Kerawanan.tsx:803:
+  src\Kerawanan.tsx:804:  const INFRA_IDS = INFRA_LAYERS.map((l) => l.id);
+  src\Kerawanan.tsx:805:
+> src\Kerawanan.tsx:806:  const [infraData, setInfraData] = useState<
+  src\Kerawanan.tsx:807:    Record<string, Array<Record<string, any>>>
+  src\Kerawanan.tsx:808:  >({
+  src\Kerawanan.tsx:809:    bendung: [],
+  src\Kerawanan.tsx:810:    bendungan: [],
+  src\Kerawanan.tsx:811:    danau: [],
+  src\Kerawanan.tsx:816:    pompa_air: [],
+  src\Kerawanan.tsx:817:  });
+  src\Kerawanan.tsx:818:
+> src\Kerawanan.tsx:819:  const [bahayaKekeringanData, setBahayaKekeringanData] = useState<
+  src\Kerawanan.tsx:820:    Array<{ kelas: string; luas: number; color?: string }>
+  src\Kerawanan.tsx:821:  >([]);
+> src\Kerawanan.tsx:822:  const [bahayaAbrasiData, setBahayaAbrasiData] = useState<
+  src\Kerawanan.tsx:823:    Array<{ kelas: string; luas: number; color?: string }>
+  src\Kerawanan.tsx:824:  >([]);
+> src\Kerawanan.tsx:825:  const [bahayaBanjirData, setBahayaBanjirData] = useState<
+  src\Kerawanan.tsx:826:    Array<{ kelas: string; luas: number; color?: string }>
+  src\Kerawanan.tsx:827:  >([]);
+> src\Kerawanan.tsx:828:  const [bahayaBanjirBandangData, setBahayaBanjirBandangData] = useState<
+  src\Kerawanan.tsx:829:    Array<{ kelas: string; luas: number; color?: string }>
+  src\Kerawanan.tsx:830:  >([]);
+> src\Kerawanan.tsx:831:  const [dtaDanauData, setDtaDanauData] = useState<
+  src\Kerawanan.tsx:832:    Array<{ tipe_danau: string; luas: number; color?: string }>
+  src\Kerawanan.tsx:833:  >([]);
+> src\Kerawanan.tsx:834:  const [rehabilitasiDasData, setRehabilitasiDasData] = useState<
+  src\Kerawanan.tsx:835:    Array<{ bpdas: string; luas: number; color?: string }>
+  src\Kerawanan.tsx:836:  >([]);
+> src\Kerawanan.tsx:837:  const [rehabilitasiHutanData, setRehabilitasiHutanData] = useState<
+  src\Kerawanan.tsx:838:    Array<{ jenis_tana: string; luas: number; color?: string }>
+  src\Kerawanan.tsx:839:  >([]);
+> src\Kerawanan.tsx:840:  const [restorasiGambutData, setRestorasiGambutData] = useState<
+  src\Kerawanan.tsx:841:    Array<{ jenis: string; bahan: string }>
+  src\Kerawanan.tsx:842:  >([]);
+> src\Kerawanan.tsx:843:  const [penerapanTeknikKtaData, setPenerapanTeknikKtaData] = useState<
+  src\Kerawanan.tsx:844:    Array<{ das: string; subdas: string }>
+  src\Kerawanan.tsx:845:  >([]);
+> src\Kerawanan.tsx:846:  const [kebakaran2021Data, setKebakaran2021Data] = useState<
+  src\Kerawanan.tsx:847:    Array<{ periode: string; color?: string }>
+  src\Kerawanan.tsx:848:  >([]);
+> src\Kerawanan.tsx:849:  const [kebakaran2022Data, setKebakaran2022Data] = useState<
+  src\Kerawanan.tsx:850:    Array<{ periode: string; luas: number; color?: string }>
+  src\Kerawanan.tsx:851:  >([]);
+> src\Kerawanan.tsx:852:  const [kebakaran2023Data, setKebakaran2023Data] = useState<
+  src\Kerawanan.tsx:853:    Array<{ periode: string; color?: string }>
+  src\Kerawanan.tsx:854:  >([]);
+> src\Kerawanan.tsx:855:  const [kebakaran2024Data, setKebakaran2024Data] = useState<
+  src\Kerawanan.tsx:856:    Array<{ periode: string; luas: number; color?: string }>
+  src\Kerawanan.tsx:857:  >([]);
+> src\Kerawanan.tsx:858:  const [kebakaran2025Data, setKebakaran2025Data] = useState<
+  src\Kerawanan.tsx:859:    Array<{ periode: string; luas: number; color?: string }>
+  src\Kerawanan.tsx:860:  >([]);
+> src\Kerawanan.tsx:861:  const [kawasanHutanData, setKawasanHutanData] = useState<
+  src\Kerawanan.tsx:862:    Array<{ fungsikws: string; deskripsi_domain: string; color?: string }>
+  src\Kerawanan.tsx:863:  >([]);
+  src\Kerawanan.tsx:864:
+  src\Kerawanan.tsx:865:  const colorMappingRef = useRef<{
+  src\Kerawanan.tsx:866:    tutupanLahan: Map<string, string>;
+  src\Kerawanan.tsx:1157:    return color;
+  src\Kerawanan.tsx:1158:  };
+  src\Kerawanan.tsx:1159:
+> src\Kerawanan.tsx:1160:  const [kejadianPhotos, setKejadianPhotos] = useState<
+  src\Kerawanan.tsx:1161:    Array<{
+  src\Kerawanan.tsx:1162:      id: number;
+  src\Kerawanan.tsx:1163:      path: string;
+  src\Kerawanan.tsx:1164:      incident_type: string;
+  src\Kerawanan.tsx:1165:      incident_date: string;
+  src\Kerawanan.tsx:1168:      longitude: number;
+  src\Kerawanan.tsx:1169:    }>
+  src\Kerawanan.tsx:1170:  >([]);
+> src\Kerawanan.tsx:1171:  const [activeKejadianLayers, setActiveKejadianLayers] = useState<
+  src\Kerawanan.tsx:1172:    Map<string, { year: number; category: string }>
+  src\Kerawanan.tsx:1173:  >(new Map());
+> src\Kerawanan.tsx:1174:  const [kejadianListings, setKejadianListings] = useState<Array<any>>([]);
+  src\Kerawanan.tsx:1175:
+> src\Kerawanan.tsx:1176:  // Guard untuk mencegah race condition ketika beberapa request GeoJSON
+  src\Kerawanan.tsx:1177:  // selesai bersamaan (mis. toggle + pan/zoom). Hanya request terbaru
+  src\Kerawanan.tsx:1178:  // yang boleh mengganti layer di peta.
+  src\Kerawanan.tsx:1179:  const layerRequestSeqRef = useRef<Record<string, number>>({});
+  src\Kerawanan.tsx:1180:
+  src\Kerawanan.tsx:1181:  const isLeafletMapUsable = (map: any) => {
+  src\Kerawanan.tsx:1191:    const map = mapInstanceRef.current;
+  src\Kerawanan.tsx:1192:    if (!isLeafletMapUsable(map) || !layer) return;
+  src\Kerawanan.tsx:1193:    try {
+> src\Kerawanan.tsx:1194:      if (map.hasLayer(layer)) map.removeLayer(layer);
+  src\Kerawanan.tsx:1195:    } catch (error) {
+  src\Kerawanan.tsx:1196:      console.warn("⚠️ Leaflet gagal remove layer, dilewati:", error);
+  src\Kerawanan.tsx:1197:    }
+  src\Kerawanan.tsx:1198:  };
+  src\Kerawanan.tsx:1199:
+  src\Kerawanan.tsx:1437:    dasList: Array<any> = selectedDas,
+  src\Kerawanan.tsx:1438:  ) => {
+  src\Kerawanan.tsx:1439:    if (!isDasClipLayer(String(tableName))) return;
+> src\Kerawanan.tsx:1440:    const layerGroup = layerGroupsRef.current[tableName];
+  src\Kerawanan.tsx:1441:    const map = mapInstanceRef.current;
+> src\Kerawanan.tsx:1442:    if (!layerGroup || !map || !dasList.length) return;
+  src\Kerawanan.tsx:1443:
+  src\Kerawanan.tsx:1444:    const d = buildBencanaClipD(map, dasList);
+  src\Kerawanan.tsx:1445:    if (!d) return;
+  src\Kerawanan.tsx:1446:
+  src\Kerawanan.tsx:1447:    try {
+> src\Kerawanan.tsx:1448:      layerGroup.eachLayer((layer: any) => {
+  src\Kerawanan.tsx:1449:        const path = layer?._path as SVGPathElement | undefined;
+  src\Kerawanan.tsx:1450:        const svg = path?.ownerSVGElement;
+  src\Kerawanan.tsx:1451:        if (!path || !svg) return;
+  src\Kerawanan.tsx:1452:
+  src\Kerawanan.tsx:1453:        const safeId = String(
+  src\Kerawanan.tsx:1476:    selectedDasClipListenersRef.current = [];
+  src\Kerawanan.tsx:1477:
+  src\Kerawanan.tsx:1478:    BENCANA_FOCUS_LAYERS.forEach((tableName) => {
+> src\Kerawanan.tsx:1479:      const layerGroup = layerGroupsRef.current[tableName];
+> src\Kerawanan.tsx:1480:      if (!layerGroup) return;
+  src\Kerawanan.tsx:1481:      try {
+> src\Kerawanan.tsx:1482:        layerGroup.eachLayer((layer: any) => {
+  src\Kerawanan.tsx:1483:          if (layer?._path?.removeAttribute) {
+  src\Kerawanan.tsx:1484:            layer._path.removeAttribute("clip-path");
+  src\Kerawanan.tsx:1485:          }
+  src\Kerawanan.tsx:1486:        });
+  src\Kerawanan.tsx:1487:      } catch {}
+  src\Kerawanan.tsx:1510:    if (!dasList.length) return;
+  src\Kerawanan.tsx:1511:
+  src\Kerawanan.tsx:1512:    const activeNames = new Set([
+> src\Kerawanan.tsx:1513:      ...Array.from(activeLayersRef.current).map((name) => String(name)),
+  src\Kerawanan.tsx:1514:      ...forceLayerNames.map((name) => String(name)),
+  src\Kerawanan.tsx:1515:    ]);
+  src\Kerawanan.tsx:1516:
+  src\Kerawanan.tsx:1517:    const activeKerawanan = Array.from(activeNames).filter((name) =>
+  src\Kerawanan.tsx:1518:      isDasClipLayer(name),
+  src\Kerawanan.tsx:1543:    areas: Array<any> = selectedAreas,
+  src\Kerawanan.tsx:1544:  ) => {
+  src\Kerawanan.tsx:1545:    if (!BENCANA_FOCUS_LAYERS.has(String(tableName))) return;
+> src\Kerawanan.tsx:1546:    const layerGroup = layerGroupsRef.current[tableName];
+  src\Kerawanan.tsx:1547:    const map = mapInstanceRef.current;
+> src\Kerawanan.tsx:1548:    if (!layerGroup || !map || !areas.length) return;
+  src\Kerawanan.tsx:1549:
+  src\Kerawanan.tsx:1550:    const d = buildBencanaClipD(map, areas);
+  src\Kerawanan.tsx:1551:    if (!d) return;
+  src\Kerawanan.tsx:1552:
+  src\Kerawanan.tsx:1553:    try {
+> src\Kerawanan.tsx:1554:      layerGroup.eachLayer((layer: any) => {
+  src\Kerawanan.tsx:1555:        const path = layer?._path as SVGPathElement | undefined;
+  src\Kerawanan.tsx:1556:        const svg = path?.ownerSVGElement;
+  src\Kerawanan.tsx:1557:        if (!path || !svg) return;
+  src\Kerawanan.tsx:1558:
+  src\Kerawanan.tsx:1559:        // ID unik per SVG renderer + layer, sehingga clip tidak pernah
+  src\Kerawanan.tsx:1580:    if (!BENCANA_FOCUS_LAYERS.has(String(tableName))) return;
+  src\Kerawanan.tsx:1581:
+  src\Kerawanan.tsx:1582:    const selected = selectedSpatialFeatureRef.current;
+> src\Kerawanan.tsx:1583:    const layerGroup = layerGroupsRef.current[tableName];
+  src\Kerawanan.tsx:1584:    const map = mapInstanceRef.current;
+  src\Kerawanan.tsx:1585:
+  src\Kerawanan.tsx:1586:    if (
+  src\Kerawanan.tsx:1587:      selected?.layerType !== "khdtk" ||
+  src\Kerawanan.tsx:1588:      !selected.feature?.geometry ||
+> src\Kerawanan.tsx:1589:      !layerGroup ||
+  src\Kerawanan.tsx:1590:      !map
+  src\Kerawanan.tsx:1591:    ) {
+  src\Kerawanan.tsx:1592:      return;
+  src\Kerawanan.tsx:1593:    }
+  src\Kerawanan.tsx:1594:
+  src\Kerawanan.tsx:1601:
+  src\Kerawanan.tsx:1602:      if (!d) return;
+  src\Kerawanan.tsx:1603:
+> src\Kerawanan.tsx:1604:      layerGroup.eachLayer((layer: any) => {
+  src\Kerawanan.tsx:1605:        const path = layer?._path as SVGPathElement | undefined;
+  src\Kerawanan.tsx:1606:        const svg = path?.ownerSVGElement;
+  src\Kerawanan.tsx:1607:
+  src\Kerawanan.tsx:1608:        if (!path || !svg) return;
+  src\Kerawanan.tsx:1609:
+  src\Kerawanan.tsx:1633:  };
+  src\Kerawanan.tsx:1634:  const removeBencanaClipFromLayers = () => {
+  src\Kerawanan.tsx:1635:    BENCANA_FOCUS_LAYERS.forEach((tableName) => {
+> src\Kerawanan.tsx:1636:      const layerGroup = layerGroupsRef.current[tableName];
+> src\Kerawanan.tsx:1637:      if (!layerGroup) return;
+  src\Kerawanan.tsx:1638:      try {
+> src\Kerawanan.tsx:1639:        layerGroup.eachLayer((layer: any) => {
+  src\Kerawanan.tsx:1640:          if (layer?._path?.removeAttribute) {
+  src\Kerawanan.tsx:1641:            layer._path.removeAttribute("clip-path");
+  src\Kerawanan.tsx:1642:          }
+  src\Kerawanan.tsx:1643:        });
+  src\Kerawanan.tsx:1644:      } catch {}
+  src\Kerawanan.tsx:1686:    if (!areas.length) return;
+  src\Kerawanan.tsx:1687:
+  src\Kerawanan.tsx:1688:    const activeBencanaNames = new Set([
+> src\Kerawanan.tsx:1689:      ...Array.from(activeLayersRef.current).map((name) => String(name)),
+  src\Kerawanan.tsx:1690:      ...forceLayerNames.map((name) => String(name)),
+  src\Kerawanan.tsx:1691:    ]);
+  src\Kerawanan.tsx:1692:
+  src\Kerawanan.tsx:1693:    const hasBencana = Array.from(activeBencanaNames).some((name) =>
+  src\Kerawanan.tsx:1694:      BENCANA_FOCUS_LAYERS.has(String(name)),
+  src\Kerawanan.tsx:1875:        [north, east],
+  src\Kerawanan.tsx:1876:      ];
+  src\Kerawanan.tsx:1877:
+> src\Kerawanan.tsx:1878:      if (layerGroupsRef.current[tableName]) {
+> src\Kerawanan.tsx:1879:        safeRemoveMapLayer(layerGroupsRef.current[tableName]);
+> src\Kerawanan.tsx:1880:        delete layerGroupsRef.current[tableName];
+  src\Kerawanan.tsx:1881:      }
+  src\Kerawanan.tsx:1882:
+  src\Kerawanan.tsx:1883:      if (
+  src\Kerawanan.tsx:1884:        layerRequestSeqRef.current[tableName] !== requestId ||
+  src\Kerawanan.tsx:1885:        mapInstanceRef.current !== mapAtRequest ||
+  src\Kerawanan.tsx:1899:        throw new Error("Leaflet gagal menambahkan layer SIGAP Kawasan Hutan");
+  src\Kerawanan.tsx:1900:      }
+  src\Kerawanan.tsx:1901:
+> src\Kerawanan.tsx:1902:      layerGroupsRef.current[tableName] = overlay;
+  src\Kerawanan.tsx:1903:      layerCacheRef.current.set(tableName, overlay);
+  src\Kerawanan.tsx:1904:      void loadSigapKawasanHutanLegend();
+  src\Kerawanan.tsx:1905:      console.log("SIGAP Kawasan Hutan aktif", {
+  src\Kerawanan.tsx:1906:        bbox,
+  src\Kerawanan.tsx:1907:        imageSize: `${width}x${height}`,
+  src\Kerawanan.tsx:1927:    values?: string[];
+  src\Kerawanan.tsx:1928:  }) => {
+  src\Kerawanan.tsx:1929:    const value = item.values?.[0] || null;
+> src\Kerawanan.tsx:1930:    const activeSigapLayer = Array.from(activeLayersRef.current).find(
+  src\Kerawanan.tsx:1931:      (layerName) => isSigapKawasanHutanLayer(layerName),
+  src\Kerawanan.tsx:1932:    );
+  src\Kerawanan.tsx:1933:    if (!activeSigapLayer) return;
+  src\Kerawanan.tsx:1934:
+  src\Kerawanan.tsx:1935:    if (selectedSigapKawasanHutanClassRef.current === value && value) {
+  src\Kerawanan.tsx:1947:  const clearSigapKawasanHutanClassFilter = async () => {
+  src\Kerawanan.tsx:1948:    setSelectedSigapKawasanHutanClass(null);
+  src\Kerawanan.tsx:1949:    selectedSigapKawasanHutanClassRef.current = null;
+> src\Kerawanan.tsx:1950:    const activeSigapLayer = Array.from(activeLayersRef.current).find(
+  src\Kerawanan.tsx:1951:      (layerName) => isSigapKawasanHutanLayer(layerName),
+  src\Kerawanan.tsx:1952:    );
+  src\Kerawanan.tsx:1953:    if (activeSigapLayer) {
+  src\Kerawanan.tsx:1954:      await loadSigapKawasanHutan(undefined, activeSigapLayer, null);
+  src\Kerawanan.tsx:1955:    }
+  src\Kerawanan.tsx:1956:  };
+  src\Kerawanan.tsx:1957:
+  src\Kerawanan.tsx:1958:  const refreshActiveSigapLayers = async () => {
+> src\Kerawanan.tsx:1959:    const activeSigapLayer = Array.from(activeLayersRef.current).find(
+  src\Kerawanan.tsx:1960:      (layerName) => isSigapKawasanHutanLayer(layerName),
+  src\Kerawanan.tsx:1961:    );
+  src\Kerawanan.tsx:1962:    if (activeSigapLayer) {
+  src\Kerawanan.tsx:1963:      await loadSigapKawasanHutan(
+  src\Kerawanan.tsx:1964:        undefined,
+  src\Kerawanan.tsx:2025:    }
+  src\Kerawanan.tsx:2026:
+  src\Kerawanan.tsx:2027:    // Setelah request API dibentuk, gunakan nama backend untuk seluruh pemrosesan
+> src\Kerawanan.tsx:2028:    // GeoJSON agar branch KHDTK (`tableName === "khdtk"`) tetap bekerja.
+  src\Kerawanan.tsx:2029:    tableName = apiLayerName;
+  src\Kerawanan.tsx:2030:
+  src\Kerawanan.tsx:2031:    try {
+  src\Kerawanan.tsx:2032:      const requestId = (layerRequestSeqRef.current[tableName] || 0) + 1;
+  src\Kerawanan.tsx:2033:      layerRequestSeqRef.current[tableName] = requestId;
+  src\Kerawanan.tsx:2055:      }
+  src\Kerawanan.tsx:2056:
+  src\Kerawanan.tsx:2057:      // Build URL dengan filter administrasi/DAS
+> src\Kerawanan.tsx:2058:      let url = 
+`${API_URL}/api/layers/${apiLayerName}/geojson?bounds=${encodeURIComponent(boundsString)}&zoom=${zoom}`;
+  src\Kerawanan.tsx:2059:
+  src\Kerawanan.tsx:2060:      // Prioritas: DAS > Administrasi
+  src\Kerawanan.tsx:2061:      if (selectedDas.length > 0) {
+  src\Kerawanan.tsx:2062:        const dasNames = selectedDas.map((d) => d.nama_das);
+  src\Kerawanan.tsx:2063:        url += `&dasFilter=${encodeURIComponent(JSON.stringify(dasNames))}`;
+  src\Kerawanan.tsx:2106:        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  src\Kerawanan.tsx:2107:      }
+  src\Kerawanan.tsx:2108:
+> src\Kerawanan.tsx:2109:      const geojsonData = await response.json();
+  src\Kerawanan.tsx:2110:
+  src\Kerawanan.tsx:2111:      // Request ini sudah tidak relevan; jangan sentuh layer/map dengan data lama.
+  src\Kerawanan.tsx:2112:      if (
+  src\Kerawanan.tsx:2113:        layerRequestSeqRef.current[tableName] !== requestId ||
+  src\Kerawanan.tsx:2114:        mapInstanceRef.current !== mapAtRequest ||
+  src\Kerawanan.tsx:2121:      }
+  src\Kerawanan.tsx:2122:
+  src\Kerawanan.tsx:2123:      console.log(
+> src\Kerawanan.tsx:2124:        "✅ GeoJSON data received for",
+  src\Kerawanan.tsx:2125:        tableName,
+  src\Kerawanan.tsx:2126:        ":",
+> src\Kerawanan.tsx:2127:        geojsonData.features?.length || 0,
+  src\Kerawanan.tsx:2128:        "features",
+  src\Kerawanan.tsx:2129:      );
+  src\Kerawanan.tsx:2130:
+  src\Kerawanan.tsx:2131:      // Hapus layer lama
+> src\Kerawanan.tsx:2132:      if (layerGroupsRef.current[tableName]) {
+> src\Kerawanan.tsx:2133:        safeRemoveMapLayer(layerGroupsRef.current[tableName]);
+  src\Kerawanan.tsx:2134:      }
+  src\Kerawanan.tsx:2135:
+> src\Kerawanan.tsx:2136:      if (!geojsonData.features || geojsonData.features.length === 0) {
+  src\Kerawanan.tsx:2137:        console.warn(" No features found for:", tableName);
+  src\Kerawanan.tsx:2138:        setLayerError(` Tidak ada data "${tableName}" di area yang dipilih.`);
+  src\Kerawanan.tsx:2139:        setTimeout(() => setLayerError(""), 5000);
+> src\Kerawanan.tsx:2140:        layerGroupsRef.current[tableName] = window.L.layerGroup();
+> src\Kerawanan.tsx:2141:        safeAddMapLayer(mapAtRequest, layerGroupsRef.current[tableName]);
+  src\Kerawanan.tsx:2142:        setLoadingLayerNames((prev) => {
+  src\Kerawanan.tsx:2143:          const next = new Set(prev);
+  src\Kerawanan.tsx:2144:          next.delete(tableName);
+  src\Kerawanan.tsx:2145:          return next;
+  src\Kerawanan.tsx:2146:        });
+  src\Kerawanan.tsx:2163:          }
+  src\Kerawanan.tsx:2164:        });
+  src\Kerawanan.tsx:2165:
+> src\Kerawanan.tsx:2166:        // Assign colors based on deskripsi_domain from GeoJSON properties
+> src\Kerawanan.tsx:2167:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2168:          const deskripsi = feature.properties.deskripsi_domain;
+  src\Kerawanan.tsx:2169:          const pl2024_id = String(feature.properties.pl2024_id);
+  src\Kerawanan.tsx:2170:
+  src\Kerawanan.tsx:2171:          // Try to get color from map first, then directly from tutupanLahanColors
+  src\Kerawanan.tsx:2172:          let color = deskripsiToColorMap.get(deskripsi);
+  src\Kerawanan.tsx:2189:          }
+  src\Kerawanan.tsx:2190:        });
+  src\Kerawanan.tsx:2191:
+> src\Kerawanan.tsx:2192:        // Assign colors based on deskripsi_domain from GeoJSON properties
+> src\Kerawanan.tsx:2193:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2194:          const deskripsi = feature.properties.deskripsi_domain;
+  src\Kerawanan.tsx:2195:          const pl2024_id = String(feature.properties.pl2024_id);
+  src\Kerawanan.tsx:2196:
+  src\Kerawanan.tsx:2197:          // Try to get color from map first, then directly from tutupanLahanColors
+  src\Kerawanan.tsx:2198:          let color = deskripsiToColorMap.get(deskripsi);
+  src\Kerawanan.tsx:2215:          }
+  src\Kerawanan.tsx:2216:        });
+  src\Kerawanan.tsx:2217:
+> src\Kerawanan.tsx:2218:        // Assign colors based on deskripsi_domain from GeoJSON properties
+> src\Kerawanan.tsx:2219:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2220:          const deskripsi = feature.properties.deskripsi_domain;
+  src\Kerawanan.tsx:2221:          const pl2024_id = String(feature.properties.pl2024_id);
+  src\Kerawanan.tsx:2222:
+  src\Kerawanan.tsx:2223:          // Try to get color from map first, then directly from tutupanLahanColors
+  src\Kerawanan.tsx:2224:          let color = deskripsiToColorMap.get(deskripsi);
+  src\Kerawanan.tsx:2235:          { namobj: string; umurobj: string }
+  src\Kerawanan.tsx:2236:        >();
+  src\Kerawanan.tsx:2237:
+> src\Kerawanan.tsx:2238:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2239:          const namobj = feature.properties.namobj || "";
+  src\Kerawanan.tsx:2240:          const umurobj = feature.properties.umurobj || "";
+  src\Kerawanan.tsx:2241:          const key = `${namobj}|${umurobj}`;
+  src\Kerawanan.tsx:2242:
+  src\Kerawanan.tsx:2243:          if (!uniqueCombinations.has(key)) {
+  src\Kerawanan.tsx:2258:        const aggregatedData: any[] = [];
+  src\Kerawanan.tsx:2259:        const aggregateMap = new Map<string, number>();
+  src\Kerawanan.tsx:2260:
+> src\Kerawanan.tsx:2261:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2262:          const namobj = feature.properties.namobj || "";
+  src\Kerawanan.tsx:2263:          const umurobj = feature.properties.umurobj || "";
+  src\Kerawanan.tsx:2264:          const keliling = parseFloat(feature.properties.keliling_m || 0);
+  src\Kerawanan.tsx:2265:          const key = `${namobj}|${umurobj}`;
+  src\Kerawanan.tsx:2266:
+  src\Kerawanan.tsx:2285:      } else if (tableName === "jenis_tanah") {
+  src\Kerawanan.tsx:2286:        const uniqueJenisTanah = new Set<string>();
+  src\Kerawanan.tsx:2287:
+> src\Kerawanan.tsx:2288:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2289:          const jntnh1 = feature.properties.jntnh1 || "";
+  src\Kerawanan.tsx:2290:          if (jntnh1) {
+  src\Kerawanan.tsx:2291:            uniqueJenisTanah.add(jntnh1);
+  src\Kerawanan.tsx:2292:          }
+  src\Kerawanan.tsx:2293:        });
+  src\Kerawanan.tsx:2315:      } else if (tableName === "lahan_kritis") {
+  src\Kerawanan.tsx:2316:        const kritisMap = new Map<string, number>();
+  src\Kerawanan.tsx:2317:
+> src\Kerawanan.tsx:2318:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2319:          const kritis = feature.properties.kritis || "";
+  src\Kerawanan.tsx:2320:          const luas = parseFloat(feature.properties.luas_ha) || 0;
+  src\Kerawanan.tsx:2321:
+  src\Kerawanan.tsx:2322:          if (kritis) {
+  src\Kerawanan.tsx:2323:            kritisMap.set(kritis, (kritisMap.get(kritis) || 0) + luas);
+  src\Kerawanan.tsx:2348:        // kategori dibaca dari properties.tingkat dan luas dari properties.n_a.
+  src\Kerawanan.tsx:2349:        const tingkatMap = new Map<string, number>();
+  src\Kerawanan.tsx:2350:
+> src\Kerawanan.tsx:2351:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2352:          const tingkat = feature.properties?.tingkat || "";
+  src\Kerawanan.tsx:2353:          const luas = parseFloat(feature.properties?.n_a) || 0;
+  src\Kerawanan.tsx:2354:
+  src\Kerawanan.tsx:2355:          if (tingkat) {
+  src\Kerawanan.tsx:2356:            tingkatMap.set(tingkat, (tingkatMap.get(tingkat) || 0) + luas);
+  src\Kerawanan.tsx:2388:      } else if (tableName === "rawan_longsor") {
+  src\Kerawanan.tsx:2389:        const unsurMap = new Map<string, number>();
+  src\Kerawanan.tsx:2390:
+> src\Kerawanan.tsx:2391:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2392:          const unsur = feature.properties.unsur || "";
+  src\Kerawanan.tsx:2393:          const luas = parseFloat(feature.properties.shape_area) || 0;
+  src\Kerawanan.tsx:2394:
+  src\Kerawanan.tsx:2395:          if (unsur) {
+  src\Kerawanan.tsx:2396:            unsurMap.set(unsur, (unsurMap.get(unsur) || 0) + luas);
+  src\Kerawanan.tsx:2431:      } else if (tableName === "rawan_limpasan") {
+  src\Kerawanan.tsx:2432:        const limpasanMap = new Map<string, number>();
+  src\Kerawanan.tsx:2433:
+> src\Kerawanan.tsx:2434:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2435:          const limpasan = feature.properties.limpasan || "";
+  src\Kerawanan.tsx:2436:          const luas =
+  src\Kerawanan.tsx:2437:            parseFloat(feature.properties.shape_area) ||
+  src\Kerawanan.tsx:2438:            parseFloat(feature.properties.shape_leng) ||
+  src\Kerawanan.tsx:2439:            0;
+  src\Kerawanan.tsx:2467:      } else if (tableName === "rawan_karhutla") {
+  src\Kerawanan.tsx:2468:        const kelasMap = new Map<string, number>();
+  src\Kerawanan.tsx:2469:
+> src\Kerawanan.tsx:2470:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2471:          const kelas = feature.properties.kelas || "";
+  src\Kerawanan.tsx:2472:          const luas = parseFloat(feature.properties.luas_ha) || 0;
+  src\Kerawanan.tsx:2473:
+  src\Kerawanan.tsx:2474:          if (kelas) {
+  src\Kerawanan.tsx:2475:            kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
+  src\Kerawanan.tsx:2497:        });
+  src\Kerawanan.tsx:2498:      } else if (tableName === "bahaya_kekeringan") {
+  src\Kerawanan.tsx:2499:        const kelasMap = new Map<string, number>();
+> src\Kerawanan.tsx:2500:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2501:          const kelas = feature.properties.kelas || "";
+  src\Kerawanan.tsx:2502:          const luas = parseFloat(feature.properties.shape_area) || 0;
+  src\Kerawanan.tsx:2503:          if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
+  src\Kerawanan.tsx:2504:        });
+  src\Kerawanan.tsx:2505:        const order = ["Tinggi", "Sedang", "Rendah"];
+  src\Kerawanan.tsx:2521:        });
+  src\Kerawanan.tsx:2522:      } else if (tableName === "bahaya_abrasi_dan_gelombang_ekstrim") {
+  src\Kerawanan.tsx:2523:        const kelasMap = new Map<string, number>();
+> src\Kerawanan.tsx:2524:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2525:          const kelas = feature.properties.kelas || "";
+  src\Kerawanan.tsx:2526:          const luas = parseFloat(feature.properties.shape_area) || 0;
+  src\Kerawanan.tsx:2527:          if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
+  src\Kerawanan.tsx:2528:        });
+  src\Kerawanan.tsx:2529:        const order = ["Tinggi", "Rendah"];
+  src\Kerawanan.tsx:2545:        });
+  src\Kerawanan.tsx:2546:      } else if (tableName === "bahaya_banjir") {
+  src\Kerawanan.tsx:2547:        const kelasMap = new Map<string, number>();
+> src\Kerawanan.tsx:2548:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2549:          const kelas = feature.properties.kelas || "";
+  src\Kerawanan.tsx:2550:          const luas = parseFloat(feature.properties.shape_area) || 0;
+  src\Kerawanan.tsx:2551:          if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
+  src\Kerawanan.tsx:2552:        });
+  src\Kerawanan.tsx:2553:        const order = ["Tinggi", "Sedang", "Rendah"];
+  src\Kerawanan.tsx:2569:        });
+  src\Kerawanan.tsx:2570:      } else if (tableName === "bahaya_banjir_bandang") {
+  src\Kerawanan.tsx:2571:        const kelasMap = new Map<string, number>();
+> src\Kerawanan.tsx:2572:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2573:          const kelas = feature.properties.kelas || "";
+  src\Kerawanan.tsx:2574:          const luas = parseFloat(feature.properties.shape_area) || 0;
+  src\Kerawanan.tsx:2575:          if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
+  src\Kerawanan.tsx:2576:        });
+  src\Kerawanan.tsx:2577:        const order = ["Tinggi", "Sedang", "Rendah"];
+  src\Kerawanan.tsx:2596:        });
+  src\Kerawanan.tsx:2597:      } else if (tableName === "dta_danau") {
+  src\Kerawanan.tsx:2598:        const tipeMap = new Map<string, number>();
+> src\Kerawanan.tsx:2599:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2600:          const tipe = feature.properties.tipe_danau || "";
+  src\Kerawanan.tsx:2601:          const luas = parseFloat(feature.properties.luas_ha) || 0;
+  src\Kerawanan.tsx:2602:          if (tipe) tipeMap.set(tipe, (tipeMap.get(tipe) || 0) + luas);
+  src\Kerawanan.tsx:2603:        });
+  src\Kerawanan.tsx:2604:        const arr = Array.from(tipeMap.entries()).map(([tipe_danau, luas]) => ({
+  src\Kerawanan.tsx:2614:      } else if (tableName === "rehabilitasi_das") {
+  src\Kerawanan.tsx:2615:        const bpdasMap = new Map<string, number>();
+  src\Kerawanan.tsx:2616:        const bpdasColorMap = new Map<string, string>();
+> src\Kerawanan.tsx:2617:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2618:          const bpdas = feature.properties.bpdas || "";
+  src\Kerawanan.tsx:2619:          const luas = parseFloat(feature.properties.luas_rdas) || 0;
+  src\Kerawanan.tsx:2620:          if (bpdas) bpdasMap.set(bpdas, (bpdasMap.get(bpdas) || 0) + luas);
+  src\Kerawanan.tsx:2621:        });
+  src\Kerawanan.tsx:2622:        const arr = Array.from(bpdasMap.entries()).map(([bpdas, luas]) => {
+  src\Kerawanan.tsx:2631:      } else if (tableName === "rehabilitasi_hutan") {
+  src\Kerawanan.tsx:2632:        const jenisTanaMap = new Map<string, number>();
+  src\Kerawanan.tsx:2633:        const jenisTanaColorMap = new Map<string, string>();
+> src\Kerawanan.tsx:2634:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2635:          const jenis_tana = String(feature.properties.jenis_tana || "");
+  src\Kerawanan.tsx:2636:          const luas = parseFloat(feature.properties.luas_ha) || 0;
+  src\Kerawanan.tsx:2637:          if (jenis_tana)
+  src\Kerawanan.tsx:2638:            jenisTanaMap.set(
+  src\Kerawanan.tsx:2639:              jenis_tana,
+  src\Kerawanan.tsx:2656:        });
+  src\Kerawanan.tsx:2657:      } else if (tableName === "restorasi_gambut") {
+  src\Kerawanan.tsx:2658:        const uniqueMap = new Map<string, { jenis: string; bahan: string }>();
+> src\Kerawanan.tsx:2659:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2660:          const jenis = String(feature.properties.jenis || "");
+  src\Kerawanan.tsx:2661:          const bahan = String(feature.properties.bahan || "");
+  src\Kerawanan.tsx:2662:          const key = `${jenis}||${bahan}`;
+  src\Kerawanan.tsx:2663:          if (!uniqueMap.has(key)) uniqueMap.set(key, { jenis, bahan });
+  src\Kerawanan.tsx:2664:        });
+  src\Kerawanan.tsx:2665:        setRestorasiGambutData(Array.from(uniqueMap.values()));
+  src\Kerawanan.tsx:2666:      } else if (tableName === "penerapan_teknik_kta") {
+  src\Kerawanan.tsx:2667:        const uniqueMap = new Map<string, { das: string; subdas: string }>();
+> src\Kerawanan.tsx:2668:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2669:          const das = String(feature.properties.das || "");
+  src\Kerawanan.tsx:2670:          const subdas = String(feature.properties.subdas || "");
+  src\Kerawanan.tsx:2671:          const key = `${das}||${subdas}`;
+  src\Kerawanan.tsx:2672:          if (!uniqueMap.has(key)) uniqueMap.set(key, { das, subdas });
+  src\Kerawanan.tsx:2673:        });
+  src\Kerawanan.tsx:2675:      } else if (tableName === "karhutla_2021") {
+  src\Kerawanan.tsx:2676:        const periodeColorMap = new Map<string, string>();
+  src\Kerawanan.tsx:2677:        const uniquePeriode = new Set<string>();
+> src\Kerawanan.tsx:2678:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2679:          const periode = String(feature.properties.periode || "");
+  src\Kerawanan.tsx:2680:          if (periode) uniquePeriode.add(periode);
+  src\Kerawanan.tsx:2681:        });
+  src\Kerawanan.tsx:2682:        const arr = Array.from(uniquePeriode).map((periode) => ({
+  src\Kerawanan.tsx:2683:          periode,
+  src\Kerawanan.tsx:2691:      } else if (tableName === "karhutla_2022") {
+  src\Kerawanan.tsx:2692:        const periodeMap = new Map<string, number>();
+  src\Kerawanan.tsx:2693:        const periodeColorMap = new Map<string, string>();
+> src\Kerawanan.tsx:2694:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2695:          const periode = String(feature.properties.periode || "");
+  src\Kerawanan.tsx:2696:          const luas = parseFloat(feature.properties.luas) || 0;
+  src\Kerawanan.tsx:2697:          if (periode)
+  src\Kerawanan.tsx:2698:            periodeMap.set(periode, (periodeMap.get(periode) || 0) + luas);
+  src\Kerawanan.tsx:2699:        });
+  src\Kerawanan.tsx:2710:      } else if (tableName === "karhutla_2023") {
+  src\Kerawanan.tsx:2711:        const periodeColorMap = new Map<string, string>();
+  src\Kerawanan.tsx:2712:        const uniquePeriode = new Set<string>();
+> src\Kerawanan.tsx:2713:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2714:          const periode = String(feature.properties.periode || "");
+  src\Kerawanan.tsx:2715:          if (periode) uniquePeriode.add(periode);
+  src\Kerawanan.tsx:2716:        });
+  src\Kerawanan.tsx:2717:        const arr = Array.from(uniquePeriode).map((periode) => ({
+  src\Kerawanan.tsx:2718:          periode,
+  src\Kerawanan.tsx:2726:      } else if (tableName === "karhutla_2024") {
+  src\Kerawanan.tsx:2727:        const periodeMap = new Map<string, number>();
+  src\Kerawanan.tsx:2728:        const periodeColorMap = new Map<string, string>();
+> src\Kerawanan.tsx:2729:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2730:          const periode = String(feature.properties.periode || "");
+  src\Kerawanan.tsx:2731:          const luas = parseFloat(feature.properties.luas) || 0;
+  src\Kerawanan.tsx:2732:          if (periode)
+  src\Kerawanan.tsx:2733:            periodeMap.set(periode, (periodeMap.get(periode) || 0) + luas);
+  src\Kerawanan.tsx:2734:        });
+  src\Kerawanan.tsx:2745:      } else if (tableName === "karhutla_2025") {
+  src\Kerawanan.tsx:2746:        const periodeMap = new Map<string, number>();
+  src\Kerawanan.tsx:2747:        const periodeColorMap = new Map<string, string>();
+> src\Kerawanan.tsx:2748:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2749:          const periode = String(feature.properties.periode || "");
+  src\Kerawanan.tsx:2750:          const luas = parseFloat(feature.properties.luas) || 0;
+  src\Kerawanan.tsx:2751:          if (periode)
+  src\Kerawanan.tsx:2752:            periodeMap.set(periode, (periodeMap.get(periode) || 0) + luas);
+  src\Kerawanan.tsx:2753:        });
+  src\Kerawanan.tsx:2791:        // Group by deskripsi_domain agar 100300 dan 100400 dijadikan satu
+  src\Kerawanan.tsx:2792:        const deskripsiMap = new Map<string, string>(); // deskripsi_domain -> color (via 
+getRandomColor per deskripsi)
+  src\Kerawanan.tsx:2793:        const fungsikwsToDescrip = new Map<string, string>(); // fungsikws -> deskripsi_domain
+> src\Kerawanan.tsx:2794:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2795:          const fungsikws = String(feature.properties.fungsikws ?? "");
+  src\Kerawanan.tsx:2796:          if (fungsikws) {
+  src\Kerawanan.tsx:2797:            const deskripsi =
+  src\Kerawanan.tsx:2798:              mappingKawasanHutan[fungsikws] || `Kode ${fungsikws}`;
+  src\Kerawanan.tsx:2799:            fungsikwsToDescrip.set(fungsikws, deskripsi);
+  src\Kerawanan.tsx:2838:        ].includes(tableName)
+  src\Kerawanan.tsx:2839:      ) {
+  src\Kerawanan.tsx:2840:        const kelasMap = new Map<string, number>();
+> src\Kerawanan.tsx:2841:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2842:          const kelas = feature.properties.kelas || "";
+  src\Kerawanan.tsx:2843:          const luas =
+  src\Kerawanan.tsx:2844:            parseFloat(feature.properties.shape_area) ||
+  src\Kerawanan.tsx:2845:            parseFloat(feature.properties.shape_leng) ||
+  src\Kerawanan.tsx:2846:            0;
+  src\Kerawanan.tsx:2874:          string,
+  src\Kerawanan.tsx:2875:          { lsktap: number; jnskhdtk: string }
+  src\Kerawanan.tsx:2876:        >();
+> src\Kerawanan.tsx:2877:        geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:2878:          const namobj = feature.properties.namobj || "";
+  src\Kerawanan.tsx:2879:          const lsktap = parseFloat(feature.properties.lsktap) || 0;
+  src\Kerawanan.tsx:2880:          const jnskhdtk = feature.properties.jnskhdtk || "";
+  src\Kerawanan.tsx:2881:          if (namobj) {
+  src\Kerawanan.tsx:2882:            if (namobjMap.has(namobj)) {
+  src\Kerawanan.tsx:2898:          colorMappingRef.current.khdtk.set(item.namobj, item.color!);
+  src\Kerawanan.tsx:2899:        });
+  src\Kerawanan.tsx:2900:      } else if (INFRA_IDS.includes(tableName as any)) {
+> src\Kerawanan.tsx:2901:        const rows = geojsonData.features.map((f: any) => f.properties);
+  src\Kerawanan.tsx:2902:        setInfraData((prev) => ({ ...prev, [tableName]: rows }));
+  src\Kerawanan.tsx:2903:      }
+  src\Kerawanan.tsx:2904:
+  src\Kerawanan.tsx:2905:      // Styling function
+  src\Kerawanan.tsx:2906:      let styleFunction;
+  src\Kerawanan.tsx:3247:        };
+  src\Kerawanan.tsx:3248:      }
+  src\Kerawanan.tsx:3249:
+> src\Kerawanan.tsx:3250:      // Buat layer group. GeoJSON Point yang koordinatnya rusak harus dilewati
+  src\Kerawanan.tsx:3251:      // agar satu feature invalid tidak membuat renderer Leaflet crash saat 
+pan/resize/export PDF.
+> src\Kerawanan.tsx:3252:      const layerGroup = window.L.geoJSON(geojsonData, {
+  src\Kerawanan.tsx:3253:        pane: "overlayPane",
+  src\Kerawanan.tsx:3254:        style: styleFunction,
+  src\Kerawanan.tsx:3255:        filter: function (feature: any) {
+  src\Kerawanan.tsx:3256:          const geometry = feature?.geometry;
+  src\Kerawanan.tsx:3257:          if (!geometry) return false;
+  src\Kerawanan.tsx:3292:              feature,
+  src\Kerawanan.tsx:3293:              latlng,
+  src\Kerawanan.tsx:3294:            });
+> src\Kerawanan.tsx:3295:            return window.L.layerGroup();
+  src\Kerawanan.tsx:3296:          }
+  src\Kerawanan.tsx:3297:          const isBencanaLayer = BENCANA_FOCUS_LAYERS.has(String(tableName));
+  src\Kerawanan.tsx:3298:          const tableColor = isBencanaLayer
+  src\Kerawanan.tsx:3299:            ? getRiskClassColor(
+  src\Kerawanan.tsx:3300:                getBencanaFeatureClass(feature),
+  src\Kerawanan.tsx:3403:        return;
+  src\Kerawanan.tsx:3404:      }
+  src\Kerawanan.tsx:3405:
+> src\Kerawanan.tsx:3406:      if (!safeAddMapLayer(mapAtRequest, layerGroup)) {
+  src\Kerawanan.tsx:3407:        throw new Error(`Leaflet gagal menambahkan layer ${tableName}`);
+  src\Kerawanan.tsx:3408:      }
+  src\Kerawanan.tsx:3409:
+  src\Kerawanan.tsx:3410:      // Bencana sudah difilter oleh API berdasarkan selectedAreas/adminFilter.
+  src\Kerawanan.tsx:3411:      // Jangan pasang SVG clip-path lagi karena dapat membuat polygon/marker hilang.
+  src\Kerawanan.tsx:3412:
+> src\Kerawanan.tsx:3413:      layerCacheRef.current.set(tableName, layerGroup);
+  src\Kerawanan.tsx:3414:
+  src\Kerawanan.tsx:3415:      // Cek apakah layer ini punya bottom tab
+  src\Kerawanan.tsx:3416:      const hasBottomTab = layersWithBottomTabs.includes(tableName);
+  src\Kerawanan.tsx:3417:
+  src\Kerawanan.tsx:3418:      // Jika layer punya bottom tab, hanya tampilkan jika sesuai dengan activeBottomTab
+  src\Kerawanan.tsx:3445:        }
+  src\Kerawanan.tsx:3446:      } else {
+  src\Kerawanan.tsx:3447:        // Layer tanpa bottom tab langsung ditampilkan
+> src\Kerawanan.tsx:3448:        layerGroup.addTo(mapInstanceRef.current);
+  src\Kerawanan.tsx:3449:        console.log(`✅ Layer "${tableName}" ditampilkan (no bottom tab)`);
+  src\Kerawanan.tsx:3450:      }
+  src\Kerawanan.tsx:3451:
+  src\Kerawanan.tsx:3452:      // Pastikan request masih yang terbaru sebelum menyimpan reference layer.
+  src\Kerawanan.tsx:3453:      if (layerRequestSeqRef.current[tableName] !== requestId) {
+> src\Kerawanan.tsx:3454:        safeRemoveMapLayer(layerGroup);
+  src\Kerawanan.tsx:3455:        return;
+  src\Kerawanan.tsx:3456:      }
+  src\Kerawanan.tsx:3457:
+  src\Kerawanan.tsx:3458:      cleanupLegacyBencanaCircleMarkers();
+  src\Kerawanan.tsx:3459:
+  src\Kerawanan.tsx:3465:      if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
+  src\Kerawanan.tsx:3466:        const forcedBencanaColor = getBencanaLayerColor(String(tableName));
+  src\Kerawanan.tsx:3467:
+> src\Kerawanan.tsx:3468:        layerGroup.eachLayer((layer: any) => {
+  src\Kerawanan.tsx:3469:          try {
+  src\Kerawanan.tsx:3470:            if (layer?.setStyle) {
+  src\Kerawanan.tsx:3471:              layer.setStyle({
+  src\Kerawanan.tsx:3472:                color: forcedBencanaColor,
+  src\Kerawanan.tsx:3473:                fillColor: forcedBencanaColor,
+  src\Kerawanan.tsx:3490:        console.log(`🎨 SIMITI SOLID BENCANA COLOR: ${tableName} → ${forcedBencanaColor}`);
+  src\Kerawanan.tsx:3491:      }
+  src\Kerawanan.tsx:3492:
+> src\Kerawanan.tsx:3493:      layerGroupsRef.current[tableName] = layerGroup;
+  src\Kerawanan.tsx:3494:
+  src\Kerawanan.tsx:3495:      // Urutan layer stabil, tidak bergantung urutan checkbox diklik.
+  src\Kerawanan.tsx:3496:      // Banjir digambar lebih dulu; kekeringan setelahnya sehingga area irisan
+  src\Kerawanan.tsx:3497:      // memiliki satu warna solid yang jelas, bukan dua warna transparan.
+  src\Kerawanan.tsx:3498:      const bencanaRenderPriority: Record<string, number> = {
+  src\Kerawanan.tsx:3537:              ? "bounds filtering"
+  src\Kerawanan.tsx:3538:              : "no filtering";
+  src\Kerawanan.tsx:3539:      console.log(
+> src\Kerawanan.tsx:3540:        `✅ Layer "${tableName}" berhasil dimuat dengan ${filterType} 
+(${geojsonData.features.length} features)`,
+  src\Kerawanan.tsx:3541:      );
+  src\Kerawanan.tsx:3542:    } catch (error) {
+  src\Kerawanan.tsx:3543:      console.error("❌ Error loading layer:", error);
+  src\Kerawanan.tsx:3544:
+  src\Kerawanan.tsx:3545:      let errorMessage = "";
+  src\Kerawanan.tsx:3621:      setShowAreaSearchDropdown(false);
+  src\Kerawanan.tsx:3622:    }
+  src\Kerawanan.tsx:3623:  };
+> src\Kerawanan.tsx:3624:  useEffect(() => {
+  src\Kerawanan.tsx:3625:    const checkExistingSession = async () => {
+  src\Kerawanan.tsx:3626:      const token = localStorage.getItem("adminToken");
+  src\Kerawanan.tsx:3627:      const userStr = localStorage.getItem("adminUser");
+  src\Kerawanan.tsx:3628:
+  src\Kerawanan.tsx:3629:      if (token && userStr) {
+  src\Kerawanan.tsx:3657:    checkExistingSession();
+  src\Kerawanan.tsx:3658:  }, []);
+  src\Kerawanan.tsx:3659:
+> src\Kerawanan.tsx:3660:  useEffect(() => {
+  src\Kerawanan.tsx:3661:    if (!mapInstanceRef.current || !window.L) return;
+  src\Kerawanan.tsx:3662:
+  src\Kerawanan.tsx:3663:    // List layer yang merupakan data layer (bukan boundary)
+  src\Kerawanan.tsx:3664:    const dataLayers = [
+  src\Kerawanan.tsx:3665:      "tutupan_lahan",
+  src\Kerawanan.tsx:3705:
+  src\Kerawanan.tsx:3706:    // Jika ada layer yang sebelumnya di-hover, reset hanya layer tersebut
+  src\Kerawanan.tsx:3707:    if (hoveredLayerType && dataLayers.includes(hoveredLayerType)) {
+> src\Kerawanan.tsx:3708:      const layerGroup = layerGroupsRef.current[hoveredLayerType];
+> src\Kerawanan.tsx:3709:      if (layerGroup) {
+> src\Kerawanan.tsx:3710:        layerGroup.eachLayer((layer: any) => {
+  src\Kerawanan.tsx:3711:          if (layer.setStyle && layer.feature) {
+  src\Kerawanan.tsx:3712:            const zoom = mapInstanceRef.current
+  src\Kerawanan.tsx:3713:              ? mapInstanceRef.current.getZoom()
+  src\Kerawanan.tsx:3714:              : 10;
+  src\Kerawanan.tsx:3715:
+  src\Kerawanan.tsx:3905:      highlightColor &&
+  src\Kerawanan.tsx:3906:      dataLayers.includes(highlightType)
+  src\Kerawanan.tsx:3907:    ) {
+> src\Kerawanan.tsx:3908:      const layerGroup = layerGroupsRef.current[highlightType];
+> src\Kerawanan.tsx:3909:      if (layerGroup) {
+> src\Kerawanan.tsx:3910:        layerGroup.eachLayer((layer: any) => {
+  src\Kerawanan.tsx:3911:          if (layer.feature && layer.setStyle) {
+  src\Kerawanan.tsx:3912:            let shouldHighlight = false;
+  src\Kerawanan.tsx:3913:
+  src\Kerawanan.tsx:3914:            // Tentukan apakah layer ini yang harus di-highlight
+  src\Kerawanan.tsx:3915:            if (highlightType === "tutupan_lahan") {
+  src\Kerawanan.tsx:4299:  const fetchKejadianListings = async () => {
+  src\Kerawanan.tsx:4300:    try {
+  src\Kerawanan.tsx:4301:      // Ambil semua layer kejadian otomatis yang aktif (yang ada di activeKejadianLayers)
+> src\Kerawanan.tsx:4302:      const activeKejadianLayerNames = Array.from(activeLayers).filter(
+  src\Kerawanan.tsx:4303:        (name) =>
+  src\Kerawanan.tsx:4304:          name.startsWith("kejadian_") && activeKejadianLayers.has(name),
+  src\Kerawanan.tsx:4305:      );
+  src\Kerawanan.tsx:4306:
+  src\Kerawanan.tsx:4307:      console.log(
+  src\Kerawanan.tsx:4407:
+  src\Kerawanan.tsx:4408:  const fetchKejadianPhotos = async () => {
+  src\Kerawanan.tsx:4409:    try {
+> src\Kerawanan.tsx:4410:      const activeKejadianLayerNames = Array.from(activeLayers).filter((name) =>
+  src\Kerawanan.tsx:4411:        name.startsWith("kejadian_"),
+  src\Kerawanan.tsx:4412:      );
+  src\Kerawanan.tsx:4413:
+  src\Kerawanan.tsx:4414:      console.log(
+  src\Kerawanan.tsx:4415:        "Fetching photos for active kejadian layers:",
+  src\Kerawanan.tsx:4610:        );
+  src\Kerawanan.tsx:4611:      }
+  src\Kerawanan.tsx:4612:
+> src\Kerawanan.tsx:4613:      const geojsonData = await response.json();
+  src\Kerawanan.tsx:4614:      console.log(
+  src\Kerawanan.tsx:4615:        "Kejadian data received for",
+  src\Kerawanan.tsx:4616:        layerName,
+  src\Kerawanan.tsx:4617:        ":",
+> src\Kerawanan.tsx:4618:        geojsonData.features?.length || 0,
+  src\Kerawanan.tsx:4619:        "features",
+  src\Kerawanan.tsx:4620:      );
+  src\Kerawanan.tsx:4621:
+  src\Kerawanan.tsx:4622:      // Hapus layer lama jika ada
+> src\Kerawanan.tsx:4623:      if (layerGroupsRef.current[layerName]) {
+> src\Kerawanan.tsx:4624:        safeRemoveMapLayer(layerGroupsRef.current[layerName]);
+  src\Kerawanan.tsx:4625:      }
+  src\Kerawanan.tsx:4626:
+> src\Kerawanan.tsx:4627:      if (!geojsonData.features || geojsonData.features.length === 0) {
+  src\Kerawanan.tsx:4628:        console.warn("No kejadian found for:", layerName);
+> src\Kerawanan.tsx:4629:        layerGroupsRef.current[layerName] = window.L.layerGroup();
+  src\Kerawanan.tsx:4630:        safeAddMapLayer(
+  src\Kerawanan.tsx:4631:          mapInstanceRef.current,
+> src\Kerawanan.tsx:4632:          layerGroupsRef.current[layerName],
+  src\Kerawanan.tsx:4633:        );
+  src\Kerawanan.tsx:4634:        return;
+  src\Kerawanan.tsx:4635:      }
+  src\Kerawanan.tsx:4636:
+  src\Kerawanan.tsx:4637:      // Function untuk create custom icon berdasarkan category
+  src\Kerawanan.tsx:4691:      // Buat layer group dengan marker untuk setiap kejadian
+  src\Kerawanan.tsx:4692:      const markers: any[] = [];
+  src\Kerawanan.tsx:4693:
+> src\Kerawanan.tsx:4694:      geojsonData.features.forEach((feature: any) => {
+  src\Kerawanan.tsx:4695:        const { coordinates } = feature.geometry;
+  src\Kerawanan.tsx:4696:        const props = feature.properties;
+  src\Kerawanan.tsx:4697:
+  src\Kerawanan.tsx:4698:        const marker = window.L.marker([coordinates[1], coordinates[0]], {
+  src\Kerawanan.tsx:4699:          icon: createKejadianIcon(props.category),
+  src\Kerawanan.tsx:4812:        markers.push(marker);
+  src\Kerawanan.tsx:4813:      });
+  src\Kerawanan.tsx:4814:
+> src\Kerawanan.tsx:4815:      const layerGroup = window.L.layerGroup(markers);
+> src\Kerawanan.tsx:4816:      layerGroup.addTo(mapInstanceRef.current);
+> src\Kerawanan.tsx:4817:      layerGroupsRef.current[layerName] = layerGroup;
+  src\Kerawanan.tsx:4818:
+  src\Kerawanan.tsx:4819:      console.log(
+  src\Kerawanan.tsx:4820:        "Kejadian layer loaded successfully with",
+  src\Kerawanan.tsx:4821:        markers.length,
+  src\Kerawanan.tsx:4822:        "markers",
+  src\Kerawanan.tsx:4823:      );
+  src\Kerawanan.tsx:4824:
+> src\Kerawanan.tsx:4825:      // HAPUS manual call fetchKejadianPhotos - biarkan useEffect yang handle
+  src\Kerawanan.tsx:4826:    } catch (error) {
+  src\Kerawanan.tsx:4827:      console.error("Error loading kejadian layer:", error);
+  src\Kerawanan.tsx:4828:    }
+  src\Kerawanan.tsx:4829:  };
+  src\Kerawanan.tsx:4830:
+  src\Kerawanan.tsx:4921:    }
+  src\Kerawanan.tsx:4922:  };
+  src\Kerawanan.tsx:4923:
+> src\Kerawanan.tsx:4924:  useEffect(() => {
+  src\Kerawanan.tsx:4925:    return () => {
+  src\Kerawanan.tsx:4926:      if (locationSearchTimerRef.current) {
+  src\Kerawanan.tsx:4927:        clearTimeout(locationSearchTimerRef.current);
+  src\Kerawanan.tsx:4928:      }
+  src\Kerawanan.tsx:4929:    };
+  src\Kerawanan.tsx:4994:      setSelectedAreas([]);
+  src\Kerawanan.tsx:4995:
+  src\Kerawanan.tsx:4996:      // Clear ALL admin boundaries when switching to DAS
+> src\Kerawanan.tsx:4997:      Object.keys(layerGroupsRef.current).forEach((key) => {
+  src\Kerawanan.tsx:4998:        if (key.startsWith("admin_boundary")) {
+> src\Kerawanan.tsx:4999:          safeRemoveMapLayer(layerGroupsRef.current[key]);
+> src\Kerawanan.tsx:5000:          delete layerGroupsRef.current[key];
+  src\Kerawanan.tsx:5001:        }
+  src\Kerawanan.tsx:5002:      });
+  src\Kerawanan.tsx:5003:
+  src\Kerawanan.tsx:5004:      // TAMBAHAN: Render DAS boundary langsung dengan unique key
+  src\Kerawanan.tsx:5005:      if (das.geom && mapInstanceRef.current && window.L) {
+  src\Kerawanan.tsx:5009:          // Unique key per DAS
+  src\Kerawanan.tsx:5010:          const boundaryKey = `das_boundary_${das.nama_das.replace(/\s+/g, "_")}`;
+  src\Kerawanan.tsx:5011:
+> src\Kerawanan.tsx:5012:          const geoJsonLayer = window.L.geoJSON(
+  src\Kerawanan.tsx:5013:            {
+  src\Kerawanan.tsx:5014:              type: "Feature",
+  src\Kerawanan.tsx:5015:              geometry: das.geom,
+  src\Kerawanan.tsx:5016:              properties: { nama_das: das.nama_das },
+  src\Kerawanan.tsx:5017:            },
+  src\Kerawanan.tsx:5026:            },
+  src\Kerawanan.tsx:5027:          );
+  src\Kerawanan.tsx:5028:
+> src\Kerawanan.tsx:5029:          geoJsonLayer.addTo(mapInstanceRef.current);
+> src\Kerawanan.tsx:5030:          layerGroupsRef.current[boundaryKey] = geoJsonLayer;
+  src\Kerawanan.tsx:5031:
+  src\Kerawanan.tsx:5032:          console.log("✅ DAS boundary rendered with key:", boundaryKey);
+  src\Kerawanan.tsx:5033:        } catch (error) {
+  src\Kerawanan.tsx:5034:          console.error("❌ Error rendering DAS boundary:", error);
+  src\Kerawanan.tsx:5035:        }
+  src\Kerawanan.tsx:5062:
+  src\Kerawanan.tsx:5063:    // Remove SPECIFIC DAS boundary layer
+  src\Kerawanan.tsx:5064:    const boundaryKey = `das_boundary_${removedDas.nama_das.replace(/\s+/g, "_")}`;
+> src\Kerawanan.tsx:5065:    if (layerGroupsRef.current[boundaryKey]) {
+> src\Kerawanan.tsx:5066:      safeRemoveMapLayer(layerGroupsRef.current[boundaryKey]);
+> src\Kerawanan.tsx:5067:      delete layerGroupsRef.current[boundaryKey];
+  src\Kerawanan.tsx:5068:      console.log("🗑️ Removed DAS boundary:", boundaryKey);
+  src\Kerawanan.tsx:5069:    }
+  src\Kerawanan.tsx:5070:
+  src\Kerawanan.tsx:5071:    if (newSelectedDas.length > 0) {
+  src\Kerawanan.tsx:5072:      await updateMapBoundsDas(newSelectedDas);
+  src\Kerawanan.tsx:5097:      });
+  src\Kerawanan.tsx:5098:
+  src\Kerawanan.tsx:5099:      setTimeout(async () => {
+> src\Kerawanan.tsx:5100:        for (const tableName of activeLayers) {
+  src\Kerawanan.tsx:5101:          if (tableName.startsWith("kejadian_")) {
+  src\Kerawanan.tsx:5102:            // Parse category and year from tableName format: kejadian_Category_Name_Year
+  src\Kerawanan.tsx:5103:            const parts = tableName.split("_");
+  src\Kerawanan.tsx:5104:            if (parts.length >= 3) {
+  src\Kerawanan.tsx:5105:              const year = parseInt(parts[parts.length - 1]);
+  src\Kerawanan.tsx:5192:
+  src\Kerawanan.tsx:5193:        setTimeout(async () => {
+  src\Kerawanan.tsx:5194:          const dasNames = dasList.map((d) => d.nama_das);
+> src\Kerawanan.tsx:5195:          for (const tableName of activeLayers) {
+  src\Kerawanan.tsx:5196:            if (tableName.startsWith("kejadian_")) {
+  src\Kerawanan.tsx:5197:              const parts = tableName.split("_");
+  src\Kerawanan.tsx:5198:              if (parts.length >= 3) {
+  src\Kerawanan.tsx:5199:                const year = parseInt(parts[parts.length - 1]);
+  src\Kerawanan.tsx:5200:                const category = parts.slice(1, -1).join(" ");
+  src\Kerawanan.tsx:5263:      setSelectedDas([]);
+  src\Kerawanan.tsx:5264:
+  src\Kerawanan.tsx:5265:      // Clear ALL DAS boundaries when switching to admin areas
+> src\Kerawanan.tsx:5266:      Object.keys(layerGroupsRef.current).forEach((key) => {
+  src\Kerawanan.tsx:5267:        if (key.startsWith("das_boundary")) {
+> src\Kerawanan.tsx:5268:          safeRemoveMapLayer(layerGroupsRef.current[key]);
+> src\Kerawanan.tsx:5269:          delete layerGroupsRef.current[key];
+  src\Kerawanan.tsx:5270:        }
+  src\Kerawanan.tsx:5271:      });
+  src\Kerawanan.tsx:5272:
+  src\Kerawanan.tsx:5273:      // Render polygon administrasi terpilih dan bersihkan polygon lama agar tidak bertumpuk.
+  src\Kerawanan.tsx:5274:      if (area.geom && mapInstanceRef.current && window.L) {
+> src\Kerawanan.tsx:5275:        Object.keys(layerGroupsRef.current).forEach((key) => {
+  src\Kerawanan.tsx:5276:          if (key.startsWith("admin_boundary_")) {
+> src\Kerawanan.tsx:5277:            safeRemoveMapLayer(layerGroupsRef.current[key]);
+> src\Kerawanan.tsx:5278:            delete layerGroupsRef.current[key];
+  src\Kerawanan.tsx:5279:          }
+  src\Kerawanan.tsx:5280:        });
+  src\Kerawanan.tsx:5281:        console.log("SIMITI: rendering selected admin polygon:", area.label);
+  src\Kerawanan.tsx:5282:
+  src\Kerawanan.tsx:5283:        try {
+  src\Kerawanan.tsx:5284:          // Unique key per area
+  src\Kerawanan.tsx:5285:          const boundaryKey = `admin_boundary_${area.label.replace(/[,\s]+/g, "_")}`;
+  src\Kerawanan.tsx:5286:
+> src\Kerawanan.tsx:5287:          const geoJsonLayer = window.L.geoJSON(
+  src\Kerawanan.tsx:5288:            {
+  src\Kerawanan.tsx:5289:              type: "Feature",
+  src\Kerawanan.tsx:5290:              geometry: area.geom,
+  src\Kerawanan.tsx:5291:              properties: { ...area },
+  src\Kerawanan.tsx:5292:            },
+  src\Kerawanan.tsx:5303:            },
+  src\Kerawanan.tsx:5304:          );
+  src\Kerawanan.tsx:5305:
+> src\Kerawanan.tsx:5306:          geoJsonLayer.addTo(mapInstanceRef.current);
+> src\Kerawanan.tsx:5307:          layerGroupsRef.current[boundaryKey] = geoJsonLayer;
+> src\Kerawanan.tsx:5308:          const polygonBounds = geoJsonLayer.getBounds?.();
+  src\Kerawanan.tsx:5309:          if (polygonBounds?.isValid?.()) {
+  src\Kerawanan.tsx:5310:            mapInstanceRef.current.fitBounds(polygonBounds, {
+  src\Kerawanan.tsx:5311:              padding: [36, 36],
+  src\Kerawanan.tsx:5312:              maxZoom: 13,
+  src\Kerawanan.tsx:5313:            });
+  src\Kerawanan.tsx:5344:
+  src\Kerawanan.tsx:5345:    // Remove SPECIFIC admin boundary layer
+  src\Kerawanan.tsx:5346:    const boundaryKey = `admin_boundary_${removedArea.label.replace(/[,\s]+/g, "_")}`;
+> src\Kerawanan.tsx:5347:    if (layerGroupsRef.current[boundaryKey]) {
+> src\Kerawanan.tsx:5348:      safeRemoveMapLayer(layerGroupsRef.current[boundaryKey]);
+> src\Kerawanan.tsx:5349:      delete layerGroupsRef.current[boundaryKey];
+  src\Kerawanan.tsx:5350:      console.log("🗑️ Removed admin boundary:", boundaryKey);
+  src\Kerawanan.tsx:5351:    }
+  src\Kerawanan.tsx:5352:
+  src\Kerawanan.tsx:5353:    if (newSelectedAreas.length > 0) {
+  src\Kerawanan.tsx:5354:      await updateMapBounds(newSelectedAreas);
+  src\Kerawanan.tsx:5380:      });
+  src\Kerawanan.tsx:5381:
+  src\Kerawanan.tsx:5382:      setTimeout(async () => {
+> src\Kerawanan.tsx:5383:        for (const tableName of activeLayers) {
+  src\Kerawanan.tsx:5384:          if (tableName.startsWith("kejadian_")) {
+  src\Kerawanan.tsx:5385:            // Parse category and year from tableName format: kejadian_Category_Name_Year
+  src\Kerawanan.tsx:5386:            const parts = tableName.split("_");
+  src\Kerawanan.tsx:5387:            if (parts.length >= 3) {
+  src\Kerawanan.tsx:5388:              const year = parseInt(parts[parts.length - 1]);
+  src\Kerawanan.tsx:5444:        setTimeout(async () => {
+  src\Kerawanan.tsx:5445:          const dasNames =
+  src\Kerawanan.tsx:5446:            selectedDas.length > 0 ? selectedDas.map((d) => d.nama_das) : [];
+> src\Kerawanan.tsx:5447:          for (const tableName of activeLayers) {
+  src\Kerawanan.tsx:5448:            if (tableName.startsWith("kejadian_")) {
+  src\Kerawanan.tsx:5449:              const parts = tableName.split("_");
+  src\Kerawanan.tsx:5450:              if (parts.length >= 3) {
+  src\Kerawanan.tsx:5451:                const year = parseInt(parts[parts.length - 1]);
+  src\Kerawanan.tsx:5452:                const category = parts.slice(1, -1).join(" ");
+  src\Kerawanan.tsx:5653:    }
+  src\Kerawanan.tsx:5654:  };
+  src\Kerawanan.tsx:5655:
+> src\Kerawanan.tsx:5656:  useEffect(() => {
+  src\Kerawanan.tsx:5657:    const updateKejadianCount = async () => {
+  src\Kerawanan.tsx:5658:      if (!currentBounds) return;
+  src\Kerawanan.tsx:5659:
+  src\Kerawanan.tsx:5660:      console.log(
+  src\Kerawanan.tsx:5661:        "Filter changed (selectedAreas/selectedDas) - reloading kejadian count",
+  src\Kerawanan.tsx:5738:
+  src\Kerawanan.tsx:5739:  const handleLayerToggle = async (
+  src\Kerawanan.tsx:5740:    tableName: string,
+> src\Kerawanan.tsx:5741:    isChecked: boolean,
+  src\Kerawanan.tsx:5742:    year?: number,
+  src\Kerawanan.tsx:5743:    category?: string,
+  src\Kerawanan.tsx:5744:    isShapefile?: boolean,
+  src\Kerawanan.tsx:5745:  ) => {
+  src\Kerawanan.tsx:5746:    const uiLayerKey = String(tableName);
+  src\Kerawanan.tsx:5750:      uiLayerKey,
+  src\Kerawanan.tsx:5751:      "=>",
+  src\Kerawanan.tsx:5752:      resolvedTableName,
+> src\Kerawanan.tsx:5753:      "isChecked:",
+> src\Kerawanan.tsx:5754:      isChecked,
+  src\Kerawanan.tsx:5755:      "year:",
+  src\Kerawanan.tsx:5756:      year,
+  src\Kerawanan.tsx:5757:      "category:",
+  src\Kerawanan.tsx:5758:      category,
+  src\Kerawanan.tsx:5759:      "isShapefile:",
+  src\Kerawanan.tsx:5760:      isShapefile,
+  src\Kerawanan.tsx:5761:    );
+> src\Kerawanan.tsx:5762:    console.log("Current active layers:", Array.from(activeLayers));
+  src\Kerawanan.tsx:5763:
+> src\Kerawanan.tsx:5764:    if (isChecked) {
+  src\Kerawanan.tsx:5765:      tableName = resolvedTableName;
+  src\Kerawanan.tsx:5766:      // Tambahkan layer ke active layers
+> src\Kerawanan.tsx:5767:      setActiveLayers((prev) => new Set([...prev, tableName]));
+  src\Kerawanan.tsx:5768:
+  src\Kerawanan.tsx:5769:      // Enterprise flow:
+> src\Kerawanan.tsx:5770:      // checkbox -> activeLayers -> load GeoJSON -> infraData -> Data Grid
+  src\Kerawanan.tsx:5771:      if (INFRA_IDS.includes(tableName as any)) {
+  src\Kerawanan.tsx:5772:        setActiveBottomTab("mitigasi_adaptasi");
+  src\Kerawanan.tsx:5773:        setIsBottomSummaryOpen(true);
+  src\Kerawanan.tsx:5774:      }
+  src\Kerawanan.tsx:5775:
+  src\Kerawanan.tsx:5832:            let focusBounds: any = null;
+  src\Kerawanan.tsx:5833:            for (const area of selectedAreas) {
+  src\Kerawanan.tsx:5834:              if (!area?.geom) continue;
+> src\Kerawanan.tsx:5835:              const areaLayer = window.L.geoJSON({
+  src\Kerawanan.tsx:5836:                type: "Feature",
+  src\Kerawanan.tsx:5837:                geometry: area.geom,
+  src\Kerawanan.tsx:5838:                properties: {},
+  src\Kerawanan.tsx:5839:              });
+  src\Kerawanan.tsx:5840:              const bounds = areaLayer.getBounds();
+  src\Kerawanan.tsx:5867:    } else {
+  src\Kerawanan.tsx:5868:      tableName = resolvedTableName;
+  src\Kerawanan.tsx:5869:      // Hapus layer dari active layers DULU
+> src\Kerawanan.tsx:5870:      setActiveLayers((prev) => {
+  src\Kerawanan.tsx:5871:        const newSet = new Set(prev);
+  src\Kerawanan.tsx:5872:        newSet.delete(tableName);
+  src\Kerawanan.tsx:5873:        console.log("Updated active layers after removal:", Array.from(newSet));
+  src\Kerawanan.tsx:5874:        return newSet;
+  src\Kerawanan.tsx:5875:      });
+  src\Kerawanan.tsx:5876:
+  src\Kerawanan.tsx:5877:      // Hapus layer dari map
+  src\Kerawanan.tsx:5878:      console.log("Removing layer from map:", tableName);
+> src\Kerawanan.tsx:5879:      if (layerGroupsRef.current[tableName] && mapInstanceRef.current) {
+> src\Kerawanan.tsx:5880:        mapInstanceRef.current.removeLayer(layerGroupsRef.current[tableName]);
+> src\Kerawanan.tsx:5881:        delete layerGroupsRef.current[tableName];
+  src\Kerawanan.tsx:5882:        console.log("Layer removed from map");
+  src\Kerawanan.tsx:5883:
+  src\Kerawanan.tsx:5884:        if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
+> src\Kerawanan.tsx:5885:          const remainingBencana = Array.from(activeLayers).filter(
+  src\Kerawanan.tsx:5886:            (name) =>
+  src\Kerawanan.tsx:5887:              name !== tableName && BENCANA_FOCUS_LAYERS.has(String(name)),
+  src\Kerawanan.tsx:5888:          );
+  src\Kerawanan.tsx:5889:          if (remainingBencana.length === 0) {
+  src\Kerawanan.tsx:5890:            clearSelectedAreaBencanaClip();
+  src\Kerawanan.tsx:5901:            newMap.delete(tableName);
+  src\Kerawanan.tsx:5902:            return newMap;
+  src\Kerawanan.tsx:5903:          });
+> src\Kerawanan.tsx:5904:          // HAPUS manual call fetchKejadianPhotos - biarkan useEffect yang handle
+  src\Kerawanan.tsx:5905:        }
+  src\Kerawanan.tsx:5906:
+  src\Kerawanan.tsx:5907:        if (tableName === "tutupan_lahan") {
+  src\Kerawanan.tsx:5908:          setTutupanLahanData([]);
+  src\Kerawanan.tsx:5909:        }
+  src\Kerawanan.tsx:5931:          setRawanKarhutlaData([]);
+  src\Kerawanan.tsx:5932:        }
+  src\Kerawanan.tsx:5933:      } else {
+> src\Kerawanan.tsx:5934:        console.log("Layer not found in layerGroupsRef or map not ready");
+  src\Kerawanan.tsx:5935:      }
+  src\Kerawanan.tsx:5936:    }
+  src\Kerawanan.tsx:5937:  };
+  src\Kerawanan.tsx:5938:
+  src\Kerawanan.tsx:5939:  // Fungsi helper untuk generate warna konsisten berdasarkan nama tabel
+  src\Kerawanan.tsx:5976:    return colors[index];
+  src\Kerawanan.tsx:5977:  };
+  src\Kerawanan.tsx:5978:
+> src\Kerawanan.tsx:5979:  const resetLayerStyle = (layerId: string) => {
+> src\Kerawanan.tsx:5980:    const layerGroup = layerGroupsRef.current[layerId];
+> src\Kerawanan.tsx:5981:    if (!layerGroup) return;
+  src\Kerawanan.tsx:5982:    const zoom = mapInstanceRef.current ? mapInstanceRef.current.getZoom() : 10;
+  src\Kerawanan.tsx:5983:
+  src\Kerawanan.tsx:5984:    if (INFRA_IDS.includes(layerId as any)) {
+  src\Kerawanan.tsx:5985:      const infraColor =
+  src\Kerawanan.tsx:5986:        INFRA_LAYERS.find((l) => l.id === layerId)?.color || "#808080";
+> src\Kerawanan.tsx:5987:      layerGroup.eachLayer((layer: any) => {
+  src\Kerawanan.tsx:5988:        if (layer.setStyle)
+  src\Kerawanan.tsx:5989:          layer.setStyle({
+  src\Kerawanan.tsx:5990:            fillColor: infraColor,
+  src\Kerawanan.tsx:5991:            color: "#000",
+  src\Kerawanan.tsx:5992:            weight: 1,
+  src\Kerawanan.tsx:5998:      return;
+  src\Kerawanan.tsx:5999:    }
+  src\Kerawanan.tsx:6000:
+> src\Kerawanan.tsx:6001:    layerGroup.eachLayer((layer: any) => {
+  src\Kerawanan.tsx:6002:      if (!layer.setStyle || !layer.feature) return;
+  src\Kerawanan.tsx:6003:
+  src\Kerawanan.tsx:6004:      const isBencanaLayer = BENCANA_FOCUS_LAYERS.has(String(layerId));
+  src\Kerawanan.tsx:6005:
+  src\Kerawanan.tsx:6006:      let color = isBencanaLayer
+  src\Kerawanan.tsx:6121:    const map = mapInstanceRef.current;
+  src\Kerawanan.tsx:6122:    if (!map || !color) return;
+  src\Kerawanan.tsx:6123:
+> src\Kerawanan.tsx:6124:    Object.keys(layerGroupsRef.current).forEach((key) => {
+  src\Kerawanan.tsx:6125:      if (!key.startsWith("admin_boundary_")) return;
+> src\Kerawanan.tsx:6126:      const boundary = layerGroupsRef.current[key];
+  src\Kerawanan.tsx:6127:      if (!boundary?.setStyle) return;
+  src\Kerawanan.tsx:6128:
+  src\Kerawanan.tsx:6129:      boundary.setStyle({
+  src\Kerawanan.tsx:6130:        color,
+  src\Kerawanan.tsx:6131:        weight: 3,
+  src\Kerawanan.tsx:6220:    setHoveredLayerColor(color);
+  src\Kerawanan.tsx:6221:    lastHighlightedRef.current = {
+  src\Kerawanan.tsx:6222:      layerId: layerType,
+> src\Kerawanan.tsx:6223:      resetFn: () => resetLayerStyle(layerType),
+  src\Kerawanan.tsx:6224:    };
+  src\Kerawanan.tsx:6225:  };
+  src\Kerawanan.tsx:6226:
+  src\Kerawanan.tsx:6227:  const handleRowMouseLeave = () => {
+  src\Kerawanan.tsx:6228:    setHoveredLayerKey(null);
+  src\Kerawanan.tsx:6235:  };
+  src\Kerawanan.tsx:6236:
+  src\Kerawanan.tsx:6237:  // Fetch layers from database on mount
+> src\Kerawanan.tsx:6238:  useEffect(() => {
+  src\Kerawanan.tsx:6239:    const bootstrapLayerAccess = async () => {
+  src\Kerawanan.tsx:6240:      // Katalog layer dimuat langsung untuk akses publik.
+  src\Kerawanan.tsx:6241:      await loadMyLayerAuthorizations();
+  src\Kerawanan.tsx:6242:      await fetchLayers();
+  src\Kerawanan.tsx:6243:
+  src\Kerawanan.tsx:6244:      // Defense-in-depth: jika ada layer aktif dari state/cache lama,
+  src\Kerawanan.tsx:6245:      // layer publik tetap dapat ditampilkan tanpa token.
+> src\Kerawanan.tsx:6246:      setActiveLayers((prev) => {
+  src\Kerawanan.tsx:6247:        const next = new Set<string>();
+  src\Kerawanan.tsx:6248:        for (const name of prev) {
+  src\Kerawanan.tsx:6249:          if (String(name).startsWith("kejadian_") || isLayerAuthorized(name)) {
+  src\Kerawanan.tsx:6250:            next.add(name);
+  src\Kerawanan.tsx:6251:          } else {
+  src\Kerawanan.tsx:6252:            const apiName = normalizeLayerApiName(name);
+  src\Kerawanan.tsx:6253:            const existing =
+> src\Kerawanan.tsx:6254:              layerGroupsRef.current?.[apiName] ??
+> src\Kerawanan.tsx:6255:              layerGroupsRef.current?.[name];
+  src\Kerawanan.tsx:6256:            if (existing && mapInstanceRef.current) {
+  src\Kerawanan.tsx:6257:              safeRemoveMapLayer(existing);
+> src\Kerawanan.tsx:6258:              delete layerGroupsRef.current[apiName];
+> src\Kerawanan.tsx:6259:              delete layerGroupsRef.current[name];
+  src\Kerawanan.tsx:6260:            }
+  src\Kerawanan.tsx:6261:          }
+  src\Kerawanan.tsx:6262:        }
+  src\Kerawanan.tsx:6263:        return next;
+  src\Kerawanan.tsx:6264:      });
+  src\Kerawanan.tsx:6267:    void bootstrapLayerAccess();
+  src\Kerawanan.tsx:6268:
+  src\Kerawanan.tsx:6269:    // Clear all kejadian layers on mount/reload
+> src\Kerawanan.tsx:6270:    setActiveLayers((prev) => {
+  src\Kerawanan.tsx:6271:      const newSet = new Set(prev);
+  src\Kerawanan.tsx:6272:      // Hapus semua layer kejadian
+  src\Kerawanan.tsx:6273:      Array.from(newSet).forEach((layerName) => {
+  src\Kerawanan.tsx:6274:        if (layerName.startsWith("kejadian_")) {
+  src\Kerawanan.tsx:6275:          newSet.delete(layerName);
+  src\Kerawanan.tsx:6512:
+  src\Kerawanan.tsx:6513:      // Hapus layer dari map jika sedang aktif
+  src\Kerawanan.tsx:6514:      const layerName = layerToDelete.name;
+> src\Kerawanan.tsx:6515:      if (activeLayers.has(layerName)) {
+  src\Kerawanan.tsx:6516:        handleLayerToggle(layerName, false);
+  src\Kerawanan.tsx:6517:      }
+  src\Kerawanan.tsx:6518:
+  src\Kerawanan.tsx:6519:      // Refresh layers
+  src\Kerawanan.tsx:6520:      await fetchLayers();
+  src\Kerawanan.tsx:6538:    return titles[section as keyof typeof titles];
+  src\Kerawanan.tsx:6539:  };
+  src\Kerawanan.tsx:6540:
+> src\Kerawanan.tsx:6541:  useEffect(() => {
+  src\Kerawanan.tsx:6542:    if (!mapInstanceRef.current) return;
+  src\Kerawanan.tsx:6543:
+  src\Kerawanan.tsx:6544:    // Hanya reload jika ada active kejadian layers
+  src\Kerawanan.tsx:6545:    if (activeKejadianLayers.size === 0) return;
+  src\Kerawanan.tsx:6546:
+  src\Kerawanan.tsx:6560:    reloadKejadianLayers();
+  src\Kerawanan.tsx:6561:  }, [currentBounds, selectedDas, selectedAreas, activeKejadianLayers]);
+  src\Kerawanan.tsx:6562:
+> src\Kerawanan.tsx:6563:  useEffect(() => {
+  src\Kerawanan.tsx:6564:    // Load Leaflet CSS
+  src\Kerawanan.tsx:6565:    const link = document.createElement("link");
+  src\Kerawanan.tsx:6566:    link.rel = "stylesheet";
+  src\Kerawanan.tsx:6567:    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+  src\Kerawanan.tsx:6568:    document.head.appendChild(link);
+  src\Kerawanan.tsx:6670:      });
+  src\Kerawanan.tsx:6671:
+  src\Kerawanan.tsx:6672:      map.on("moveend", () => {
+> src\Kerawanan.tsx:6673:        if (activeLayersRef.current) {
+  src\Kerawanan.tsx:6674:          // Kawasan Hutan SIGAP mengikuti extent peta setelah pan/zoom.
+  src\Kerawanan.tsx:6675:          void refreshActiveSigapLayers();
+  src\Kerawanan.tsx:6676:        }
+  src\Kerawanan.tsx:6677:      });
+  src\Kerawanan.tsx:6678:
+> src\Kerawanan.tsx:6679:      const roadBaseLayer = window.L.tileLayer(
+  src\Kerawanan.tsx:6680:        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  src\Kerawanan.tsx:6681:        {
+  src\Kerawanan.tsx:6682:          attribution: "&copy; OpenStreetMap contributors",
+  src\Kerawanan.tsx:6683:          crossOrigin: true,
+  src\Kerawanan.tsx:6684:        },
+  src\Kerawanan.tsx:6685:      );
+  src\Kerawanan.tsx:6686:
+> src\Kerawanan.tsx:6687:      const satelliteBaseLayer = window.L.tileLayer(
+  src\Kerawanan.tsx:6688:        
+"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  src\Kerawanan.tsx:6689:        {
+  src\Kerawanan.tsx:6690:          attribution: "Tiles &copy; Esri",
+  src\Kerawanan.tsx:6691:          crossOrigin: true,
+  src\Kerawanan.tsx:6692:        },
+  src\Kerawanan.tsx:6759:    };
+  src\Kerawanan.tsx:6760:  }, []);
+  src\Kerawanan.tsx:6761:
+> src\Kerawanan.tsx:6762:  useEffect(() => {
+  src\Kerawanan.tsx:6763:    const map = mapInstanceRef.current;
+  src\Kerawanan.tsx:6764:    const roadLayer = roadBaseLayerRef.current;
+  src\Kerawanan.tsx:6765:    const satelliteLayer = satelliteBaseLayerRef.current;
+  src\Kerawanan.tsx:6766:
+  src\Kerawanan.tsx:6767:    if (!map || !roadLayer || !satelliteLayer || !mapReady) return;
+  src\Kerawanan.tsx:6768:
+  src\Kerawanan.tsx:6769:    if (map.hasLayer(roadLayer)) {
+> src\Kerawanan.tsx:6770:      map.removeLayer(roadLayer);
+  src\Kerawanan.tsx:6771:    }
+  src\Kerawanan.tsx:6772:
+  src\Kerawanan.tsx:6773:    if (map.hasLayer(satelliteLayer)) {
+> src\Kerawanan.tsx:6774:      map.removeLayer(satelliteLayer);
+  src\Kerawanan.tsx:6775:    }
+  src\Kerawanan.tsx:6776:
+  src\Kerawanan.tsx:6777:    if (baseMapType === "satellite") {
+  src\Kerawanan.tsx:6778:      satelliteLayer.addTo(map);
+  src\Kerawanan.tsx:6779:    } else {
+  src\Kerawanan.tsx:6781:    }
+  src\Kerawanan.tsx:6782:  }, [baseMapType, mapReady]);
+  src\Kerawanan.tsx:6783:
+> src\Kerawanan.tsx:6784:  useEffect(() => {
+> src\Kerawanan.tsx:6785:    // Auto-fetch photos dan listings ketika ada perubahan pada activeLayers kejadian
+> src\Kerawanan.tsx:6786:    const activeAutoKejadian = Array.from(activeLayers).filter(
+  src\Kerawanan.tsx:6787:      (layer) =>
+  src\Kerawanan.tsx:6788:        layer.startsWith("kejadian_") && activeKejadianLayers.has(layer),
+  src\Kerawanan.tsx:6789:    );
+  src\Kerawanan.tsx:6790:
+  src\Kerawanan.tsx:6791:    console.log(
+> src\Kerawanan.tsx:6792:      "useEffect triggered - activeAutoKejadian:",
+  src\Kerawanan.tsx:6793:      activeAutoKejadian,
+  src\Kerawanan.tsx:6794:    );
+  src\Kerawanan.tsx:6795:    console.log(
+  src\Kerawanan.tsx:6796:      "activeKejadianLayers:",
+  src\Kerawanan.tsx:6797:      Array.from(activeKejadianLayers.entries()),
+  src\Kerawanan.tsx:6810:      setKejadianPhotos([]);
+  src\Kerawanan.tsx:6811:      setKejadianListings([]);
+  src\Kerawanan.tsx:6812:    }
+> src\Kerawanan.tsx:6813:  }, [activeLayers, activeKejadianLayers, currentBounds, selectedDas]);
+  src\Kerawanan.tsx:6814:
+> src\Kerawanan.tsx:6815:  const [activeTab, setActiveTab] = useState("administrasi");
+> src\Kerawanan.tsx:6816:  const [activeBottomTab, setActiveBottomTab] = useState("curahHujan");
+  src\Kerawanan.tsx:6817:  // UI-only: layer mitigasi yang sedang ditampilkan pada tabel ringkas.
+> src\Kerawanan.tsx:6818:  const [activeInfraSummaryLayer, setActiveInfraSummaryLayer] = useState<
+  src\Kerawanan.tsx:6819:    string | null
+  src\Kerawanan.tsx:6820:  >(null);
+  src\Kerawanan.tsx:6821:
+  src\Kerawanan.tsx:6822:  // Mode utama filter lokasi: Administrasi atau DAS.
+  src\Kerawanan.tsx:6823:  // Saat mode berganti, pilihan dari mode sebelumnya dibersihkan
+  src\Kerawanan.tsx:6831:      setDasSearchResults([]);
+  src\Kerawanan.tsx:6832:      setShowDasSearchDropdown(false);
+  src\Kerawanan.tsx:6833:
+> src\Kerawanan.tsx:6834:      Object.keys(layerGroupsRef.current).forEach((key) => {
+  src\Kerawanan.tsx:6835:        if (key.startsWith("das_boundary")) {
+> src\Kerawanan.tsx:6836:          safeRemoveMapLayer(layerGroupsRef.current[key]);
+> src\Kerawanan.tsx:6837:          delete layerGroupsRef.current[key];
+  src\Kerawanan.tsx:6838:        }
+  src\Kerawanan.tsx:6839:      });
+  src\Kerawanan.tsx:6840:    } else {
+  src\Kerawanan.tsx:6841:      setSelectedAreas([]);
+  src\Kerawanan.tsx:6842:      setAreaSearchQuery("");
+  src\Kerawanan.tsx:6843:      setAreaSearchResults([]);
+  src\Kerawanan.tsx:6844:      setShowAreaSearchDropdown(false);
+  src\Kerawanan.tsx:6845:
+> src\Kerawanan.tsx:6846:      Object.keys(layerGroupsRef.current).forEach((key) => {
+  src\Kerawanan.tsx:6847:        if (key.startsWith("admin_boundary")) {
+> src\Kerawanan.tsx:6848:          safeRemoveMapLayer(layerGroupsRef.current[key]);
+> src\Kerawanan.tsx:6849:          delete layerGroupsRef.current[key];
+  src\Kerawanan.tsx:6850:        }
+  src\Kerawanan.tsx:6851:      });
+  src\Kerawanan.tsx:6852:    }
+  src\Kerawanan.tsx:6853:
+  src\Kerawanan.tsx:6854:    setCurrentBounds(null);
+  src\Kerawanan.tsx:6855:  };
+> src\Kerawanan.tsx:6856:  const [showLayerPanel, setShowLayerPanel] = useState(false);
+  src\Kerawanan.tsx:6857:  // UI-only: collapse/expand panel kanan tanpa mengubah logic layer.
+  src\Kerawanan.tsx:6858:
+  src\Kerawanan.tsx:6859:  // ======================================================
+  src\Kerawanan.tsx:6860:  // ENTERPRISE LAYER MANAGER
+  src\Kerawanan.tsx:6861:  // Search, active-only view, collapse groups, opacity,
+  src\Kerawanan.tsx:6862:  // zoom-to-layer and metadata actions. Existing layer logic
+  src\Kerawanan.tsx:6863:  // tetap dipakai; manager hanya menjadi control surface.
+  src\Kerawanan.tsx:6864:  // ======================================================
+> src\Kerawanan.tsx:6865:  const [enterpriseLayerSearch, setEnterpriseLayerSearch] = useState("");
+  src\Kerawanan.tsx:6866:  const [enterpriseShowActiveOnly, setEnterpriseShowActiveOnly] =
+> src\Kerawanan.tsx:6867:    useState(false);
+> src\Kerawanan.tsx:6868:  const [enterpriseCollapsedGroups, setEnterpriseCollapsedGroups] = useState<
+  src\Kerawanan.tsx:6869:    Set<string>
+  src\Kerawanan.tsx:6870:  >(new Set());
+> src\Kerawanan.tsx:6871:  const [enterpriseOpacity, setEnterpriseOpacity] = useState<
+  src\Kerawanan.tsx:6872:    Record<string, number>
+  src\Kerawanan.tsx:6873:  >({});
+> src\Kerawanan.tsx:6874:  const [enterpriseLegendVisible, setEnterpriseLegendVisible] = useState<
+  src\Kerawanan.tsx:6875:    Record<string, boolean>
+  src\Kerawanan.tsx:6876:  >({});
+  src\Kerawanan.tsx:6877:  const [enterpriseMetadataLayer, setEnterpriseMetadataLayer] =
+> src\Kerawanan.tsx:6878:    useState<any>(null);
+> src\Kerawanan.tsx:6879:  const [enterpriseSearchQuery, setEnterpriseSearchQuery] = useState("");
+> src\Kerawanan.tsx:6880:  const [enterpriseSearchResults, setEnterpriseSearchResults] = useState<
+  src\Kerawanan.tsx:6881:    Array<any>
+  src\Kerawanan.tsx:6882:  >([]);
+> src\Kerawanan.tsx:6883:  const [enterpriseSearchLoading, setEnterpriseSearchLoading] = useState(false);
+> src\Kerawanan.tsx:6884:  const [enterpriseSearchOpen, setEnterpriseSearchOpen] = useState(false);
+  src\Kerawanan.tsx:6885:  const enterpriseSearchHighlightRef = useRef<any>(null);
+  src\Kerawanan.tsx:6886:  const enterpriseSearchRequestRef = useRef(0);
+  src\Kerawanan.tsx:6887:
+  src\Kerawanan.tsx:6888:  const enterpriseMatchesLayer = (layer: any) => {
+  src\Kerawanan.tsx:6889:    const id = String(layer?.id ?? layer?.name ?? "");
+  src\Kerawanan.tsx:6891:    const q = enterpriseLayerSearch.trim().toLowerCase();
+  src\Kerawanan.tsx:6892:    if (
+  src\Kerawanan.tsx:6893:      enterpriseShowActiveOnly &&
+> src\Kerawanan.tsx:6894:      !activeLayers.has(id) &&
+> src\Kerawanan.tsx:6895:      !activeLayers.has(name)
+  src\Kerawanan.tsx:6896:    )
+  src\Kerawanan.tsx:6897:      return false;
+  src\Kerawanan.tsx:6898:    if (!q) return true;
+  src\Kerawanan.tsx:6899:    return `${id} ${name} ${formatTableName(name)}`.toLowerCase().includes(q);
+  src\Kerawanan.tsx:6900:  };
+  src\Kerawanan.tsx:6912:    const opacity = Math.max(0, Math.min(1, value));
+  src\Kerawanan.tsx:6913:    setEnterpriseOpacity((prev) => ({ ...prev, [layerName]: opacity }));
+  src\Kerawanan.tsx:6914:    const layer =
+> src\Kerawanan.tsx:6915:      layerGroupsRef.current?.[layerName] ??
+> src\Kerawanan.tsx:6916:      layerGroupsRef.current?.[normalizeLayerApiName(layerName)];
+  src\Kerawanan.tsx:6917:    if (!layer) return;
+  src\Kerawanan.tsx:6918:    try {
+  src\Kerawanan.tsx:6919:      if (typeof layer.setOpacity === "function") layer.setOpacity(opacity);
+  src\Kerawanan.tsx:6920:      if (typeof layer.eachLayer === "function") {
+  src\Kerawanan.tsx:6921:        layer.eachLayer((child: any) => {
+  src\Kerawanan.tsx:6932:  const enterpriseZoomToLayer = (layerName: string) => {
+  src\Kerawanan.tsx:6933:    const map = mapInstanceRef.current as any;
+  src\Kerawanan.tsx:6934:    const layer =
+> src\Kerawanan.tsx:6935:      layerGroupsRef.current?.[layerName] ??
+> src\Kerawanan.tsx:6936:      layerGroupsRef.current?.[normalizeLayerApiName(layerName)];
+  src\Kerawanan.tsx:6937:    if (!map || !layer) return;
+  src\Kerawanan.tsx:6938:    try {
+  src\Kerawanan.tsx:6939:      if (typeof layer.getBounds === "function") {
+  src\Kerawanan.tsx:6940:        const bounds = layer.getBounds();
+  src\Kerawanan.tsx:6941:        if (bounds?.isValid?.()) {
+  src\Kerawanan.tsx:6979:    );
+  src\Kerawanan.tsx:6980:  };
+  src\Kerawanan.tsx:6981:
+> src\Kerawanan.tsx:6982:  const enterpriseActiveLayerEntries = Array.from(activeLayers).map(
+  src\Kerawanan.tsx:6983:    (layerName) => ({
+  src\Kerawanan.tsx:6984:      name: layerName,
+  src\Kerawanan.tsx:6985:      label: formatTableName(enterpriseLayerMeta(layerName)?.name || layerName),
+  src\Kerawanan.tsx:6986:    }),
+  src\Kerawanan.tsx:6987:  );
+  src\Kerawanan.tsx:6996:    const highlight = enterpriseSearchHighlightRef.current;
+  src\Kerawanan.tsx:6997:    if (highlight && map) {
+  src\Kerawanan.tsx:6998:      try {
+> src\Kerawanan.tsx:6999:        map.removeLayer(highlight);
+  src\Kerawanan.tsx:7000:      } catch {}
+  src\Kerawanan.tsx:7001:    }
+  src\Kerawanan.tsx:7002:    enterpriseSearchHighlightRef.current = null;
+  src\Kerawanan.tsx:7003:  };
+  src\Kerawanan.tsx:7004:
+  src\Kerawanan.tsx:7007:    if (!map || !window.L || !geometry) return null;
+  src\Kerawanan.tsx:7008:    clearEnterpriseSearchHighlight();
+  src\Kerawanan.tsx:7009:    try {
+> src\Kerawanan.tsx:7010:      const layer = window.L.geoJSON(
+  src\Kerawanan.tsx:7011:        {
+  src\Kerawanan.tsx:7012:          type: "Feature",
+  src\Kerawanan.tsx:7013:          geometry,
+  src\Kerawanan.tsx:7014:          properties: { enterpriseSearch: true, label },
+  src\Kerawanan.tsx:7015:        },
+  src\Kerawanan.tsx:7043:    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  src\Kerawanan.tsx:7044:
+  src\Kerawanan.tsx:7045:    map.flyTo([lat, lng], Math.max(map.getZoom(), 14), { duration: 0.9 });
+> src\Kerawanan.tsx:7046:    const group = layerName ? layerGroupsRef.current?.[layerName] : null;
+  src\Kerawanan.tsx:7047:    let target: any = null;
+  src\Kerawanan.tsx:7048:    if (group?.eachLayer) {
+  src\Kerawanan.tsx:7049:      group.eachLayer((child: any) => {
+  src\Kerawanan.tsx:7050:        if (target) return;
+  src\Kerawanan.tsx:7051:        const data = child?.incidentData || child?.feature?.properties;
+  src\Kerawanan.tsx:7126:    const highlight = enterpriseIdentifyHighlightRef.current;
+  src\Kerawanan.tsx:7127:    if (highlight && map) {
+  src\Kerawanan.tsx:7128:      try {
+> src\Kerawanan.tsx:7129:        map.removeLayer(highlight);
+  src\Kerawanan.tsx:7130:      } catch {}
+  src\Kerawanan.tsx:7131:    }
+  src\Kerawanan.tsx:7132:    enterpriseIdentifyHighlightRef.current = null;
+  src\Kerawanan.tsx:7133:    setEnterpriseIdentify((prev) => ({ ...prev, open: false }));
+  src\Kerawanan.tsx:7134:  };
+  src\Kerawanan.tsx:7147:      latlng ||
+  src\Kerawanan.tsx:7148:      (() => {
+  src\Kerawanan.tsx:7149:        try {
+> src\Kerawanan.tsx:7150:          const bounds = window.L.geoJSON(feature).getBounds();
+  src\Kerawanan.tsx:7151:          return bounds?.isValid?.() ? bounds.getCenter() : null;
+  src\Kerawanan.tsx:7152:        } catch {
+  src\Kerawanan.tsx:7153:          return null;
+  src\Kerawanan.tsx:7154:        }
+  src\Kerawanan.tsx:7155:      })();
+  src\Kerawanan.tsx:7184:
+  src\Kerawanan.tsx:7185:    if (enterpriseIdentifyHighlightRef.current) {
+  src\Kerawanan.tsx:7186:      try {
+> src\Kerawanan.tsx:7187:        map.removeLayer(enterpriseIdentifyHighlightRef.current);
+  src\Kerawanan.tsx:7188:      } catch {}
+  src\Kerawanan.tsx:7189:    }
+  src\Kerawanan.tsx:7190:    enterpriseIdentifyHighlightRef.current = null;
+  src\Kerawanan.tsx:7191:    if (geometry) {
+  src\Kerawanan.tsx:7192:      try {
+> src\Kerawanan.tsx:7193:        enterpriseIdentifyHighlightRef.current = window.L.geoJSON(
+  src\Kerawanan.tsx:7194:          { type: "Feature", geometry, properties: {} },
+  src\Kerawanan.tsx:7195:          {
+  src\Kerawanan.tsx:7196:            style: {
+  src\Kerawanan.tsx:7197:              color: "#ef4444",
+  src\Kerawanan.tsx:7198:              weight: 4,
+  src\Kerawanan.tsx:7235:    if (!map || !window.L) return false;
+  src\Kerawanan.tsx:7236:    const point = window.L.latLng(latlng.lat, latlng.lng);
+  src\Kerawanan.tsx:7237:    const candidates: any[] = [];
+> src\Kerawanan.tsx:7238:    const activeKeys = Array.from(activeLayersRef.current || new Set<string>());
+> src\Kerawanan.tsx:7239:    const groups = layerGroupsRef.current || {};
+  src\Kerawanan.tsx:7240:
+  src\Kerawanan.tsx:7241:    activeKeys.forEach((key) => {
+  src\Kerawanan.tsx:7242:      const group = groups[key] || groups[normalizeLayerApiName(key)];
+  src\Kerawanan.tsx:7243:      if (!group?.eachLayer) return;
+  src\Kerawanan.tsx:7244:      group.eachLayer((child: any) => {
+  src\Kerawanan.tsx:7413:          });
+  src\Kerawanan.tsx:7414:        });
+  src\Kerawanan.tsx:7415:
+> src\Kerawanan.tsx:7416:      // 3. Objek yang sudah termuat di map (marker kejadian / feature GeoJSON).
+> src\Kerawanan.tsx:7417:      Object.entries(layerGroupsRef.current || {}).forEach(
+  src\Kerawanan.tsx:7418:        ([layerName, group]: [string, any]) => {
+  src\Kerawanan.tsx:7419:          if (!group?.eachLayer) return;
+  src\Kerawanan.tsx:7420:          group.eachLayer((child: any) => {
+  src\Kerawanan.tsx:7421:            const data = child?.incidentData || child?.feature?.properties;
+  src\Kerawanan.tsx:7422:            if (!data) return;
+  src\Kerawanan.tsx:7485:      handleAreaSelect(data);
+  src\Kerawanan.tsx:7486:      window.setTimeout(() => {
+  src\Kerawanan.tsx:7487:        const key = `admin_boundary_${String(data.label || result.label).replace(/[,\s]+/g, 
+"_")}`;
+> src\Kerawanan.tsx:7488:        const boundary = layerGroupsRef.current?.[key];
+  src\Kerawanan.tsx:7489:        if (boundary?.getBounds?.().isValid?.())
+  src\Kerawanan.tsx:7490:          map.flyToBounds(boundary.getBounds(), {
+  src\Kerawanan.tsx:7491:            padding: [50, 50],
+  src\Kerawanan.tsx:7492:            duration: 0.9,
+  src\Kerawanan.tsx:7493:          });
+  src\Kerawanan.tsx:7497:
+  src\Kerawanan.tsx:7498:    if (result.type === "layer") {
+  src\Kerawanan.tsx:7499:      const layerName = String(data.id || data.name);
+> src\Kerawanan.tsx:7500:      if (!activeLayers.has(layerName))
+  src\Kerawanan.tsx:7501:        await handleLayerToggle(layerName, true);
+  src\Kerawanan.tsx:7502:      window.setTimeout(() => enterpriseZoomToLayer(layerName), 450);
+  src\Kerawanan.tsx:7503:      return;
+  src\Kerawanan.tsx:7504:    }
+  src\Kerawanan.tsx:7505:
+  src\Kerawanan.tsx:7530:    }
+  src\Kerawanan.tsx:7531:  };
+  src\Kerawanan.tsx:7532:
+> src\Kerawanan.tsx:7533:  const [selectedInfoTab, setSelectedInfoTab] = useState("Ringkasan");
+> src\Kerawanan.tsx:7534:  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(null);
+  src\Kerawanan.tsx:7535:
+  src\Kerawanan.tsx:7536:  // ======================================================
+  src\Kerawanan.tsx:7537:  // SIMITI AI — Click-to-Diagnose Mitigation
+  src\Kerawanan.tsx:7538:  // ======================================================
+  src\Kerawanan.tsx:7539:  type AiMitigationRecommendation = {
+  src\Kerawanan.tsx:7561:    meta?: { model?: string; source?: string; generated_at?: string };
+  src\Kerawanan.tsx:7562:  };
+  src\Kerawanan.tsx:7563:
+> src\Kerawanan.tsx:7564:  const [aiHazard, setAiHazard] = useState("banjir");
+> src\Kerawanan.tsx:7565:  const [aiRunning, setAiRunning] = useState(false);
+> src\Kerawanan.tsx:7566:  const [aiStage, setAiStage] = useState("");
+> src\Kerawanan.tsx:7567:  const [aiError, setAiError] = useState("");
+> src\Kerawanan.tsx:7568:  const [aiMitigation, setAiMitigation] = useState<AiMitigationPayload | null>(
+  src\Kerawanan.tsx:7569:    null,
+  src\Kerawanan.tsx:7570:  );
+  src\Kerawanan.tsx:7571:
+  src\Kerawanan.tsx:7572:  const AI_HAZARD_OPTIONS = [
+  src\Kerawanan.tsx:7573:    ["banjir", "Banjir"],
+  src\Kerawanan.tsx:7713:    "pompa_air",
+  src\Kerawanan.tsx:7714:  ];
+  src\Kerawanan.tsx:7715:
+> src\Kerawanan.tsx:7716:  useEffect(() => {
+  src\Kerawanan.tsx:7717:    if (!mapInstanceRef.current) return;
+  src\Kerawanan.tsx:7718:
+  src\Kerawanan.tsx:7719:    const tabToLayerMapping: Record<string, string> = {
+  src\Kerawanan.tsx:7720:      tutupanLahan: "tutupan_lahan",
+  src\Kerawanan.tsx:7721:      penutupanLahan2024: "penutupan_lahan_2024",
+  src\Kerawanan.tsx:7754:
+  src\Kerawanan.tsx:7755:    // Sembunyikan semua layer yang punya bottom tab
+  src\Kerawanan.tsx:7756:    layersWithBottomTabs.forEach((layerName) => {
+> src\Kerawanan.tsx:7757:      const layer = layerGroupsRef.current[layerName];
+  src\Kerawanan.tsx:7758:      if (layer && mapInstanceRef.current.hasLayer(layer)) {
+  src\Kerawanan.tsx:7759:        safeRemoveMapLayer(layer);
+  src\Kerawanan.tsx:7760:      }
+  src\Kerawanan.tsx:7761:    });
+  src\Kerawanan.tsx:7762:
+  src\Kerawanan.tsx:7763:    if (activeBottomTab === "mitigasi_adaptasi") {
+  src\Kerawanan.tsx:7764:      // Tampilkan semua infra layer yang aktif
+  src\Kerawanan.tsx:7765:      INFRA_IDS.forEach((id) => {
+> src\Kerawanan.tsx:7766:        const layer = layerGroupsRef.current[id];
+> src\Kerawanan.tsx:7767:        if (layer && activeLayers.has(id)) {
+  src\Kerawanan.tsx:7768:          if (!mapInstanceRef.current.hasLayer(layer))
+  src\Kerawanan.tsx:7769:            layer.addTo(mapInstanceRef.current);
+  src\Kerawanan.tsx:7770:        }
+  src\Kerawanan.tsx:7771:      });
+  src\Kerawanan.tsx:7772:    } else {
+  src\Kerawanan.tsx:7773:      // Tampilkan layer sesuai tab aktif (non-infra)
+  src\Kerawanan.tsx:7774:      const activeLayerName = tabToLayerMapping[activeBottomTab];
+  src\Kerawanan.tsx:7775:      if (activeLayerName) {
+> src\Kerawanan.tsx:7776:        const activeLayer = layerGroupsRef.current[activeLayerName];
+> src\Kerawanan.tsx:7777:        if (activeLayer && activeLayers.has(activeLayerName)) {
+  src\Kerawanan.tsx:7778:          if (!mapInstanceRef.current.hasLayer(activeLayer)) {
+  src\Kerawanan.tsx:7779:            activeLayer.addTo(mapInstanceRef.current);
+  src\Kerawanan.tsx:7780:          }
+  src\Kerawanan.tsx:7781:        }
+  src\Kerawanan.tsx:7782:      }
+  src\Kerawanan.tsx:7783:    }
+> src\Kerawanan.tsx:7784:  }, [activeBottomTab, activeLayers]);
+  src\Kerawanan.tsx:7785:
+> src\Kerawanan.tsx:7786:  const [filters, setFilters] = useState({
+  src\Kerawanan.tsx:7787:    kerawanan: {
+  src\Kerawanan.tsx:7788:      banjir: false,
+  src\Kerawanan.tsx:7789:      tanahLongsor: false,
+  src\Kerawanan.tsx:7790:      kekeringan: false,
+  src\Kerawanan.tsx:7791:      abrasi: false,
+  src\Kerawanan.tsx:7820:    },
+  src\Kerawanan.tsx:7821:  });
+  src\Kerawanan.tsx:7822:
+> src\Kerawanan.tsx:7823:  const [isLayerPanelOpen, setIsLayerPanelOpen] = useState(true);
+  src\Kerawanan.tsx:7824:
+  src\Kerawanan.tsx:7825:  const handleFilterChange = (category, key) => {
+  src\Kerawanan.tsx:7826:    setFilters((prev) => ({
+  src\Kerawanan.tsx:7827:      ...prev,
+  src\Kerawanan.tsx:7828:      [category]: {
+  src\Kerawanan.tsx:7845:    const chartRef = useRef<HTMLCanvasElement | null>(null);
+  src\Kerawanan.tsx:7846:    const chartInstance = useRef<Chart | null>(null);
+  src\Kerawanan.tsx:7847:
+> src\Kerawanan.tsx:7848:    useEffect(() => {
+  src\Kerawanan.tsx:7849:      if (chartRef.current && window.Chart) {
+  src\Kerawanan.tsx:7850:        const ctx = chartRef.current.getContext("2d");
+  src\Kerawanan.tsx:7851:
+  src\Kerawanan.tsx:7852:        if (chartInstance.current) {
+  src\Kerawanan.tsx:7853:          chartInstance.current.destroy();
+  src\Kerawanan.tsx:7917:    const chartRef = useRef(null);
+  src\Kerawanan.tsx:7918:    const chartInstance = useRef(null);
+  src\Kerawanan.tsx:7919:
+> src\Kerawanan.tsx:7920:    useEffect(() => {
+  src\Kerawanan.tsx:7921:      if (chartRef.current && window.Chart) {
+  src\Kerawanan.tsx:7922:        const ctx = chartRef.current.getContext("2d");
+  src\Kerawanan.tsx:7923:
+  src\Kerawanan.tsx:7924:        if (chartInstance.current) {
+  src\Kerawanan.tsx:7925:          chartInstance.current.destroy();
+  src\Kerawanan.tsx:7987:    const chartRef = useRef<HTMLCanvasElement | null>(null);
+  src\Kerawanan.tsx:7988:    const chartInstance = useRef<Chart | null>(null);
+  src\Kerawanan.tsx:7989:
+> src\Kerawanan.tsx:7990:    useEffect(() => {
+  src\Kerawanan.tsx:7991:      if (!chartRef.current || !window.Chart) {
+  src\Kerawanan.tsx:7992:        return;
+  src\Kerawanan.tsx:7993:      }
+  src\Kerawanan.tsx:7994:
+  src\Kerawanan.tsx:7995:      const ctx = chartRef.current.getContext("2d");
+  src\Kerawanan.tsx:8015:    return <canvas ref={chartRef} />;
+  src\Kerawanan.tsx:8016:  };
+  src\Kerawanan.tsx:8017:
+> src\Kerawanan.tsx:8018:  useEffect(() => {
+  src\Kerawanan.tsx:8019:    // Refresh data tutupan lahan jika layer aktif dan bounds berubah
+> src\Kerawanan.tsx:8020:    if (activeLayers.has("tutupan_lahan")) {
+  src\Kerawanan.tsx:8021:      fetchTutupanLahanData();
+  src\Kerawanan.tsx:8022:    }
+  src\Kerawanan.tsx:8023:  }, [currentBounds, selectedDas]);
+  src\Kerawanan.tsx:8024:
+  src\Kerawanan.tsx:8025:  const DataTable = ({ columns, data }) => (
+  src\Kerawanan.tsx:8058:  const bottomTabs = React.useMemo(() => {
+  src\Kerawanan.tsx:8059:    const tabs: Array<{ id: string; label: string; icon: string }> = [];
+  src\Kerawanan.tsx:8060:
+> src\Kerawanan.tsx:8061:    const hasAutoKejadian = Array.from(activeLayers).some(
+  src\Kerawanan.tsx:8062:      (layer) =>
+  src\Kerawanan.tsx:8063:        layer.startsWith("kejadian_") && activeKejadianLayers.has(layer),
+  src\Kerawanan.tsx:8064:    );
+  src\Kerawanan.tsx:8065:
+  src\Kerawanan.tsx:8066:    if (hasAutoKejadian) {
+  src\Kerawanan.tsx:8068:    }
+  src\Kerawanan.tsx:8069:
+  src\Kerawanan.tsx:8070:    // Hanya tambahkan tab untuk layer-layer yang punya data bottom tabs
+> src\Kerawanan.tsx:8071:    if (activeLayers.has("tutupan_lahan")) {
+  src\Kerawanan.tsx:8072:      tabs.push({ id: "tutupanLahan", label: "Tutupan Lahan", icon: "🌳" });
+  src\Kerawanan.tsx:8073:    }
+  src\Kerawanan.tsx:8074:
+> src\Kerawanan.tsx:8075:    if (activeLayers.has("penutupan_lahan_2024")) {
+  src\Kerawanan.tsx:8076:      tabs.push({
+  src\Kerawanan.tsx:8077:        id: "penutupanLahan2024",
+  src\Kerawanan.tsx:8078:        label: "Penutupan Lahan 2024",
+  src\Kerawanan.tsx:8079:        icon: "🌲",
+  src\Kerawanan.tsx:8080:      });
+  src\Kerawanan.tsx:8081:    }
+  src\Kerawanan.tsx:8082:
+> src\Kerawanan.tsx:8083:    if (activeLayers.has("pl2024")) {
+  src\Kerawanan.tsx:8084:      tabs.push({ id: "pl2024", label: "PL2024", icon: "🌴" });
+  src\Kerawanan.tsx:8085:    }
+  src\Kerawanan.tsx:8086:
+> src\Kerawanan.tsx:8087:    if (activeLayers.has("jenis_tanah")) {
+  src\Kerawanan.tsx:8088:      tabs.push({ id: "jenisTanah", label: "Jenis Tanah", icon: "🌱" });
+  src\Kerawanan.tsx:8089:    }
+  src\Kerawanan.tsx:8090:
+> src\Kerawanan.tsx:8091:    if (activeLayers.has("geologi")) {
+  src\Kerawanan.tsx:8092:      tabs.push({ id: "geologi", label: "Geologi", icon: "🪨" });
+  src\Kerawanan.tsx:8093:    }
+  src\Kerawanan.tsx:8094:
+> src\Kerawanan.tsx:8095:    if (activeLayers.has("lahan_kritis")) {
+  src\Kerawanan.tsx:8096:      tabs.push({ id: "lahan_kritis", label: "Lahan Kritis", icon: "⚠️" });
+  src\Kerawanan.tsx:8097:    }
+  src\Kerawanan.tsx:8098:
+> src\Kerawanan.tsx:8099:    if (activeLayers.has("rawan_erosi")) {
+  src\Kerawanan.tsx:8100:      tabs.push({ id: "rawan_erosi", label: "Rawan Erosi", icon: "🏔️" });
+  src\Kerawanan.tsx:8101:    }
+  src\Kerawanan.tsx:8102:
+> src\Kerawanan.tsx:8103:    if (activeLayers.has("rawan_longsor")) {
+  src\Kerawanan.tsx:8104:      tabs.push({ id: "rawan_longsor", label: "Rawan Longsor", icon: "⛰️" });
+  src\Kerawanan.tsx:8105:    }
+  src\Kerawanan.tsx:8106:
+> src\Kerawanan.tsx:8107:    if (activeLayers.has("rawan_limpasan")) {
+  src\Kerawanan.tsx:8108:      tabs.push({ id: "rawan_limpasan", label: "Rawan Limpasan", icon: "💧" });
+  src\Kerawanan.tsx:8109:    }
+  src\Kerawanan.tsx:8110:
+> src\Kerawanan.tsx:8111:    if (activeLayers.has("rawan_karhutla")) {
+  src\Kerawanan.tsx:8112:      tabs.push({ id: "rawan_karhutla", label: "Rawan Karhutla", icon: "🔥" });
+  src\Kerawanan.tsx:8113:    }
+  src\Kerawanan.tsx:8114:
+> src\Kerawanan.tsx:8115:    if (activeLayers.has("bahaya_kekeringan")) {
+  src\Kerawanan.tsx:8116:      tabs.push({
+  src\Kerawanan.tsx:8117:        id: "bahaya_kekeringan",
+  src\Kerawanan.tsx:8118:        label: "Bahaya Kekeringan",
+  src\Kerawanan.tsx:8119:        icon: "☀️",
+  src\Kerawanan.tsx:8120:      });
+  src\Kerawanan.tsx:8121:    }
+> src\Kerawanan.tsx:8122:    if (activeLayers.has("bahaya_abrasi_dan_gelombang_ekstrim")) {
+  src\Kerawanan.tsx:8123:      tabs.push({ id: "bahaya_abrasi", label: "Bahaya Abrasi", icon: "🌊" });
+  src\Kerawanan.tsx:8124:    }
+> src\Kerawanan.tsx:8125:    if (activeLayers.has("bahaya_banjir")) {
+  src\Kerawanan.tsx:8126:      tabs.push({ id: "bahaya_banjir", label: "Bahaya Banjir", icon: "🌧️" });
+  src\Kerawanan.tsx:8127:    }
+> src\Kerawanan.tsx:8128:    if (activeLayers.has("bahaya_banjir_bandang")) {
+  src\Kerawanan.tsx:8129:      tabs.push({
+  src\Kerawanan.tsx:8130:        id: "bahaya_banjir_bandang",
+  src\Kerawanan.tsx:8131:        label: "Bahaya Banjir Bandang",
+  src\Kerawanan.tsx:8132:        icon: "🌊",
+  src\Kerawanan.tsx:8133:      });
+  src\Kerawanan.tsx:8134:    }
+> src\Kerawanan.tsx:8135:    if (activeLayers.has("dta_danau")) {
+  src\Kerawanan.tsx:8136:      tabs.push({ id: "dta_danau", label: "DTA Danau", icon: "🏞️" });
+  src\Kerawanan.tsx:8137:    }
+> src\Kerawanan.tsx:8138:    if (activeLayers.has("rehabilitasi_das")) {
+  src\Kerawanan.tsx:8139:      tabs.push({
+  src\Kerawanan.tsx:8140:        id: "rehabilitasi_das",
+  src\Kerawanan.tsx:8141:        label: "Rehabilitasi DAS",
+  src\Kerawanan.tsx:8142:        icon: "🌿",
+  src\Kerawanan.tsx:8143:      });
+  src\Kerawanan.tsx:8144:    }
+> src\Kerawanan.tsx:8145:    if (activeLayers.has("rehabilitasi_hutan")) {
+  src\Kerawanan.tsx:8146:      tabs.push({
+  src\Kerawanan.tsx:8147:        id: "rehabilitasi_hutan",
+  src\Kerawanan.tsx:8148:        label: "Rehabilitasi Hutan",
+  src\Kerawanan.tsx:8149:        icon: "🌲",
+  src\Kerawanan.tsx:8150:      });
+  src\Kerawanan.tsx:8151:    }
+> src\Kerawanan.tsx:8152:    if (activeLayers.has("restorasi_gambut")) {
+  src\Kerawanan.tsx:8153:      tabs.push({
+  src\Kerawanan.tsx:8154:        id: "restorasi_gambut",
+  src\Kerawanan.tsx:8155:        label: "Restorasi Gambut",
+  src\Kerawanan.tsx:8156:        icon: "🪵",
+  src\Kerawanan.tsx:8157:      });
+  src\Kerawanan.tsx:8158:    }
+> src\Kerawanan.tsx:8159:    if (activeLayers.has("penerapan_teknik_kta")) {
+  src\Kerawanan.tsx:8160:      tabs.push({
+  src\Kerawanan.tsx:8161:        id: "penerapan_teknik_kta",
+  src\Kerawanan.tsx:8162:        label: "Teknik KTA",
+  src\Kerawanan.tsx:8163:        icon: "🏔️",
+  src\Kerawanan.tsx:8164:      });
+  src\Kerawanan.tsx:8165:    }
+> src\Kerawanan.tsx:8166:    if (activeLayers.has("karhutla_2021")) {
+  src\Kerawanan.tsx:8167:      tabs.push({ id: "kebakaran_2021", label: "Kebakaran 2021", icon: "🔥" });
+  src\Kerawanan.tsx:8168:    }
+> src\Kerawanan.tsx:8169:    if (activeLayers.has("karhutla_2022")) {
+  src\Kerawanan.tsx:8170:      tabs.push({ id: "kebakaran_2022", label: "Kebakaran 2022", icon: "🔥" });
+  src\Kerawanan.tsx:8171:    }
+> src\Kerawanan.tsx:8172:    if (activeLayers.has("karhutla_2023")) {
+  src\Kerawanan.tsx:8173:      tabs.push({ id: "kebakaran_2023", label: "Kebakaran 2023", icon: "🔥" });
+  src\Kerawanan.tsx:8174:    }
+> src\Kerawanan.tsx:8175:    if (activeLayers.has("karhutla_2024")) {
+  src\Kerawanan.tsx:8176:      tabs.push({ id: "kebakaran_2024", label: "Kebakaran 2024", icon: "🔥" });
+  src\Kerawanan.tsx:8177:    }
+> src\Kerawanan.tsx:8178:    if (activeLayers.has("karhutla_2025")) {
+  src\Kerawanan.tsx:8179:      tabs.push({ id: "kebakaran_2025", label: "Kebakaran 2025", icon: "🔥" });
+  src\Kerawanan.tsx:8180:    }
+> src\Kerawanan.tsx:8181:    if (activeLayers.has("kawasan_hutan") || activeLayers.has("97")) {
+  src\Kerawanan.tsx:8182:      tabs.push({ id: "kawasan_hutan", label: "Kawasan Hutan", icon: "🌳" });
+  src\Kerawanan.tsx:8183:    }
+> src\Kerawanan.tsx:8184:    if (activeLayers.has("risiko_banjir"))
+  src\Kerawanan.tsx:8185:      tabs.push({ id: "risiko_banjir", label: "Risiko Banjir", icon: "🌊" });
+> src\Kerawanan.tsx:8186:    if (activeLayers.has("risiko_banjir_bandang"))
+  src\Kerawanan.tsx:8187:      tabs.push({
+  src\Kerawanan.tsx:8188:        id: "risiko_banjir_bandang",
+  src\Kerawanan.tsx:8189:        label: "Risiko Banjir Bandang",
+  src\Kerawanan.tsx:8190:        icon: "🌊",
+  src\Kerawanan.tsx:8191:      });
+> src\Kerawanan.tsx:8192:    if (activeLayers.has("risiko_kekeringan"))
+  src\Kerawanan.tsx:8193:      tabs.push({
+  src\Kerawanan.tsx:8194:        id: "risiko_kekeringan",
+  src\Kerawanan.tsx:8195:        label: "Risiko Kekeringan",
+  src\Kerawanan.tsx:8196:        icon: "☀️",
+  src\Kerawanan.tsx:8197:      });
+> src\Kerawanan.tsx:8198:    if (activeLayers.has("risiko_abrasi"))
+  src\Kerawanan.tsx:8199:      tabs.push({ id: "risiko_abrasi", label: "Risiko Abrasi", icon: "🏖️" });
+> src\Kerawanan.tsx:8200:    if (activeLayers.has("risiko_longsor"))
+  src\Kerawanan.tsx:8201:      tabs.push({ id: "risiko_longsor", label: "Risiko Longsor", icon: "⛰️" });
+> src\Kerawanan.tsx:8202:    if (activeLayers.has("risiko_karhutla"))
+  src\Kerawanan.tsx:8203:      tabs.push({
+  src\Kerawanan.tsx:8204:        id: "risiko_karhutla",
+  src\Kerawanan.tsx:8205:        label: "Risiko Karhutla",
+  src\Kerawanan.tsx:8206:        icon: "🔥",
+  src\Kerawanan.tsx:8207:      });
+> src\Kerawanan.tsx:8208:    if (activeLayers.has("khdtk"))
+  src\Kerawanan.tsx:8209:      tabs.push({ id: "khdtk", label: "KHDTK", icon: "🌳" });
+> src\Kerawanan.tsx:8210:    const hasAnyInfra = INFRA_IDS.some((id) => activeLayers.has(id));
+  src\Kerawanan.tsx:8211:    if (hasAnyInfra) {
+  src\Kerawanan.tsx:8212:      tabs.push({
+  src\Kerawanan.tsx:8213:        id: "mitigasi_adaptasi",
+  src\Kerawanan.tsx:8214:        label: "Mitigasi & Adaptasi",
+  src\Kerawanan.tsx:8215:        icon: "🏗️",
+  src\Kerawanan.tsx:8216:      });
+  src\Kerawanan.tsx:8217:    }
+  src\Kerawanan.tsx:8218:    return tabs;
+> src\Kerawanan.tsx:8219:  }, [activeLayers, activeKejadianLayers]);
+  src\Kerawanan.tsx:8220:
+  src\Kerawanan.tsx:8221:  const renderBottomContent = () => {
+  src\Kerawanan.tsx:8222:    // Jika tidak ada layer yang aktif atau tidak ada tab
+  src\Kerawanan.tsx:8223:    if (bottomTabs.length === 0) {
+  src\Kerawanan.tsx:8224:      return (
+  src\Kerawanan.tsx:8366:        }
+  src\Kerawanan.tsx:8367:
+  src\Kerawanan.tsx:8368:      case "tutupanLahan":
+> src\Kerawanan.tsx:8369:        if (activeLayers.has("tutupan_lahan") && tutupanLahanData.length > 0) {
+  src\Kerawanan.tsx:8370:          return (
+  src\Kerawanan.tsx:8371:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:8372:              <div
+  src\Kerawanan.tsx:8373:                className="overflow-auto flex-1"
+  src\Kerawanan.tsx:8374:                style={{ maxHeight: "calc(35vh - 100px)" }}
+  src\Kerawanan.tsx:8438:              </div>
+  src\Kerawanan.tsx:8439:            </div>
+  src\Kerawanan.tsx:8440:          );
+> src\Kerawanan.tsx:8441:        } else if (activeLayers.has("tutupan_lahan")) {
+  src\Kerawanan.tsx:8442:          return (
+  src\Kerawanan.tsx:8443:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:8444:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:8445:                <p className="text-sm">
+  src\Kerawanan.tsx:8446:                  Tidak ada data tutupan lahan di area yang dipilih
+  src\Kerawanan.tsx:8453:
+  src\Kerawanan.tsx:8454:      case "penutupanLahan2024":
+  src\Kerawanan.tsx:8455:        if (
+> src\Kerawanan.tsx:8456:          activeLayers.has("penutupan_lahan_2024") &&
+  src\Kerawanan.tsx:8457:          penutupanLahan2024Data.length > 0
+  src\Kerawanan.tsx:8458:        ) {
+  src\Kerawanan.tsx:8459:          return (
+  src\Kerawanan.tsx:8460:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:8461:              <div
+  src\Kerawanan.tsx:8527:              </div>
+  src\Kerawanan.tsx:8528:            </div>
+  src\Kerawanan.tsx:8529:          );
+> src\Kerawanan.tsx:8530:        } else if (activeLayers.has("penutupan_lahan_2024")) {
+  src\Kerawanan.tsx:8531:          return (
+  src\Kerawanan.tsx:8532:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:8533:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:8534:                <p className="text-sm">
+  src\Kerawanan.tsx:8535:                  Tidak ada data tutupan lahan di area yang dipilih
+  src\Kerawanan.tsx:8541:        break;
+  src\Kerawanan.tsx:8542:
+  src\Kerawanan.tsx:8543:      case "pl2024":
+> src\Kerawanan.tsx:8544:        if (activeLayers.has("pl2024") && pl2024Data.length > 0) {
+  src\Kerawanan.tsx:8545:          return (
+  src\Kerawanan.tsx:8546:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:8547:              <div
+  src\Kerawanan.tsx:8548:                className="overflow-auto flex-1"
+  src\Kerawanan.tsx:8549:                style={{ maxHeight: "calc(35vh - 100px)" }}
+  src\Kerawanan.tsx:8613:              </div>
+  src\Kerawanan.tsx:8614:            </div>
+  src\Kerawanan.tsx:8615:          );
+> src\Kerawanan.tsx:8616:        } else if (activeLayers.has("pl2024")) {
+  src\Kerawanan.tsx:8617:          return (
+  src\Kerawanan.tsx:8618:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:8619:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:8620:                <p className="text-sm">
+  src\Kerawanan.tsx:8621:                  Tidak ada data tutupan lahan di area yang dipilih
+  src\Kerawanan.tsx:8627:        break;
+  src\Kerawanan.tsx:8628:
+  src\Kerawanan.tsx:8629:      case "jenisTanah":
+> src\Kerawanan.tsx:8630:        if (activeLayers.has("jenis_tanah") && jenisTanahData.length > 0) {
+  src\Kerawanan.tsx:8631:          return (
+  src\Kerawanan.tsx:8632:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:8633:              <div
+  src\Kerawanan.tsx:8634:                className="overflow-auto flex-1"
+  src\Kerawanan.tsx:8635:                style={{ maxHeight: "calc(35vh - 100px)" }}
+  src\Kerawanan.tsx:8688:              </div>
+  src\Kerawanan.tsx:8689:            </div>
+  src\Kerawanan.tsx:8690:          );
+> src\Kerawanan.tsx:8691:        } else if (activeLayers.has("jenis_tanah")) {
+  src\Kerawanan.tsx:8692:          return (
+  src\Kerawanan.tsx:8693:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:8694:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:8695:                <p className="text-sm">
+  src\Kerawanan.tsx:8696:                  Tidak ada data jenis tanah di area yang dipilih
+  src\Kerawanan.tsx:8702:        break;
+  src\Kerawanan.tsx:8703:
+  src\Kerawanan.tsx:8704:      case "geologi":
+> src\Kerawanan.tsx:8705:        if (activeLayers.has("geologi") && geologiData.length > 0) {
+  src\Kerawanan.tsx:8706:          return (
+  src\Kerawanan.tsx:8707:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:8708:              <div
+  src\Kerawanan.tsx:8709:                className="overflow-auto flex-1"
+  src\Kerawanan.tsx:8710:                style={{ maxHeight: "calc(35vh - 100px)" }}
+  src\Kerawanan.tsx:8782:              </div>
+  src\Kerawanan.tsx:8783:            </div>
+  src\Kerawanan.tsx:8784:          );
+> src\Kerawanan.tsx:8785:        } else if (activeLayers.has("geologi")) {
+  src\Kerawanan.tsx:8786:          return (
+  src\Kerawanan.tsx:8787:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:8788:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:8789:                <p className="text-sm">
+  src\Kerawanan.tsx:8790:                  Tidak ada data geologi di area yang dipilih
+  src\Kerawanan.tsx:8796:        break;
+  src\Kerawanan.tsx:8797:
+  src\Kerawanan.tsx:8798:      case "lahan_kritis":
+> src\Kerawanan.tsx:8799:        if (activeLayers.has("lahan_kritis") && lahanKritisData.length > 0) {
+  src\Kerawanan.tsx:8800:          return (
+  src\Kerawanan.tsx:8801:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:8802:              <div
+  src\Kerawanan.tsx:8803:                className="overflow-auto flex-1"
+  src\Kerawanan.tsx:8804:                style={{ maxHeight: "calc(35vh - 100px)" }}
+  src\Kerawanan.tsx:8866:              </div>
+  src\Kerawanan.tsx:8867:            </div>
+  src\Kerawanan.tsx:8868:          );
+> src\Kerawanan.tsx:8869:        } else if (activeLayers.has("lahan_kritis")) {
+  src\Kerawanan.tsx:8870:          return (
+  src\Kerawanan.tsx:8871:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:8872:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:8873:                <p className="text-sm">
+  src\Kerawanan.tsx:8874:                  Tidak ada data lahan kritis di area yang dipilih
+  src\Kerawanan.tsx:8880:        break;
+  src\Kerawanan.tsx:8881:
+  src\Kerawanan.tsx:8882:      case "rawan_erosi":
+> src\Kerawanan.tsx:8883:        if (activeLayers.has("rawan_erosi") && rawanErosiData.length > 0) {
+  src\Kerawanan.tsx:8884:          return (
+  src\Kerawanan.tsx:8885:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:8886:              <div
+  src\Kerawanan.tsx:8887:                className="overflow-auto flex-1"
+  src\Kerawanan.tsx:8888:                style={{ maxHeight: "calc(35vh - 100px)" }}
+  src\Kerawanan.tsx:8950:              </div>
+  src\Kerawanan.tsx:8951:            </div>
+  src\Kerawanan.tsx:8952:          );
+> src\Kerawanan.tsx:8953:        } else if (activeLayers.has("rawan_erosi")) {
+  src\Kerawanan.tsx:8954:          return (
+  src\Kerawanan.tsx:8955:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:8956:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:8957:                <p className="text-sm">
+  src\Kerawanan.tsx:8958:                  Tidak ada data rawan erosi di area yang dipilih
+  src\Kerawanan.tsx:8964:        break;
+  src\Kerawanan.tsx:8965:
+  src\Kerawanan.tsx:8966:      case "rawan_longsor":
+> src\Kerawanan.tsx:8967:        if (activeLayers.has("rawan_longsor") && rawanLongsorData.length > 0) {
+  src\Kerawanan.tsx:8968:          return (
+  src\Kerawanan.tsx:8969:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:8970:              <div
+  src\Kerawanan.tsx:8971:                className="overflow-auto flex-1"
+  src\Kerawanan.tsx:8972:                style={{ maxHeight: "calc(35vh - 100px)" }}
+  src\Kerawanan.tsx:9035:              </div>
+  src\Kerawanan.tsx:9036:            </div>
+  src\Kerawanan.tsx:9037:          );
+> src\Kerawanan.tsx:9038:        } else if (activeLayers.has("rawan_longsor")) {
+  src\Kerawanan.tsx:9039:          return (
+  src\Kerawanan.tsx:9040:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:9041:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:9042:                <p className="text-sm">
+  src\Kerawanan.tsx:9043:                  Tidak ada data rawan longsor di area yang dipilih
+  src\Kerawanan.tsx:9050:
+  src\Kerawanan.tsx:9051:      case "rawan_limpasan":
+  src\Kerawanan.tsx:9052:        if (
+> src\Kerawanan.tsx:9053:          activeLayers.has("rawan_limpasan") &&
+  src\Kerawanan.tsx:9054:          rawanLimpasanData.length > 0
+  src\Kerawanan.tsx:9055:        ) {
+  src\Kerawanan.tsx:9056:          return (
+  src\Kerawanan.tsx:9057:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:9058:              <div
+  src\Kerawanan.tsx:9122:              </div>
+  src\Kerawanan.tsx:9123:            </div>
+  src\Kerawanan.tsx:9124:          );
+> src\Kerawanan.tsx:9125:        } else if (activeLayers.has("rawan_limpasan")) {
+  src\Kerawanan.tsx:9126:          return (
+  src\Kerawanan.tsx:9127:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:9128:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:9129:                <p className="text-sm">
+  src\Kerawanan.tsx:9130:                  Tidak ada data rawan limpasan di area yang dipilih
+  src\Kerawanan.tsx:9137:
+  src\Kerawanan.tsx:9138:      case "bahaya_kekeringan":
+  src\Kerawanan.tsx:9139:        if (
+> src\Kerawanan.tsx:9140:          activeLayers.has("bahaya_kekeringan") &&
+  src\Kerawanan.tsx:9141:          bahayaKekeringanData.length > 0
+  src\Kerawanan.tsx:9142:        ) {
+  src\Kerawanan.tsx:9143:          return (
+  src\Kerawanan.tsx:9144:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:9145:              <div
+  src\Kerawanan.tsx:9209:              </div>
+  src\Kerawanan.tsx:9210:            </div>
+  src\Kerawanan.tsx:9211:          );
+> src\Kerawanan.tsx:9212:        } else if (activeLayers.has("bahaya_kekeringan")) {
+  src\Kerawanan.tsx:9213:          return (
+  src\Kerawanan.tsx:9214:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:9215:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:9216:                <p className="text-sm">
+  src\Kerawanan.tsx:9217:                  Tidak ada data bahaya kekeringan di area yang dipilih
+  src\Kerawanan.tsx:9224:
+  src\Kerawanan.tsx:9225:      case "bahaya_abrasi":
+  src\Kerawanan.tsx:9226:        if (
+> src\Kerawanan.tsx:9227:          activeLayers.has("bahaya_abrasi_dan_gelombang_ekstrim") &&
+  src\Kerawanan.tsx:9228:          bahayaAbrasiData.length > 0
+  src\Kerawanan.tsx:9229:        ) {
+  src\Kerawanan.tsx:9230:          return (
+  src\Kerawanan.tsx:9231:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:9232:              <div
+  src\Kerawanan.tsx:9296:              </div>
+  src\Kerawanan.tsx:9297:            </div>
+  src\Kerawanan.tsx:9298:          );
+> src\Kerawanan.tsx:9299:        } else if (activeLayers.has("bahaya_abrasi_dan_gelombang_ekstrim")) {
+  src\Kerawanan.tsx:9300:          return (
+  src\Kerawanan.tsx:9301:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:9302:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:9303:                <p className="text-sm">
+  src\Kerawanan.tsx:9304:                  Tidak ada data bahaya abrasi di area yang dipilih
+  src\Kerawanan.tsx:9310:        break;
+  src\Kerawanan.tsx:9311:
+  src\Kerawanan.tsx:9312:      case "bahaya_banjir":
+> src\Kerawanan.tsx:9313:        if (activeLayers.has("bahaya_banjir") && bahayaBanjirData.length > 0) {
+  src\Kerawanan.tsx:9314:          return (
+  src\Kerawanan.tsx:9315:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:9316:              <div
+  src\Kerawanan.tsx:9317:                className="overflow-auto flex-1"
+  src\Kerawanan.tsx:9318:                style={{ maxHeight: "calc(35vh - 100px)" }}
+  src\Kerawanan.tsx:9380:              </div>
+  src\Kerawanan.tsx:9381:            </div>
+  src\Kerawanan.tsx:9382:          );
+> src\Kerawanan.tsx:9383:        } else if (activeLayers.has("bahaya_banjir")) {
+  src\Kerawanan.tsx:9384:          return (
+  src\Kerawanan.tsx:9385:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:9386:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:9387:                <p className="text-sm">
+  src\Kerawanan.tsx:9388:                  Tidak ada data bahaya banjir di area yang dipilih
+  src\Kerawanan.tsx:9395:
+  src\Kerawanan.tsx:9396:      case "bahaya_banjir_bandang":
+  src\Kerawanan.tsx:9397:        if (
+> src\Kerawanan.tsx:9398:          activeLayers.has("bahaya_banjir_bandang") &&
+  src\Kerawanan.tsx:9399:          bahayaBanjirBandangData.length > 0
+  src\Kerawanan.tsx:9400:        ) {
+  src\Kerawanan.tsx:9401:          return (
+  src\Kerawanan.tsx:9402:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:9403:              <div
+  src\Kerawanan.tsx:9467:              </div>
+  src\Kerawanan.tsx:9468:            </div>
+  src\Kerawanan.tsx:9469:          );
+> src\Kerawanan.tsx:9470:        } else if (activeLayers.has("bahaya_banjir_bandang")) {
+  src\Kerawanan.tsx:9471:          return (
+  src\Kerawanan.tsx:9472:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:9473:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:9474:                <p className="text-sm">
+  src\Kerawanan.tsx:9475:                  Tidak ada data bahaya banjir bandang di area yang dipilih
+  src\Kerawanan.tsx:9481:        break;
+  src\Kerawanan.tsx:9482:
+  src\Kerawanan.tsx:9483:      case "dta_danau":
+> src\Kerawanan.tsx:9484:        if (activeLayers.has("dta_danau") && dtaDanauData.length > 0) {
+  src\Kerawanan.tsx:9485:          return (
+  src\Kerawanan.tsx:9486:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:9487:              <div
+  src\Kerawanan.tsx:9488:                className="overflow-auto flex-1"
+  src\Kerawanan.tsx:9489:                style={{ maxHeight: "calc(35vh - 100px)" }}
+  src\Kerawanan.tsx:9551:              </div>
+  src\Kerawanan.tsx:9552:            </div>
+  src\Kerawanan.tsx:9553:          );
+> src\Kerawanan.tsx:9554:        } else if (activeLayers.has("dta_danau")) {
+  src\Kerawanan.tsx:9555:          return (
+  src\Kerawanan.tsx:9556:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:9557:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:9558:                <p className="text-sm">
+  src\Kerawanan.tsx:9559:                  Tidak ada data DTA Danau di area yang dipilih
+  src\Kerawanan.tsx:9566:
+  src\Kerawanan.tsx:9567:      case "rehabilitasi_das":
+  src\Kerawanan.tsx:9568:        if (
+> src\Kerawanan.tsx:9569:          activeLayers.has("rehabilitasi_das") &&
+  src\Kerawanan.tsx:9570:          rehabilitasiDasData.length > 0
+  src\Kerawanan.tsx:9571:        ) {
+  src\Kerawanan.tsx:9572:          return (
+  src\Kerawanan.tsx:9573:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:9574:              <div
+  src\Kerawanan.tsx:9638:              </div>
+  src\Kerawanan.tsx:9639:            </div>
+  src\Kerawanan.tsx:9640:          );
+> src\Kerawanan.tsx:9641:        } else if (activeLayers.has("rehabilitasi_das")) {
+  src\Kerawanan.tsx:9642:          return (
+  src\Kerawanan.tsx:9643:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:9644:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:9645:                <p className="text-sm">
+  src\Kerawanan.tsx:9646:                  Tidak ada data rehabilitasi DAS di area yang dipilih
+  src\Kerawanan.tsx:9653:
+  src\Kerawanan.tsx:9654:      case "rehabilitasi_hutan":
+  src\Kerawanan.tsx:9655:        if (
+> src\Kerawanan.tsx:9656:          activeLayers.has("rehabilitasi_hutan") &&
+  src\Kerawanan.tsx:9657:          rehabilitasiHutanData.length > 0
+  src\Kerawanan.tsx:9658:        ) {
+  src\Kerawanan.tsx:9659:          return (
+  src\Kerawanan.tsx:9660:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:9661:              <div
+  src\Kerawanan.tsx:9728:              </div>
+  src\Kerawanan.tsx:9729:            </div>
+  src\Kerawanan.tsx:9730:          );
+> src\Kerawanan.tsx:9731:        } else if (activeLayers.has("rehabilitasi_hutan")) {
+  src\Kerawanan.tsx:9732:          return (
+  src\Kerawanan.tsx:9733:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:9734:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:9735:                <p className="text-sm">
+  src\Kerawanan.tsx:9736:                  Tidak ada data rehabilitasi hutan di area yang dipilih
+  src\Kerawanan.tsx:9743:
+  src\Kerawanan.tsx:9744:      case "restorasi_gambut":
+  src\Kerawanan.tsx:9745:        if (
+> src\Kerawanan.tsx:9746:          activeLayers.has("restorasi_gambut") &&
+  src\Kerawanan.tsx:9747:          restorasiGambutData.length > 0
+  src\Kerawanan.tsx:9748:        ) {
+  src\Kerawanan.tsx:9749:          return (
+  src\Kerawanan.tsx:9750:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:9751:              <div
+  src\Kerawanan.tsx:9800:              </div>
+  src\Kerawanan.tsx:9801:            </div>
+  src\Kerawanan.tsx:9802:          );
+> src\Kerawanan.tsx:9803:        } else if (activeLayers.has("restorasi_gambut")) {
+  src\Kerawanan.tsx:9804:          return (
+  src\Kerawanan.tsx:9805:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:9806:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:9807:                <p className="text-sm">
+  src\Kerawanan.tsx:9808:                  Tidak ada data restorasi gambut di area yang dipilih
+  src\Kerawanan.tsx:9815:
+  src\Kerawanan.tsx:9816:      case "penerapan_teknik_kta":
+  src\Kerawanan.tsx:9817:        if (
+> src\Kerawanan.tsx:9818:          activeLayers.has("penerapan_teknik_kta") &&
+  src\Kerawanan.tsx:9819:          penerapanTeknikKtaData.length > 0
+  src\Kerawanan.tsx:9820:        ) {
+  src\Kerawanan.tsx:9821:          return (
+  src\Kerawanan.tsx:9822:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:9823:              <div
+  src\Kerawanan.tsx:9872:              </div>
+  src\Kerawanan.tsx:9873:            </div>
+  src\Kerawanan.tsx:9874:          );
+> src\Kerawanan.tsx:9875:        } else if (activeLayers.has("penerapan_teknik_kta")) {
+  src\Kerawanan.tsx:9876:          return (
+  src\Kerawanan.tsx:9877:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:9878:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:9879:                <p className="text-sm">
+  src\Kerawanan.tsx:9880:                  Tidak ada data penerapan teknik KTA di area yang dipilih
+  src\Kerawanan.tsx:9886:        break;
+  src\Kerawanan.tsx:9887:
+  src\Kerawanan.tsx:9888:      case "kebakaran_2021":
+> src\Kerawanan.tsx:9889:        if (activeLayers.has("karhutla_2021") && kebakaran2021Data.length > 0) {
+  src\Kerawanan.tsx:9890:          return (
+  src\Kerawanan.tsx:9891:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:9892:              <div
+  src\Kerawanan.tsx:9893:                className="overflow-auto flex-1"
+  src\Kerawanan.tsx:9894:                style={{ maxHeight: "calc(35vh - 100px)" }}
+  src\Kerawanan.tsx:9947:              </div>
+  src\Kerawanan.tsx:9948:            </div>
+  src\Kerawanan.tsx:9949:          );
+> src\Kerawanan.tsx:9950:        } else if (activeLayers.has("karhutla_2021")) {
+  src\Kerawanan.tsx:9951:          return (
+  src\Kerawanan.tsx:9952:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:9953:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:9954:                <p className="text-sm">
+  src\Kerawanan.tsx:9955:                  Tidak ada data kebakaran hutan 2021 di area yang dipilih
+  src\Kerawanan.tsx:9961:        break;
+  src\Kerawanan.tsx:9962:
+  src\Kerawanan.tsx:9963:      case "kebakaran_2022":
+> src\Kerawanan.tsx:9964:        if (activeLayers.has("karhutla_2022") && kebakaran2022Data.length > 0) {
+  src\Kerawanan.tsx:9965:          return (
+  src\Kerawanan.tsx:9966:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:9967:              <div
+  src\Kerawanan.tsx:9968:                className="overflow-auto flex-1"
+  src\Kerawanan.tsx:9969:                style={{ maxHeight: "calc(35vh - 100px)" }}
+  src\Kerawanan.tsx:10031:              </div>
+  src\Kerawanan.tsx:10032:            </div>
+  src\Kerawanan.tsx:10033:          );
+> src\Kerawanan.tsx:10034:        } else if (activeLayers.has("karhutla_2022")) {
+  src\Kerawanan.tsx:10035:          return (
+  src\Kerawanan.tsx:10036:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:10037:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:10038:                <p className="text-sm">
+  src\Kerawanan.tsx:10039:                  Tidak ada data kebakaran hutan 2022 di area yang dipilih
+  src\Kerawanan.tsx:10045:        break;
+  src\Kerawanan.tsx:10046:
+  src\Kerawanan.tsx:10047:      case "kebakaran_2023":
+> src\Kerawanan.tsx:10048:        if (activeLayers.has("karhutla_2023") && kebakaran2023Data.length > 0) {
+  src\Kerawanan.tsx:10049:          return (
+  src\Kerawanan.tsx:10050:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:10051:              <div
+  src\Kerawanan.tsx:10052:                className="overflow-auto flex-1"
+  src\Kerawanan.tsx:10053:                style={{ maxHeight: "calc(35vh - 100px)" }}
+  src\Kerawanan.tsx:10106:              </div>
+  src\Kerawanan.tsx:10107:            </div>
+  src\Kerawanan.tsx:10108:          );
+> src\Kerawanan.tsx:10109:        } else if (activeLayers.has("karhutla_2023")) {
+  src\Kerawanan.tsx:10110:          return (
+  src\Kerawanan.tsx:10111:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:10112:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:10113:                <p className="text-sm">
+  src\Kerawanan.tsx:10114:                  Tidak ada data kebakaran hutan 2023 di area yang dipilih
+  src\Kerawanan.tsx:10120:        break;
+  src\Kerawanan.tsx:10121:
+  src\Kerawanan.tsx:10122:      case "kebakaran_2024":
+> src\Kerawanan.tsx:10123:        if (activeLayers.has("karhutla_2024") && kebakaran2024Data.length > 0) {
+  src\Kerawanan.tsx:10124:          return (
+  src\Kerawanan.tsx:10125:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:10126:              <div
+  src\Kerawanan.tsx:10127:                className="overflow-auto flex-1"
+  src\Kerawanan.tsx:10128:                style={{ maxHeight: "calc(35vh - 100px)" }}
+  src\Kerawanan.tsx:10190:              </div>
+  src\Kerawanan.tsx:10191:            </div>
+  src\Kerawanan.tsx:10192:          );
+> src\Kerawanan.tsx:10193:        } else if (activeLayers.has("karhutla_2024")) {
+  src\Kerawanan.tsx:10194:          return (
+  src\Kerawanan.tsx:10195:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:10196:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:10197:                <p className="text-sm">
+  src\Kerawanan.tsx:10198:                  Tidak ada data kebakaran hutan 2024 di area yang dipilih
+  src\Kerawanan.tsx:10204:        break;
+  src\Kerawanan.tsx:10205:
+  src\Kerawanan.tsx:10206:      case "kebakaran_2025":
+> src\Kerawanan.tsx:10207:        if (activeLayers.has("karhutla_2025") && kebakaran2025Data.length > 0) {
+  src\Kerawanan.tsx:10208:          return (
+  src\Kerawanan.tsx:10209:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:10210:              <div
+  src\Kerawanan.tsx:10211:                className="overflow-auto flex-1"
+  src\Kerawanan.tsx:10212:                style={{ maxHeight: "calc(35vh - 100px)" }}
+  src\Kerawanan.tsx:10274:              </div>
+  src\Kerawanan.tsx:10275:            </div>
+  src\Kerawanan.tsx:10276:          );
+> src\Kerawanan.tsx:10277:        } else if (activeLayers.has("karhutla_2025")) {
+  src\Kerawanan.tsx:10278:          return (
+  src\Kerawanan.tsx:10279:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:10280:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:10281:                <p className="text-sm">
+  src\Kerawanan.tsx:10282:                  Tidak ada data kebakaran hutan 2025 di area yang dipilih
+  src\Kerawanan.tsx:10289:
+  src\Kerawanan.tsx:10290:      case "rawan_karhutla":
+  src\Kerawanan.tsx:10291:        if (
+> src\Kerawanan.tsx:10292:          activeLayers.has("rawan_karhutla") &&
+  src\Kerawanan.tsx:10293:          rawanKarhutlaData.length > 0
+  src\Kerawanan.tsx:10294:        ) {
+  src\Kerawanan.tsx:10295:          return (
+  src\Kerawanan.tsx:10296:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:10297:              <div
+  src\Kerawanan.tsx:10363:              </div>
+  src\Kerawanan.tsx:10364:            </div>
+  src\Kerawanan.tsx:10365:          );
+> src\Kerawanan.tsx:10366:        } else if (activeLayers.has("rawan_karhutla")) {
+  src\Kerawanan.tsx:10367:          return (
+  src\Kerawanan.tsx:10368:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:10369:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:10370:                <p className="text-sm">
+  src\Kerawanan.tsx:10371:                  Tidak ada data rawan karhutla di area yang dipilih
+  src\Kerawanan.tsx:10377:        break;
+  src\Kerawanan.tsx:10378:
+  src\Kerawanan.tsx:10379:      case "kawasan_hutan":
+> src\Kerawanan.tsx:10380:        if (activeLayers.has("kawasan_hutan") || activeLayers.has("97")) {
+> src\Kerawanan.tsx:10381:          const isSigapActive = Array.from(activeLayers).some((layerName) =>
+  src\Kerawanan.tsx:10382:            isSigapKawasanHutanLayer(layerName),
+  src\Kerawanan.tsx:10383:          );
+  src\Kerawanan.tsx:10384:
+  src\Kerawanan.tsx:10385:          if (isSigapActive) {
+  src\Kerawanan.tsx:10386:            const normalizedSearch = sigapKawasanHutanSearch
+  src\Kerawanan.tsx:10441:                <div className="relative mb-2">
+  src\Kerawanan.tsx:10442:                  <input
+  src\Kerawanan.tsx:10443:                    value={sigapKawasanHutanSearch}
+> src\Kerawanan.tsx:10444:                    onChange={(event) =>
+  src\Kerawanan.tsx:10445:                      setSigapKawasanHutanSearch(event.target.value)
+  src\Kerawanan.tsx:10446:                    }
+  src\Kerawanan.tsx:10447:                    placeholder="Cari fungsi kawasan..."
+  src\Kerawanan.tsx:10448:                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 
+pr-8 text-[10px] text-slate-700 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+  src\Kerawanan.tsx:10449:                  />
+  src\Kerawanan.tsx:10644:          risiko_longsor: "Risiko Longsor",
+  src\Kerawanan.tsx:10645:          risiko_karhutla: "Risiko Karhutla",
+  src\Kerawanan.tsx:10646:        };
+> src\Kerawanan.tsx:10647:        if (activeLayers.has(activeBottomTab) && risikoLayerData.length > 0) {
+  src\Kerawanan.tsx:10648:          return (
+  src\Kerawanan.tsx:10649:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:10650:              <div
+  src\Kerawanan.tsx:10651:                className="overflow-auto flex-1"
+  src\Kerawanan.tsx:10652:                style={{ maxHeight: "calc(35vh - 100px)" }}
+  src\Kerawanan.tsx:10714:              </div>
+  src\Kerawanan.tsx:10715:            </div>
+  src\Kerawanan.tsx:10716:          );
+> src\Kerawanan.tsx:10717:        } else if (activeLayers.has(activeBottomTab)) {
+  src\Kerawanan.tsx:10718:          return (
+  src\Kerawanan.tsx:10719:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:10720:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:10721:                <p className="text-sm">
+  src\Kerawanan.tsx:10722:                  Tidak ada data {labelMap[activeBottomTab]} di area yang
+  src\Kerawanan.tsx:10730:      }
+  src\Kerawanan.tsx:10731:
+  src\Kerawanan.tsx:10732:      case "khdtk":
+> src\Kerawanan.tsx:10733:        if (activeLayers.has("khdtk") && khdtkData.length > 0) {
+  src\Kerawanan.tsx:10734:          return (
+  src\Kerawanan.tsx:10735:            <div className="p-3 h-full flex flex-col">
+  src\Kerawanan.tsx:10736:              <div
+  src\Kerawanan.tsx:10737:                className="overflow-auto flex-1"
+  src\Kerawanan.tsx:10738:                style={{ maxHeight: "calc(35vh - 100px)" }}
+  src\Kerawanan.tsx:10806:              </div>
+  src\Kerawanan.tsx:10807:            </div>
+  src\Kerawanan.tsx:10808:          );
+> src\Kerawanan.tsx:10809:        } else if (activeLayers.has("khdtk")) {
+  src\Kerawanan.tsx:10810:          return (
+  src\Kerawanan.tsx:10811:            <div className="p-3 flex items-center justify-center h-full">
+  src\Kerawanan.tsx:10812:              <div className="text-center text-gray-500">
+  src\Kerawanan.tsx:10813:                <p className="text-sm">
+  src\Kerawanan.tsx:10814:                  Tidak ada data KHDTK di area yang dipilih
+  src\Kerawanan.tsx:10820:        break;
+  src\Kerawanan.tsx:10821:
+  src\Kerawanan.tsx:10822:      case "mitigasi_adaptasi": {
+> src\Kerawanan.tsx:10823:        const activeInfra = INFRA_LAYERS.filter((l) => activeLayers.has(l.id));
+  src\Kerawanan.tsx:10824:
+  src\Kerawanan.tsx:10825:        if (activeInfra.length === 0) {
+  src\Kerawanan.tsx:10826:          return (
+  src\Kerawanan.tsx:10827:            <div
+  src\Kerawanan.tsx:10828:              style={{
+  src\Kerawanan.tsx:11187:      if (!response.ok || !result?.success || !result?.data?.geom) {
+  src\Kerawanan.tsx:11188:        const previous = selectedVillagePolygonRef.current;
+  src\Kerawanan.tsx:11189:        if (previous && map.hasLayer(previous)) {
+> src\Kerawanan.tsx:11190:          map.removeLayer(previous);
+  src\Kerawanan.tsx:11191:        }
+  src\Kerawanan.tsx:11192:        selectedVillagePolygonRef.current = null;
+  src\Kerawanan.tsx:11193:
+  src\Kerawanan.tsx:11194:        if (response.status !== 404) {
+  src\Kerawanan.tsx:11195:          console.warn(
+  src\Kerawanan.tsx:11204:      // Layer bencana/kerawanan lainnya tetap dipertahankan.
+  src\Kerawanan.tsx:11205:      const previous = selectedVillagePolygonRef.current;
+  src\Kerawanan.tsx:11206:      if (previous && map.hasLayer(previous)) {
+> src\Kerawanan.tsx:11207:        map.removeLayer(previous);
+  src\Kerawanan.tsx:11208:      }
+  src\Kerawanan.tsx:11209:
+> src\Kerawanan.tsx:11210:      const polygon = window.L.geoJSON(result.data.geom, {
+  src\Kerawanan.tsx:11211:        style: () => ({
+  src\Kerawanan.tsx:11212:          color: "#059669",
+  src\Kerawanan.tsx:11213:          weight: 3,
+  src\Kerawanan.tsx:11214:          opacity: 1,
+  src\Kerawanan.tsx:11215:          fillColor: "#34d399",
+  src\Kerawanan.tsx:11482:    }
+  src\Kerawanan.tsx:11483:  };
+  src\Kerawanan.tsx:11484:
+> src\Kerawanan.tsx:11485:  useEffect(() => {
+  src\Kerawanan.tsx:11486:    fetchOpenMeteoWeather();
+  src\Kerawanan.tsx:11487:
+  src\Kerawanan.tsx:11488:    const interval = window.setInterval(fetchOpenMeteoWeather, 30 * 60 * 1000);
+  src\Kerawanan.tsx:11489:
+  src\Kerawanan.tsx:11490:    return () => window.clearInterval(interval);
+  src\Kerawanan.tsx:11491:  }, []);
+  src\Kerawanan.tsx:11492:
+> src\Kerawanan.tsx:11493:  const [gpsLocation, setGpsLocation] = useState<GpsLocationState>({
+  src\Kerawanan.tsx:11494:    loading: false,
+  src\Kerawanan.tsx:11495:    error: "",
+  src\Kerawanan.tsx:11496:    latitude: null,
+  src\Kerawanan.tsx:11497:    longitude: null,
+  src\Kerawanan.tsx:11498:    accuracy: null,
+  src\Kerawanan.tsx:11504:    displayName: "",
+  src\Kerawanan.tsx:11505:    updatedAt: null,
+  src\Kerawanan.tsx:11506:  });
+> src\Kerawanan.tsx:11507:  const [gpsPopupOpen, setGpsPopupOpen] = useState(true);
+> src\Kerawanan.tsx:11508:  const [gpsThreats, setGpsThreats] = useState<GpsThreatState>({
+  src\Kerawanan.tsx:11509:    loading: false,
+  src\Kerawanan.tsx:11510:    error: "",
+  src\Kerawanan.tsx:11511:    threats: [],
+  src\Kerawanan.tsx:11512:    riskStatus: null,
+  src\Kerawanan.tsx:11513:    riskScore: null,
+  src\Kerawanan.tsx:11802:    );
+  src\Kerawanan.tsx:11803:  };
+  src\Kerawanan.tsx:11804:
+> src\Kerawanan.tsx:11805:  useEffect(() => {
+  src\Kerawanan.tsx:11806:    detectCurrentGpsLocation();
+  src\Kerawanan.tsx:11807:  }, []);
+  src\Kerawanan.tsx:11808:
+  src\Kerawanan.tsx:11809:  const selectedRegionName =
+  src\Kerawanan.tsx:11810:    selectedAreas.length > 0 ? selectedAreas[0].label : "Indonesia";
+  src\Kerawanan.tsx:11811:  const totalEvents =
+  src\Kerawanan.tsx:11812:    kejadianListings.length || (kejadianPhotos ?? []).length || 0;
+> src\Kerawanan.tsx:11813:  const activeLayerCount = activeLayers.size;
+  src\Kerawanan.tsx:11814:
+  src\Kerawanan.tsx:11815:  // ======================================================
+  src\Kerawanan.tsx:11816:  // EXPORT PETA KE PDF — DOWNLOAD LANGSUNG
+  src\Kerawanan.tsx:11817:  // Mengambil snapshot area peta yang sedang terlihat lalu
+  src\Kerawanan.tsx:11818:  // memasukkannya ke PDF A4 landscape tanpa dialog Print.
+  src\Kerawanan.tsx:12137:  ] as const;
+  src\Kerawanan.tsx:12138:
+  src\Kerawanan.tsx:12139:  const bottomActiveRiskLayers = bottomLegendRiskLayers.filter((name) =>
+> src\Kerawanan.tsx:12140:    activeLayers.has(name),
+  src\Kerawanan.tsx:12141:  );
+  src\Kerawanan.tsx:12142:  const bottomActiveInfraLayers = INFRA_LAYERS.filter((layer) =>
+> src\Kerawanan.tsx:12143:    activeLayers.has(layer.id),
+  src\Kerawanan.tsx:12144:  );
+  src\Kerawanan.tsx:12145:
+> src\Kerawanan.tsx:12146:  useEffect(() => {
+  src\Kerawanan.tsx:12147:    if (bottomActiveInfraLayers.length === 0) {
+  src\Kerawanan.tsx:12148:      setActiveInfraSummaryLayer(null);
+  src\Kerawanan.tsx:12149:      return;
+  src\Kerawanan.tsx:12150:    }
+  src\Kerawanan.tsx:12151:    if (
+  src\Kerawanan.tsx:12155:    ) {
+  src\Kerawanan.tsx:12156:      setActiveInfraSummaryLayer(bottomActiveInfraLayers[0].id);
+  src\Kerawanan.tsx:12157:    }
+> src\Kerawanan.tsx:12158:  }, [activeLayers, activeInfraSummaryLayer]);
+  src\Kerawanan.tsx:12159:
+  src\Kerawanan.tsx:12160:  const bottomValue = (v: any) => {
+  src\Kerawanan.tsx:12161:    const textValue = String(v ?? "").trim();
+  src\Kerawanan.tsx:12162:    return textValue || "-";
+  src\Kerawanan.tsx:12163:  };
+  src\Kerawanan.tsx:13891:                        <input
+  src\Kerawanan.tsx:13892:                          type="radio"
+  src\Kerawanan.tsx:13893:                          name="mainTab"
+> src\Kerawanan.tsx:13894:                          checked={activeTab === "administrasi"}
+> src\Kerawanan.tsx:13895:                          onChange={() => handleMainTabChange("administrasi")}
+  src\Kerawanan.tsx:13896:                          className="w-3.5 h-3.5 accent-emerald-600"
+  src\Kerawanan.tsx:13897:                        />
+  src\Kerawanan.tsx:13898:                        <span className="text-[10px] font-bold">
+  src\Kerawanan.tsx:13899:                          Administrasi
+  src\Kerawanan.tsx:13900:                        </span>
+  src\Kerawanan.tsx:13905:                        <input
+  src\Kerawanan.tsx:13906:                          type="radio"
+  src\Kerawanan.tsx:13907:                          name="mainTab"
+> src\Kerawanan.tsx:13908:                          checked={activeTab === "das"}
+> src\Kerawanan.tsx:13909:                          onChange={() => handleMainTabChange("das")}
+  src\Kerawanan.tsx:13910:                          className="w-3.5 h-3.5 accent-emerald-600"
+  src\Kerawanan.tsx:13911:                        />
+  src\Kerawanan.tsx:13912:                        <span className="text-[10px] font-bold">DAS</span>
+  src\Kerawanan.tsx:13913:                      </label>
+  src\Kerawanan.tsx:13914:                    </div>
+  src\Kerawanan.tsx:13941:                          <div className="grid grid-cols-[105px_1fr] gap-2">
+  src\Kerawanan.tsx:13942:                            <select
+  src\Kerawanan.tsx:13943:                              value={adminLevel}
+> src\Kerawanan.tsx:13944:                              onChange={(e) => {
+  src\Kerawanan.tsx:13945:                                setAdminLevel(
+  src\Kerawanan.tsx:13946:                                  e.target.value as typeof adminLevel,
+  src\Kerawanan.tsx:13947:                                );
+  src\Kerawanan.tsx:13948:                                setAreaSearchQuery("");
+  src\Kerawanan.tsx:13949:                                setAreaSearchResults([]);
+  src\Kerawanan.tsx:13960:                            <div className="relative">
+  src\Kerawanan.tsx:13961:                              <input
+  src\Kerawanan.tsx:13962:                                value={areaSearchQuery}
+> src\Kerawanan.tsx:13963:                                onChange={(e) =>
+  src\Kerawanan.tsx:13964:                                  handleAreaSearchChange(e.target.value)
+  src\Kerawanan.tsx:13965:                                }
+  src\Kerawanan.tsx:13966:                                onFocus={() => {
+  src\Kerawanan.tsx:13967:                                  if (areaSearchResults.length > 0)
+  src\Kerawanan.tsx:13968:                                    setShowAreaSearchDropdown(true);
+  src\Kerawanan.tsx:14013:                            </span>
+  src\Kerawanan.tsx:14014:                            <input
+  src\Kerawanan.tsx:14015:                              value={dasSearchQuery}
+> src\Kerawanan.tsx:14016:                              onChange={(e) =>
+  src\Kerawanan.tsx:14017:                                handleDasSearchChange(e.target.value)
+  src\Kerawanan.tsx:14018:                              }
+  src\Kerawanan.tsx:14019:                              onFocus={() => {
+  src\Kerawanan.tsx:14020:                                if (dasSearchResults.length > 0)
+  src\Kerawanan.tsx:14021:                                  setShowDasSearchDropdown(true);
+  src\Kerawanan.tsx:14135:                              <input
+  src\Kerawanan.tsx:14136:                                type="checkbox"
+  src\Kerawanan.tsx:14137:                                className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer 
+accent-emerald-700"
+> src\Kerawanan.tsx:14138:                                checked={activeLayers.has(layer.name)}
+> src\Kerawanan.tsx:14139:                                onChange={(e) =>
+  src\Kerawanan.tsx:14140:                                  handleLayerToggle(
+  src\Kerawanan.tsx:14141:                                    layer.name,
+> src\Kerawanan.tsx:14142:                                    e.target.checked,
+  src\Kerawanan.tsx:14143:                                  )
+  src\Kerawanan.tsx:14144:                                }
+  src\Kerawanan.tsx:14145:                                disabled={loadingLayerNames.has(layer.name)}
+  src\Kerawanan.tsx:14146:                              />
+  src\Kerawanan.tsx:14147:                              <span className="min-w-0 flex-1 break-words text-[10px] 
+leading-4 text-slate-700">
+  src\Kerawanan.tsx:14194:                                    <input
+  src\Kerawanan.tsx:14195:                                      type="checkbox"
+  src\Kerawanan.tsx:14196:                                      className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer 
+accent-emerald-700"
+> src\Kerawanan.tsx:14197:                                      checked={
+> src\Kerawanan.tsx:14198:                                        activeLayers.has(
+  src\Kerawanan.tsx:14199:                                          String(
+  src\Kerawanan.tsx:14200:                                            layer.isManual
+  src\Kerawanan.tsx:14201:                                              ? layer.name
+  src\Kerawanan.tsx:14202:                                              : layer.id,
+  src\Kerawanan.tsx:14203:                                          ),
+  src\Kerawanan.tsx:14204:                                        ) ||
+> src\Kerawanan.tsx:14205:                                        activeLayers.has(String(layer.name))
+  src\Kerawanan.tsx:14206:                                      }
+> src\Kerawanan.tsx:14207:                                      onChange={(e) => {
+  src\Kerawanan.tsx:14208:                                        console.log("🔎 CHECKBOX LAYER:", {
+  src\Kerawanan.tsx:14209:                                          id: layer.id,
+  src\Kerawanan.tsx:14210:                                          name: layer.name,
+  src\Kerawanan.tsx:14211:                                          label: layer.label,
+  src\Kerawanan.tsx:14212:                                          isManual: layer.isManual,
+> src\Kerawanan.tsx:14213:                                          checked: e.target.checked,
+  src\Kerawanan.tsx:14214:                                        });
+  src\Kerawanan.tsx:14215:
+  src\Kerawanan.tsx:14216:                                        handleLayerToggle(
+  src\Kerawanan.tsx:14217:                                          layer.isManual
+  src\Kerawanan.tsx:14218:                                            ? layer.name
+  src\Kerawanan.tsx:14219:                                            : layer.id,
+> src\Kerawanan.tsx:14220:                                          e.target.checked,
+  src\Kerawanan.tsx:14221:                                          layer.year,
+  src\Kerawanan.tsx:14222:                                          layer.category,
+  src\Kerawanan.tsx:14223:                                          layer.isShapefile,
+  src\Kerawanan.tsx:14224:                                        );
+  src\Kerawanan.tsx:14225:                                      }}
+  src\Kerawanan.tsx:14827:                          type="text"
+  src\Kerawanan.tsx:14828:                          placeholder="contoh: bahaya_banjir_kabupaten_bogor"
+  src\Kerawanan.tsx:14829:                          value={newLayerName}
+> src\Kerawanan.tsx:14830:                          onChange={(e) => setNewLayerName(e.target.value)}
+  src\Kerawanan.tsx:14831:                          disabled={isUploading}
+  src\Kerawanan.tsx:14832:                          className="w-full rounded-lg border border-slate-200 bg-white px-3 
+py-2.5 pr-10 text-xs text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 
+focus:ring-4 focus:ring-emerald-500/10 disabled:bg-slate-100 disabled:text-slate-400"
+  src\Kerawanan.tsx:14833:                        />
+  src\Kerawanan.tsx:14834:
+  src\Kerawanan.tsx:14835:                        {newLayerName.trim() && (
+  src\Kerawanan.tsx:14908:                      id="shapefileInput"
+  src\Kerawanan.tsx:14909:                      multiple
+  src\Kerawanan.tsx:14910:                      accept=".shp,.shx,.dbf,.prj,.cpg,.sbn,.sbx"
+> src\Kerawanan.tsx:14911:                      onChange={handleFileChange}
+  src\Kerawanan.tsx:14912:                      className="hidden"
+  src\Kerawanan.tsx:14913:                      disabled={isUploading}
+  src\Kerawanan.tsx:14914:                    />
+  src\Kerawanan.tsx:14915:
+  src\Kerawanan.tsx:14916:                    {uploadedFiles.length === 0 ? (
+
+
