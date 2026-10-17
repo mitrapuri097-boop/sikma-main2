@@ -1,4 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
+import {
+  area as turfArea,
+  bbox as turfBbox,
+  featureCollection as turfFeatureCollection,
+  intersect as turfIntersect,
+} from "@turf/turf";
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "./api";
 import Header from "./header";
@@ -1236,6 +1242,127 @@ const Kerawanan = () => {
     "rawan_erosi",
     "rawan_limpasan",
   ]);
+  // SIMITI_OVERLAP_HATCH_V2
+  const riskOverlapHatchLayerRef = useRef<any>(null);
+
+  const refreshRiskOverlapHatch = () => {
+    const map = mapInstanceRef.current;
+    const L = (window as any).L;
+    if (!map || !L) return;
+
+    try {
+      const oldOverlay = riskOverlapHatchLayerRef.current;
+      if (oldOverlay && map.hasLayer(oldOverlay)) map.removeLayer(oldOverlay);
+      riskOverlapHatchLayerRef.current = null;
+
+      const items: Array<{ name: string; feature: any; bounds: number[] }> = [];
+      for (const [name, group] of layerCacheRef.current.entries()) {
+        if (!BENCANA_FOCUS_LAYERS.has(String(name))) continue;
+        if (!group || !map.hasLayer(group)) continue;
+
+        group.eachLayer((child: any) => {
+          const feature = child?.feature;
+          if (!["Polygon", "MultiPolygon"].includes(feature?.geometry?.type)) return;
+          try {
+            const bounds = turfBbox(feature);
+            if (bounds.length === 4 && bounds.every(Number.isFinite)) {
+              items.push({ name: String(name), feature, bounds });
+            }
+          } catch {
+            // Abaikan geometri yang tidak valid.
+          }
+        });
+      }
+
+      const overlaps: any[] = [];
+      let checked = 0;
+      for (let i = 0; i < items.length && checked < 12000; i++) {
+        for (let j = i + 1; j < items.length && checked < 12000; j++) {
+          if (items[i].name === items[j].name) continue;
+          checked++;
+
+          const a = items[i].bounds;
+          const b = items[j].bounds;
+          if (a[0] > b[2] || b[0] > a[2] || a[1] > b[3] || b[1] > a[3]) continue;
+
+          try {
+            const result = turfIntersect(
+              turfFeatureCollection([items[i].feature, items[j].feature]) as any
+            );
+            if (
+              result?.geometry &&
+              ["Polygon", "MultiPolygon"].includes(result.geometry.type) &&
+              turfArea(result) >= 10
+            ) {
+              overlaps.push(result);
+              if (overlaps.length >= 120) break;
+            }
+          } catch {
+            // Abaikan pasangan yang gagal dihitung.
+          }
+        }
+        if (overlaps.length >= 120) break;
+      }
+
+      if (!overlaps.length) return;
+
+      const overlay = L.geoJSON(
+        { type: "FeatureCollection", features: overlaps },
+        {
+          pane: "overlayPane",
+          interactive: false,
+          style: {
+            color: "#111827",
+            weight: 1,
+            opacity: 0.85,
+            fillColor: "#111827",
+            fillOpacity: 0,
+          },
+        }
+      );
+
+      overlay.addTo(map);
+      overlay.eachLayer((child: any) => {
+        const svg = child?._path?.ownerSVGElement;
+        if (!svg) return;
+
+        const ns = "http://www.w3.org/2000/svg";
+        let defs = svg.querySelector('defs[data-simiti-hatch="v2"]');
+        if (!defs) {
+          defs = document.createElementNS(ns, "defs");
+          defs.setAttribute("data-simiti-hatch", "v2");
+
+          const pattern = document.createElementNS(ns, "pattern");
+          pattern.setAttribute("id", "simiti-risk-hatch-v2");
+          pattern.setAttribute("patternUnits", "userSpaceOnUse");
+          pattern.setAttribute("width", "8");
+          pattern.setAttribute("height", "8");
+
+          const line = document.createElementNS(ns, "path");
+          line.setAttribute("d", "M-2,2 L2,-2 M0,8 L8,0 M6,10 L10,6");
+          line.setAttribute("fill", "none");
+          line.setAttribute("stroke", "#111827");
+          line.setAttribute("stroke-width", "1.4");
+          pattern.appendChild(line);
+          defs.appendChild(pattern);
+          svg.insertBefore(defs, svg.firstChild);
+        }
+
+        child.setStyle({
+          color: "#111827",
+          weight: 1,
+          opacity: 0.85,
+          fillColor: "url(#simiti-risk-hatch-v2)",
+          fillOpacity: 1,
+        });
+      });
+
+      riskOverlapHatchLayerRef.current = overlay;
+      console.log("SIMITI OVERLAP HATCH:", overlaps.length, "irisan");
+    } catch (error) {
+      console.warn("SIMITI: gagal memperbarui arsiran:", error);
+    }
+  };
 
   // Warna enterprise per JENIS BENCANA.
   // Warna ini dipakai ketika layer bencana ditampilkan pada area terpilih,
@@ -3457,40 +3584,43 @@ const Kerawanan = () => {
 
       cleanupLegacyBencanaCircleMarkers();
 
-      // SIMITI: WARNA TEMATIK + BLEND UNTUK MEMPERJELAS IRISAN BENCANA
-      // Pertahankan warna dasar layer dan gunakan blend multiply pada SVG polygon.
-      // Tidak mengubah checkbox, filter wilayah, data, atau endpoint API.
+      // SIMITI: WARNA TEMATIK TANPA BLEND WARNA ANTARLAYER.
+      // Pertahankan warna tiap risiko; pola irisan akan ditangani terpisah.
       if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
         const forcedBencanaColor = getBencanaLayerColor(String(tableName));
 
         layerGroup.eachLayer((layer: any) => {
           try {
+            if (layer?._path?.style) {
+              layer._path.style.mixBlendMode = "normal";
+            }
+
             if (layer?.setStyle) {
               layer.setStyle({
                 color: forcedBencanaColor,
                 fillColor: forcedBencanaColor,
                 weight: zoom > 10 ? 1.6 : 1.1,
                 opacity: 1,
-                fillOpacity: 0.62,
+                fillOpacity: 0.32,
               });
             }
+
             if (layer?.options) {
               layer.options.color = forcedBencanaColor;
               layer.options.fillColor = forcedBencanaColor;
               layer.options.opacity = 1;
-              layer.options.fillOpacity = 0.62;
-            }
-            if (layer?._path && layer.feature?.geometry?.type !== "Point") {
-              layer._path.style.mixBlendMode = "multiply";
+              layer.options.fillOpacity = 0.32;
             }
           } catch (styleError) {
-            console.warn("SIMITI: gagal menerapkan style irisan:", tableName, styleError);
+            console.warn("SIMITI: gagal menerapkan warna risiko:", tableName, styleError);
           }
         });
 
-        console.log(`SIMITI OVERLAP BLEND: ${tableName} -> ${forcedBencanaColor}`);
+        console.log(`SIMITI RISK COLOR: ${tableName} -> ${forcedBencanaColor}`);
       }
       layerGroupsRef.current[tableName] = layerGroup;
+  // SIMITI_HATCH_REFRESH_ON_LOAD
+  if (BENCANA_FOCUS_LAYERS.has(String(tableName))) refreshRiskOverlapHatch();
 
       // Urutan layer stabil, tidak bergantung urutan checkbox diklik.
       // Banjir digambar lebih dulu; kekeringan setelahnya sehingga area irisan
@@ -5879,6 +6009,8 @@ const Kerawanan = () => {
       if (layerGroupsRef.current[tableName] && mapInstanceRef.current) {
         mapInstanceRef.current.removeLayer(layerGroupsRef.current[tableName]);
         delete layerGroupsRef.current[tableName];
+        // SIMITI_HATCH_REFRESH_ON_REMOVE
+        if (BENCANA_FOCUS_LAYERS.has(String(tableName))) refreshRiskOverlapHatch();
         console.log("Layer removed from map");
 
         if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
