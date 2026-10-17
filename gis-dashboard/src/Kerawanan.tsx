@@ -178,7 +178,7 @@ const Kerawanan = () => {
     return () => cancelAnimationFrame(frame);
   }, [isBottomSummaryOpen]);
 
-  const [isRightLayerPanelOpen, setIsRightLayerPanelOpen] = useState(false);
+  const [isRightLayerPanelOpen, setIsRightLayerPanelOpen] = useState(true);
 
   const mapRef = useRef(null);
   const [baseMapType, setBaseMapType] = useState<"road" | "satellite">("road");
@@ -345,14 +345,9 @@ const Kerawanan = () => {
     return aliases[normalized] || normalized;
   };
 
-  const isLayerAuthorized = (name: string) => {
-    // Layer dinamis kejadian dan service eksternal tidak berada di layer_metadata.
-    if (String(name || "").startsWith("kejadian_")) return true;
-    if (authorizedLayerNames === null) return false;
-
-    const normalized = normalizeAuthorizationLayerName(name);
-    return authorizedLayerNames.has(normalized);
-  };
+  // Halaman Kerawanan adalah WebGIS publik untuk masyarakat umum.
+  // Layer publik tidak mensyaratkan login/token authorization.
+  const isLayerAuthorized = (_name: string) => true;
 
   const filterAuthorizedLayerList = (items: any[] = []) =>
     items.filter((item) => isLayerAuthorized(item?.name ?? item?.id));
@@ -372,52 +367,12 @@ const Kerawanan = () => {
     };
   };
 
+  // Tidak memanggil /api/my-layer-authorizations pada halaman publik.
+  // Authorization khusus pengguna tetap dapat diterapkan pada halaman admin terpisah.
   const loadMyLayerAuthorizations = async () => {
-    const token = getAuthToken();
-
-    if (!token) {
-      console.warn(
-        "🔐 Tidak ada token SIMITI; authorization layer tidak dapat diterapkan.",
-      );
-      setAuthorizedLayerNames(null);
-      setAuthorizationLoaded(true);
-      return;
-    }
-
-    try {
-      setAuthorizationError("");
-      const response = await fetch(`${API_URL}/api/my-layer-authorizations`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/json",
-        },
-      });
-
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(result?.message || `HTTP ${response.status}`);
-      }
-
-      const rows = Array.isArray(result?.data) ? result.data : [];
-      const names = new Set<string>(
-        rows
-          .filter((item: any) => item?.can_view === true)
-          .map((item: any) => normalizeAuthorizationLayerName(item.table_name)),
-      );
-
-      setAuthorizedLayerNames(names);
-      setAuthorizationLoaded(true);
-
-      console.log("🔐 SIMITI authorized layers:", Array.from(names));
-    } catch (error: any) {
-      console.error("❌ Gagal mengambil authorization layer:", error);
-      // Fail closed: token ada tetapi authorization gagal -> jangan tampilkan layer lokal.
-      setAuthorizedLayerNames(new Set());
-      setAuthorizationError(
-        error?.message || "Authorization layer gagal dimuat.",
-      );
-      setAuthorizationLoaded(true);
-    }
+    setAuthorizationError("");
+    setAuthorizedLayerNames(null);
+    setAuthorizationLoaded(true);
   };
 
   const layerCacheRef = useRef<Map<string, any>>(new Map());
@@ -1319,6 +1274,35 @@ const Kerawanan = () => {
 
   const getBencanaLayerColor = (tableName: string): string =>
     BENCANA_LAYER_COLORS[String(tableName)] || "#64748B";
+
+  // Kelas kerawanan memakai warna konsisten pada peta dan legenda.
+  // Jika sumber memakai label lain, warna dasar jenis bencana tetap digunakan.
+  const getRiskClassColor = (value: unknown, fallback: string): string => {
+    const kelas = String(value ?? "").trim().toLowerCase();
+    if (!kelas) return fallback;
+    if (/\b(sangat\s*tinggi|very\s*high)\b/.test(kelas)) return "#991B1B";
+    if (/\b(rendah|low|aman|minim)\b/.test(kelas)) return "#22C55E";
+    if (/\b(sedang|medium|moderate)\b/.test(kelas)) return "#F59E0B";
+    if (/\b(tinggi|high|berat)\b/.test(kelas)) return "#EF4444";
+    return fallback;
+  };
+
+  const getBencanaFeatureClass = (feature: any): string => {
+    const props = feature?.properties || {};
+    const candidates = [
+      props.kelas,
+      props.tingkat_risiko,
+      props.tingkat_bahaya,
+      props.kelas_risiko,
+      props.kelas_bahaya,
+      props.risk_level,
+      props.hazard_level,
+      props.keterangan,
+      props.unsur,
+      props.limpasan,
+    ];
+    return String(candidates.find((value) => value != null && String(value).trim()) ?? "");
+  };
 
   const areaGeomToLatLngRings = (geom: any): number[][][] => {
     if (!geom) return [];
@@ -2854,7 +2838,6 @@ const Kerawanan = () => {
         ].includes(tableName)
       ) {
         const kelasMap = new Map<string, number>();
-        const risikoColorMap = new Map<string, string>();
         geojsonData.features.forEach((feature: any) => {
           const kelas = feature.properties.kelas || "";
           const luas =
@@ -2863,10 +2846,11 @@ const Kerawanan = () => {
             0;
           if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
         });
+        const fallbackRiskColor = getBencanaLayerColor(tableName);
         const arr = Array.from(kelasMap.entries()).map(([kelas, luas]) => ({
           kelas,
           luas,
-          color: getRandomColor(kelas, risikoColorMap),
+          color: getRiskClassColor(kelas, fallbackRiskColor),
         }));
         const risikoKey = tableName as keyof typeof risikoData;
         setRisikoData((prev) => ({ ...prev, [tableName]: arr }));
@@ -2925,13 +2909,15 @@ const Kerawanan = () => {
       // Dengan begitu karhutla selalu merah, banjir selalu hijau, dst.
       if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
         const bencanaColor = getBencanaLayerColor(String(tableName));
-        styleFunction = function (_feature: any) {
+        styleFunction = function (feature: any) {
+          const kelas = getBencanaFeatureClass(feature);
+          const featureColor = getRiskClassColor(kelas, bencanaColor);
           return {
-            color: bencanaColor,
-            fillColor: bencanaColor,
+            color: featureColor,
+            fillColor: featureColor,
             weight: zoom > 10 ? 1.8 : 1.2,
             opacity: 0.95,
-            fillOpacity: 0.48,
+            fillOpacity: 0.32,
           };
         };
       } else if (tableName === "tutupan_lahan") {
@@ -3310,7 +3296,10 @@ const Kerawanan = () => {
           }
           const isBencanaLayer = BENCANA_FOCUS_LAYERS.has(String(tableName));
           const tableColor = isBencanaLayer
-            ? getBencanaLayerColor(String(tableName))
+            ? getRiskClassColor(
+                getBencanaFeatureClass(feature),
+                getBencanaLayerColor(String(tableName)),
+              )
             : getColorForTable(tableName);
 
           // Point pada layer bencana tetap ditampilkan. Beberapa sumber bencana
@@ -3468,9 +3457,11 @@ const Kerawanan = () => {
 
       cleanupLegacyBencanaCircleMarkers();
 
-      // FORCE BENCANA STYLE
-      // Pastikan warna jenis bencana tetap dipakai walaupun ada
-      // proses refresh/setStyle lain setelah layer dibuat.
+      // SIMITI: WARNA BENCANA SOLID + IRISAN TANPA BLENDING
+      // Setiap jenis bencana memakai warna tematik sendiri dan fillOpacity=1.
+      // Dengan fill solid, dua layer yang beririsan tidak menghasilkan warna
+      // campuran/transparan. Area irisan mengikuti urutan render deterministik
+      // di bawah; ketika layer teratas dimatikan, layer di bawah tetap terlihat.
       if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
         const forcedBencanaColor = getBencanaLayerColor(String(tableName));
 
@@ -3480,33 +3471,62 @@ const Kerawanan = () => {
               layer.setStyle({
                 color: forcedBencanaColor,
                 fillColor: forcedBencanaColor,
-                weight: zoom > 10 ? 2.2 : 1.5,
+                weight: zoom > 10 ? 1.6 : 1.1,
                 opacity: 1,
-                fillOpacity: 0.65,
+                fillOpacity: 0.32,
               });
             }
-
             if (layer?.options) {
               layer.options.color = forcedBencanaColor;
               layer.options.fillColor = forcedBencanaColor;
               layer.options.opacity = 1;
-              layer.options.fillOpacity = 0.65;
+              layer.options.fillOpacity = 0.32;
             }
           } catch (styleError) {
-            console.warn(
-              "SIMITI: gagal force style bencana:",
-              tableName,
-              styleError,
-            );
+            console.warn("SIMITI: gagal force style bencana:", tableName, styleError);
           }
         });
 
-        console.log(
-          `🎨 SIMITI FORCE BENCANA COLOR: ${tableName} → ${forcedBencanaColor}`,
-        );
+        console.log(`🎨 SIMITI SOLID BENCANA COLOR: ${tableName} → ${forcedBencanaColor}`);
       }
 
       layerGroupsRef.current[tableName] = layerGroup;
+
+      // Urutan layer stabil, tidak bergantung urutan checkbox diklik.
+      // Banjir digambar lebih dulu; kekeringan setelahnya sehingga area irisan
+      // memiliki satu warna solid yang jelas, bukan dua warna transparan.
+      const bencanaRenderPriority: Record<string, number> = {
+        risiko_banjir: 10,
+        rawan_banjir: 10,
+        bahaya_banjir: 10,
+        risiko_banjir_bandang: 20,
+        bahaya_banjir_bandang: 20,
+        risiko_longsor: 30,
+        rawan_longsor: 30,
+        rawan_erosi: 35,
+        rawan_limpasan: 40,
+        risiko_karhutla: 50,
+        rawan_karhutla: 50,
+        risiko_abrasi: 60,
+        bahaya_abrasi_dan_gelombang_ekstrim: 60,
+        risiko_kekeringan: 70,
+        bahaya_kekeringan: 70,
+      };
+      const cachedBencanaLayers = Array.from(layerCacheRef.current.entries())
+        .filter(([name, cachedLayer]: [string, any]) =>
+          BENCANA_FOCUS_LAYERS.has(String(name)) &&
+          cachedLayer && mapInstanceRef.current?.hasLayer?.(cachedLayer),
+        )
+        .sort(([nameA], [nameB]) =>
+          (bencanaRenderPriority[nameA] ?? 45) - (bencanaRenderPriority[nameB] ?? 45),
+        );
+      cachedBencanaLayers.forEach(([, cachedLayer]: [string, any]) => {
+        try {
+          cachedLayer.eachLayer?.((child: any) => child?.bringToFront?.());
+        } catch (orderError) {
+          console.warn("SIMITI: urutan layer bencana dilewati:", orderError);
+        }
+      });
 
       const filterType =
         selectedDas.length > 0
@@ -3549,65 +3569,58 @@ const Kerawanan = () => {
     }
   };
 
-  // Titik representatif sederhana dari geometri GeoJSON wilayah terpilih.
-  // Menggunakan pusat bounding box agar stabil untuk Polygon maupun MultiPolygon.
-  const getAreaCoordinate = (
-    area: any,
-  ): { latitude: number | null; longitude: number | null } => {
-    const directLat = Number(area?.latitude ?? area?.lat);
-    const directLon = Number(area?.longitude ?? area?.lon ?? area?.lng);
-    if (Number.isFinite(directLat) && Number.isFinite(directLon)) {
-      return { latitude: directLat, longitude: directLon };
-    }
-
-    const coordinates = area?.geom?.coordinates ?? area?.geometry?.coordinates;
-    if (!coordinates) return { latitude: null, longitude: null };
-    const pairs: Array<[number, number]> = [];
-    const walk = (node: any) => {
-      if (!Array.isArray(node)) return;
-      if (
-        node.length >= 2 &&
-        typeof node[0] === "number" &&
-        typeof node[1] === "number"
-      ) {
-        if (Number.isFinite(node[0]) && Number.isFinite(node[1]))
-          pairs.push([node[0], node[1]]);
-        return;
-      }
-      node.forEach(walk);
-    };
-    walk(coordinates);
-    if (!pairs.length) return { latitude: null, longitude: null };
-    const lons = pairs.map((pair) => pair[0]);
-    const lats = pairs.map((pair) => pair[1]);
-    return {
-      latitude: (Math.min(...lats) + Math.max(...lats)) / 2,
-      longitude: (Math.min(...lons) + Math.max(...lons)) / 2,
-    };
-  };
-
   const searchAreas = async (
     query: string,
     levelOverride?: typeof adminLevel,
   ) => {
     if (query.trim().length < 2) {
       setAreaSearchResults([]);
+      setShowAreaSearchDropdown(false);
       return;
+    }
+
+    const level = levelOverride || adminLevel;
+    const params = new URLSearchParams({
+      query: query.trim(),
+      level,
+    });
+
+    // Ambil wilayah induk yang dipilih untuk membatasi pencarian anak.
+    const latest = (targetLevel: string) =>
+      [...selectedAreas].reverse().find((area) => area.level === targetLevel);
+
+    if (level === "kabupaten") {
+      const parent = latest("provinsi");
+      if (parent?.provinsi) params.set("provinsi", parent.provinsi);
+    } else if (level === "kecamatan") {
+      const parent = latest("kabupaten");
+      if (parent?.provinsi) params.set("provinsi", parent.provinsi);
+      if (parent?.kab_kota) params.set("kab_kota", parent.kab_kota);
+    } else if (level === "kelurahan") {
+      const parent = latest("kecamatan");
+      if (parent?.provinsi) params.set("provinsi", parent.provinsi);
+      if (parent?.kab_kota) params.set("kab_kota", parent.kab_kota);
+      if (parent?.kecamatan) params.set("kecamatan", parent.kecamatan);
     }
 
     try {
       const response = await fetch(
-        `${API_URL}/api/areas/search?query=${encodeURIComponent(query)}&level=${levelOverride || adminLevel}`,
+        `${API_URL}/api/areas/search?${params.toString()}`,
       );
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
       const data = await response.json();
-      setAreaSearchResults(data);
+      setAreaSearchResults(Array.isArray(data) ? data : []);
       setShowAreaSearchDropdown(true);
     } catch (error) {
       console.error("Error searching areas:", error);
       setAreaSearchResults([]);
+      setShowAreaSearchDropdown(false);
     }
   };
-
   useEffect(() => {
     const checkExistingSession = async () => {
       const token = localStorage.getItem("adminToken");
@@ -5098,8 +5111,21 @@ const Kerawanan = () => {
           }
         }
       }, 100);
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.setView([-2.5, 118.0], 5);
+      // Saat wilayah terakhir ditutup/dihapus, kembalikan peta ke cakupan Indonesia penuh.
+      // Gunakan batas yang sama dengan initial map agar Sumatra sampai Papua terlihat.
+      if (mapInstanceRef.current && window.L) {
+        const container = mapInstanceRef.current.getContainer?.();
+        const width = container?.clientWidth || window.innerWidth;
+        const padding = width < 480 ? [12, 38] : width < 900 ? [18, 28] : [24, 24];
+        const indonesiaBounds = window.L.latLngBounds(
+          [-11.5, 93.0],
+          [6.5, 142.5],
+        );
+        mapInstanceRef.current.fitBounds(indonesiaBounds, {
+          padding,
+          animate: false,
+          maxZoom: 5,
+        });
       }
     }
   };
@@ -5216,6 +5242,18 @@ const Kerawanan = () => {
     if (!isAlreadySelected) {
       const newSelectedAreas = [...selectedAreas, area];
       setSelectedAreas(newSelectedAreas);
+
+      // Otomatis lanjut ke tingkat administrasi berikutnya.
+      const nextAdminLevel: typeof adminLevel =
+        area.level === "provinsi"
+          ? "kabupaten"
+          : area.level === "kabupaten"
+            ? "kecamatan"
+            : area.level === "kecamatan"
+              ? "kelurahan"
+              : "kelurahan";
+
+      setAdminLevel(nextAdminLevel);
       setSelectedInfoTab("Mitigasi");
       setAiError("");
       // Jalankan diagnosis memakai area terbaru (bukan state lama).
@@ -5356,8 +5394,21 @@ const Kerawanan = () => {
           }
         }
       }, 100);
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.setView([-2.5, 118.0], 5);
+      // Saat wilayah terakhir ditutup/dihapus, kembalikan peta ke cakupan Indonesia penuh.
+      // Gunakan batas yang sama dengan initial map agar Sumatra sampai Papua terlihat.
+      if (mapInstanceRef.current && window.L) {
+        const container = mapInstanceRef.current.getContainer?.();
+        const width = container?.clientWidth || window.innerWidth;
+        const padding = width < 480 ? [12, 38] : width < 900 ? [18, 28] : [24, 24];
+        const indonesiaBounds = window.L.latLngBounds(
+          [-11.5, 93.0],
+          [6.5, 142.5],
+        );
+        mapInstanceRef.current.fitBounds(indonesiaBounds, {
+          padding,
+          animate: false,
+          maxZoom: 5,
+        });
       }
     }
   };
@@ -6039,7 +6090,7 @@ const Kerawanan = () => {
           weight: zoom > 10 ? 2.2 : 1.5,
           opacity: 1,
           fillColor: color,
-          fillOpacity: 0.65,
+          fillOpacity: 0.32,
         });
 
         // Sinkronkan juga options Leaflet supaya style berikutnya
@@ -6048,7 +6099,7 @@ const Kerawanan = () => {
           layer.options.color = color;
           layer.options.fillColor = color;
           layer.options.opacity = 1;
-          layer.options.fillOpacity = 0.65;
+          layer.options.fillOpacity = 0.32;
         }
 
         return;
@@ -6186,12 +6237,12 @@ const Kerawanan = () => {
   // Fetch layers from database on mount
   useEffect(() => {
     const bootstrapLayerAccess = async () => {
-      // Authorization wajib selesai sebelum katalog layer dimuat.
+      // Katalog layer dimuat langsung untuk akses publik.
       await loadMyLayerAuthorizations();
       await fetchLayers();
 
       // Defense-in-depth: jika ada layer aktif dari state/cache lama,
-      // hanya layer yang can_view=true yang boleh tetap hidup.
+      // layer publik tetap dapat ditampilkan tanpa token.
       setActiveLayers((prev) => {
         const next = new Set<string>();
         for (const name of prev) {
@@ -6551,16 +6602,29 @@ const Kerawanan = () => {
       }
 
       mapInitializingRef.current = true;
-      // Extent awal WebGIS Indonesia; dipakai kembali oleh kontrol Default Extent.
-      const DEFAULT_MAP_CENTER: [number, number] = [-2.5, 118.0];
-      const DEFAULT_MAP_ZOOM = 5;
-      const map = window.L.map(container, { zoomControl: false }).setView(
-        DEFAULT_MAP_CENTER,
-        DEFAULT_MAP_ZOOM,
+      // Tampilan awal seluruh Indonesia untuk desktop, tablet, dan ponsel.
+      // Zoom lebih lebar agar wilayah barat hingga Papua terlihat sejak pertama dibuka.
+      // Kontrol Default Extent menggunakan nilai yang sama.
+      const DEFAULT_MAP_CENTER: [number, number] = [-2.2, 118.0];
+      // Gunakan batas geografis Indonesia, bukan zoom tetap. fitBounds menyesuaikan
+      // viewport portrait/landscape sehingga Sumatra hingga Papua masuk pada awal.
+      const DEFAULT_MAP_BOUNDS = window.L.latLngBounds(
+        [-11.5, 93.0],
+        [6.5, 142.5],
       );
+      const getDefaultMapPadding = () => {
+        const width = container.clientWidth || window.innerWidth;
+        return width < 480 ? [12, 38] : width < 900 ? [18, 28] : [24, 24];
+      };
+      const map = window.L.map(container, { zoomControl: false });
+      map.fitBounds(DEFAULT_MAP_BOUNDS, {
+        padding: getDefaultMapPadding(),
+        animate: false,
+        maxZoom: 5,
+      });
 
-      // Navigasi peta ditempatkan di kiri bawah agar tidak bertumpuk
-      // dengan judul peta (kiri atas) dan pemilih basemap (kanan atas).
+      // Kontrol zoom berada di kiri bawah; tombol extent tepat di bawahnya.
+      // Area ini sengaja dipisahkan dari pencarian (atas-kiri) dan basemap (atas-kanan).
       window.L.control.zoom({ position: "bottomleft" }).addTo(map);
 
       // Kontrol Default Extent mengembalikan viewport ke cakupan awal Indonesia.
@@ -6582,7 +6646,11 @@ const Kerawanan = () => {
         window.L.DomEvent.disableClickPropagation(control);
         window.L.DomEvent.on(button, "click", (event: Event) => {
           window.L.DomEvent.preventDefault(event);
-          map.setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, { animate: false });
+          map.fitBounds(DEFAULT_MAP_BOUNDS, {
+            padding: getDefaultMapPadding(),
+            animate: false,
+            maxZoom: 5,
+          });
         });
         return control;
       };
@@ -7512,7 +7580,7 @@ const Kerawanan = () => {
 
   const buildMitigationContext = (areasOverride?: any[]) => {
     const areas = areasOverride ?? selectedAreas;
-    const selectedArea = areas?.[0] || null;
+    const selectedArea = areas?.[areas.length - 1] || null;
     const riskMap: Record<string, any[]> = {
       karhutla: risikoData.risiko_karhutla,
       banjir: risikoData.risiko_banjir,
@@ -12120,7 +12188,7 @@ const Kerawanan = () => {
   };
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-[#f4f7f6] text-slate-800">
+    <div className="kerawanan-root flex h-screen w-full overflow-hidden bg-[#f4f7f6] text-slate-800">
       <style>{`
         @media print {
           @page {
@@ -12189,15 +12257,15 @@ const Kerawanan = () => {
         }
 
         /* Kontrol navigasi Leaflet: tersusun vertikal, tidak menutupi overlay atas. */
-        .kerawanan-map .leaflet-bottom.leaflet-left {
+        .kerawanan-map .leaflet-bottom.leaflet-right {
           display: flex;
           flex-direction: column;
-          align-items: flex-start;
+          align-items: flex-end;
           gap: 7px;
-          margin: 0 0 12px 12px;
+          margin: 0 12px 12px 0;
         }
 
-        .kerawanan-map .leaflet-bottom.leaflet-left .leaflet-control {
+        .kerawanan-map .leaflet-bottom.leaflet-right .leaflet-control {
           margin: 0;
         }
 
@@ -12582,10 +12650,29 @@ const Kerawanan = () => {
           .mobile-topbar::after { content:""; position:fixed; inset:0; background:rgba(2,6,23,.42); z-index:-1; pointer-events:none; opacity:0; }
           .enterprise-sidebar.mobile-sidebar-open ~ * { }
         }
+        @media (max-width: 1279px) {
+          /* Tombol navigasi tetap terlihat di atas peta pada tablet dan ponsel. */
+          .mobile-menu-button {
+            display: flex !important;
+            position: fixed !important;
+            top: 10px !important;
+            left: 10px !important;
+            z-index: 10000 !important;
+            width: 42px !important;
+            height: 42px !important;
+            flex: 0 0 42px !important;
+            background: #064238 !important;
+            color: #fff !important;
+            border: 1px solid rgba(255,255,255,.75) !important;
+            box-shadow: 0 4px 16px rgba(2, 24, 20, .35) !important;
+          }
+          .enterprise-sidebar { z-index: 10010 !important; }
+          .mockup-map-search { padding-left: 48px !important; }
+        }
         @media (max-width: 767px) {
           .mobile-topbar { padding:7px 10px; min-height:48px; }
-          .mobile-menu-button { display:flex; }
           .mockup-map-search input { font-size:11px; }
+          .kerawanan-map { width:100% !important; overflow:hidden !important; }
         }
         /* =====================================================
            RIGHT LAYER PANEL — DESKTOP OVERLAY
@@ -12639,7 +12726,38 @@ const Kerawanan = () => {
           }
         }
         @media (min-width: 1280px) {
-          .mobile-menu-button { display:none; }
+          .mobile-menu-button { display:none !important; }
+        }
+
+        /* Tombol untuk memunculkan kembali panel layer kanan saat disembunyikan. */
+        .kerawanan-panel-reopen {
+          position: absolute;
+          top: 16px;
+          right: 14px;
+          z-index: 1400;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          min-height: 40px;
+          padding: 0 14px;
+          border: 1px solid #dbe4ee;
+          border-radius: 12px;
+          background: rgba(255,255,255,.96);
+          color: #0f172a;
+          box-shadow: 0 8px 24px rgba(15,23,42,.16);
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+          backdrop-filter: blur(8px);
+        }
+        .kerawanan-panel-reopen:hover {
+          background: #f8fafc;
+          border-color: #94a3b8;
+        }
+        .kerawanan-panel-reopen:focus-visible {
+          outline: 3px solid rgba(16,185,129,.35);
+          outline-offset: 2px;
         }
 
         /* =========================================================
@@ -12822,6 +12940,536 @@ const Kerawanan = () => {
         }
       }
 
+        /* =========================================================
+           RESPONSIVE MAP FINAL — phone, tablet, laptop, desktop
+           Ukuran mengikuti viewport aktual; tidak mengubah API/layer.
+           ========================================================= */
+        .kerawanan-root {
+          width: 100%;
+          width: 100vw;
+          height: 100vh;
+          height: 100dvh;
+          min-height: 0;
+          min-width: 0;
+          overflow: hidden;
+        }
+        .kerawanan-root > .flex-1 {
+          min-width: 0;
+          min-height: 0;
+        }
+        .kerawanan-root main {
+          min-width: 0;
+          min-height: 0;
+        }
+        #simiti-map,
+        .kerawanan-map .leaflet-container {
+          width: 100% !important;
+          height: 100% !important;
+          min-width: 0 !important;
+          min-height: 0 !important;
+        }
+        .kerawanan-map {
+          width: 100%;
+          min-width: 0 !important;
+          max-width: 100%;
+          contain: layout paint;
+        }
+        .kerawanan-map .leaflet-control-container {
+          max-width: 100%;
+        }
+        .kerawanan-map .leaflet-top,
+        .kerawanan-map .leaflet-bottom {
+          z-index: 1200;
+        }
+        .kerawanan-map .leaflet-control-zoom a,
+        .kerawanan-map .simiti-default-extent-control a {
+          touch-action: manipulation;
+        }
+        .kerawanan-map .leaflet-bottom.leaflet-right {
+          display: flex !important;
+          flex-direction: column !important;
+          align-items: flex-end !important;
+          gap: 6px !important;
+          margin: 0 12px 12px 0 !important;
+        }
+        .kerawanan-map .leaflet-bottom.leaflet-right .leaflet-control {
+          float: none !important;
+          margin: 0 !important;
+        }
+        .kerawanan-map .leaflet-control-zoom,
+        .kerawanan-map .simiti-default-extent-control {
+          position: relative !important;
+          z-index: 1300 !important;
+          border: 1px solid rgba(148,163,184,.65) !important;
+          border-radius: 9px !important;
+          overflow: hidden !important;
+          background: #fff !important;
+          box-shadow: 0 3px 12px rgba(15,23,42,.24) !important;
+        }
+        .kerawanan-map .leaflet-control-zoom a {
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          width: 34px !important;
+          height: 34px !important;
+          font-size: 22px !important;
+          line-height: 1 !important;
+          color: #0f172a !important;
+          background: #fff !important;
+          opacity: 1 !important;
+        }
+        .kerawanan-map .simiti-default-extent-control a {
+          width: 34px !important;
+          height: 34px !important;
+          line-height: 34px !important;
+          color: #0f172a !important;
+          background: #fff !important;
+          opacity: 1 !important;
+        }
+
+        /* Tablet dan laptop kecil: peta menggunakan tinggi viewport, bukan tinggi tetap. */
+        @media (min-width: 768px) and (max-width: 1279px) {
+          .kerawanan-root main {
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+          }
+          .kerawanan-workspace {
+            flex: 0 0 auto !important;
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+            grid-template-rows: auto !important;
+          }
+          .kerawanan-map {
+            height: clamp(300px, 58dvh, 680px) !important;
+            min-height: 0 !important;
+          }
+          .kerawanan-layer-panel {
+            min-width: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            min-height: 280px !important;
+            max-height: 55dvh !important;
+          }
+          .kerawanan-bottom-summary {
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+            height: 180px !important;
+            max-height: 180px !important;
+          }
+        }
+
+        /* Smartphone portrait */
+        @media (max-width: 767px) {
+          .kerawanan-root {
+            height: 100vh;
+            height: 100dvh;
+          }
+          .kerawanan-root > .flex-1 {
+            width: 100%;
+            overflow: hidden;
+          }
+          .kerawanan-root main {
+            padding: 6px !important;
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+            overscroll-behavior-y: contain;
+          }
+          .kerawanan-workspace {
+            display: grid !important;
+            flex: 0 0 auto !important;
+            width: 100% !important;
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+            grid-template-columns: minmax(0, 1fr) !important;
+            grid-template-rows: auto !important;
+            gap: 8px !important;
+          }
+          .kerawanan-map {
+            grid-column: 1 / -1 !important;
+            width: 100% !important;
+            height: clamp(240px, 52dvh, 520px) !important;
+            min-height: 0 !important;
+            max-height: 65dvh !important;
+            border-radius: 10px !important;
+          }
+          .kerawanan-map .mockup-map-search {
+            left: 8px !important;
+            right: 8px !important;
+            top: 8px !important;
+            width: auto !important;
+            max-width: calc(100% - 16px) !important;
+          }
+          .kerawanan-map .mockup-map-search input {
+            width: 100% !important;
+            min-width: 0 !important;
+          }
+          .kerawanan-map > .absolute.top-3.right-3 {
+            top: 58px !important;
+            right: 8px !important;
+          }
+          .kerawanan-map > .absolute.top-3.right-3 button {
+            min-height: 34px !important;
+            padding: 6px 9px !important;
+            font-size: 10px !important;
+          }
+          .kerawanan-layer-panel {
+            grid-column: 1 / -1 !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            min-height: 260px !important;
+            max-height: 52dvh !important;
+          }
+          .kerawanan-bottom-summary {
+            grid-column: 1 / -1 !important;
+            grid-template-columns: minmax(0, 1fr) !important;
+            width: 100% !important;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+            gap: 8px !important;
+          }
+          .kerawanan-bottom-summary > * {
+            width: 100% !important;
+            height: 200px !important;
+            min-height: 150px !important;
+            max-height: 240px !important;
+            border-left: 0 !important;
+          }
+          .kerawanan-bottom-summary > * + * {
+            border-top: 1px solid #e2e8f0 !important;
+          }
+          .kerawanan-map .leaflet-bottom.leaflet-right {
+            margin: 0 8px 8px 0 !important;
+            gap: 5px !important;
+          }
+          .kerawanan-map .leaflet-control-zoom a,
+          .kerawanan-map .simiti-default-extent-control a {
+            width: 28px !important;
+            height: 28px !important;
+            line-height: 28px !important;
+          }
+        }
+
+        /* =========================================================
+           FINAL MOBILE FIT PATCH — SIMITI
+           Sidebar menjadi overlay, workspace memakai lebar viewport penuh,
+           dan panel informasi tidak membuat halaman melebar ke samping.
+           UI only: tidak mengubah API, GIS layers, atau data.
+           ========================================================= */
+        html, body, #root {
+          width: 100%;
+          max-width: 100%;
+          overflow-x: clip !important;
+        }
+        @media (max-width: 767px) {
+          body { margin: 0 !important; }
+          #root { min-width: 0 !important; }
+          .mobile-topbar {
+            position: relative !important;
+            z-index: 1450 !important;
+            width: 100% !important;
+            max-width: 100vw !important;
+            box-sizing: border-box !important;
+            background: #fff !important;
+          }
+          .mobile-topbar > * { min-width: 0 !important; }
+          .mobile-page-title { min-width: 0 !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+          /* Pastikan sidebar tidak menyisakan kolom kosong di sisi peta. */
+          .enterprise-sidebar {
+            position: fixed !important;
+            top: 0 !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            right: auto !important;
+            width: min(280px, 84vw) !important;
+            max-width: 84vw !important;
+            height: 100dvh !important;
+            z-index: 2000 !important;
+            transform: translateX(-110%) !important;
+            overflow-y: auto !important;
+          }
+          .enterprise-sidebar.mobile-sidebar-open { transform: translateX(0) !important; }
+          .kerawanan-workspace {
+            display: grid !important;
+            grid-template-columns: minmax(0, 1fr) !important;
+            grid-template-rows: auto minmax(0, 1fr) auto !important;
+            width: 100% !important;
+            max-width: 100vw !important;
+            margin-left: 0 !important;
+            padding-left: 8px !important;
+            padding-right: 8px !important;
+            box-sizing: border-box !important;
+            overflow: visible !important;
+          }
+          .kerawanan-map {
+            grid-column: 1 / -1 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: clamp(390px, 61svh, 560px) !important;
+            min-height: 360px !important;
+            max-height: 68svh !important;
+            box-sizing: border-box !important;
+            overflow: hidden !important;
+          }
+          .kerawanan-map .leaflet-container { width: 100% !important; max-width: 100% !important; }
+          .kerawanan-layer-panel {
+            position: relative !important;
+            inset: auto !important;
+            grid-column: 1 / -1 !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: 52svh !important;
+            overflow: auto !important;
+            box-sizing: border-box !important;
+          }
+          .kerawanan-bottom-summary {
+            grid-column: 1 / -1 !important;
+            display: grid !important;
+            grid-template-columns: minmax(0, 1fr) !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+            box-sizing: border-box !important;
+          }
+          .kerawanan-bottom-summary > * {
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            min-height: 160px !important;
+            height: auto !important;
+            max-height: 280px !important;
+            box-sizing: border-box !important;
+            overflow: auto !important;
+            border-left: 0 !important;
+          }
+          .kerawanan-map .mockup-map-search {
+            left: 8px !important;
+            right: 8px !important;
+            top: 8px !important;
+            width: auto !important;
+            max-width: calc(100% - 16px) !important;
+          }
+          .kerawanan-map .mockup-map-search > div:first-child { width: 100% !important; max-width: 100% !important; }
+          .kerawanan-map > .absolute.top-3.right-3 { right: 8px !important; top: 58px !important; }
+          .kerawanan-map .leaflet-control-container { max-width: 100% !important; }
+        }
+        @media (max-width: 380px) {
+          .kerawanan-workspace { padding-left: 5px !important; padding-right: 5px !important; }
+          .kerawanan-map { height: 54svh !important; min-height: 330px !important; }
+          .mobile-menu-button { width: 34px !important; height: 34px !important; flex: 0 0 auto !important; }
+        }
+
+        /* Ponsel sangat pendek / mode landscape: hindari map lebih tinggi dari layar. */
+        @media (max-width: 767px) and (max-height: 500px) {
+          .kerawanan-map {
+            height: 68dvh !important;
+            min-height: 190px !important;
+            max-height: 72dvh !important;
+          }
+          .kerawanan-map .mockup-map-search {
+            top: 6px !important;
+          }
+          .kerawanan-map > .absolute.top-3.right-3 {
+            top: 54px !important;
+          }
+        }
+
+        /* FIX: tombol hide/unhide panel bawah harus menang dari aturan display:grid !important. */
+        .kerawanan-bottom-summary.kerawanan-bottom-summary-hidden {
+          display: none !important;
+          visibility: hidden !important;
+          pointer-events: none !important;
+        }
+        @media (min-width: 768px) {
+          .kerawanan-workspace.bottom-summary-closed {
+            grid-template-rows: minmax(0, 1fr) 0px !important;
+            row-gap: 0 !important;
+          }
+          .kerawanan-workspace.bottom-summary-open {
+            grid-template-rows: minmax(0, 1fr) 200px !important;
+            row-gap: 8px !important;
+          }
+        }
+
+        /* =========================================================
+           SIMITI RESPONSIVE LAYER PANEL — LEFT TOP
+           Desktop/tablet: panel overlays map at upper-left and matches
+           the map height. Mobile: panel flows below map for usability.
+           ========================================================= */
+        @media (min-width: 768px) {
+          .kerawanan-workspace {
+            position: relative !important;
+            isolation: isolate;
+            grid-template-columns: minmax(0, 1fr) !important;
+            min-width: 0 !important;
+            overflow: hidden !important;
+          }
+          .kerawanan-map {
+            grid-column: 1 !important;
+            grid-row: 1 !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            min-height: 0 !important;
+          }
+          .kerawanan-layer-panel {
+            position: absolute !important;
+            top: 12px !important;
+            left: 12px !important;
+            right: auto !important;
+            bottom: 212px !important;
+            width: clamp(270px, 29vw, 360px) !important;
+            min-width: 0 !important;
+            max-width: calc(100% - 24px) !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            grid-column: auto !important;
+            grid-row: auto !important;
+            z-index: 1300 !important;
+            overflow: hidden !important;
+            box-sizing: border-box !important;
+          }
+          .kerawanan-workspace.bottom-summary-closed .kerawanan-layer-panel {
+            bottom: 12px !important;
+          }
+          .kerawanan-layer-panel > div {
+            width: 100% !important;
+            height: 100% !important;
+            min-height: 0 !important;
+            min-width: 0 !important;
+          }
+          .kerawanan-layer-panel .dashboard-scroll {
+            min-height: 0 !important;
+            overflow-y: auto !important;
+            overscroll-behavior: contain;
+          }
+          .kerawanan-panel-reopen {
+            position: absolute !important;
+            top: 12px !important;
+            left: 12px !important;
+            right: auto !important;
+            bottom: auto !important;
+            z-index: 1350 !important;
+            max-width: calc(100% - 24px) !important;
+          }
+        }
+        @media (min-width: 768px) and (max-width: 1023px) {
+          .kerawanan-layer-panel {
+            width: clamp(250px, 34vw, 310px) !important;
+            top: 10px !important;
+            left: 10px !important;
+            bottom: 198px !important;
+          }
+          .kerawanan-workspace.bottom-summary-closed .kerawanan-layer-panel {
+            bottom: 10px !important;
+          }
+        }
+        /* Panel kiri: jaga ruang kontrol/checkbox agar tidak tertutup elemen tambahan. */
+        .kerawanan-layer-panel,
+        .kerawanan-layer-panel * {
+          box-sizing: border-box;
+        }
+        .kerawanan-layer-panel {
+          display: flex !important;
+          flex-direction: column !important;
+          min-height: 0 !important;
+        }
+        .kerawanan-layer-panel .dashboard-scroll {
+          flex: 1 1 auto !important;
+          min-height: 0 !important;
+          overflow-x: hidden !important;
+          overflow-y: auto !important;
+          scrollbar-gutter: stable;
+        }
+        .kerawanan-layer-panel input[type="checkbox"] {
+          flex: 0 0 auto;
+          accent-color: #059669;
+        }
+        .kerawanan-layer-panel label,
+        .kerawanan-layer-panel button {
+          min-width: 0;
+          overflow-wrap: anywhere;
+        }
+        @media (max-width: 767px) {
+          .kerawanan-layer-panel {
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            max-height: min(58svh, 520px) !important;
+            overflow: hidden !important;
+            border-radius: 14px !important;
+          }
+          .kerawanan-layer-panel .dashboard-scroll {
+            max-height: min(48svh, 440px) !important;
+            padding-bottom: max(12px, env(safe-area-inset-bottom)) !important;
+          }
+        }
+
+        /* Koordinat hasil klik peta berada di sisi kanan, terpisah dari panel kerawanan kiri. */
+        @media (min-width: 768px) {
+          .map-click-coordinate-card {
+            position: absolute !important;
+            top: 68px !important;
+            right: 12px !important;
+            left: auto !important;
+            z-index: 1450 !important;
+            width: clamp(260px, 25vw, 330px) !important;
+            max-width: calc(100% - 24px) !important;
+            max-height: min(360px, calc(100% - 230px)) !important;
+            margin: 0 !important;
+            overflow-y: auto !important;
+            box-sizing: border-box !important;
+            box-shadow: 0 14px 35px rgba(15, 23, 42, 0.18) !important;
+            backdrop-filter: blur(8px);
+          }
+        }
+        @media (max-width: 767px) {
+          .map-click-coordinate-card {
+            position: relative !important;
+            inset: auto !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            max-height: none !important;
+            margin: 8px 0 !important;
+            box-sizing: border-box !important;
+            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08) !important;
+          }
+        }
+
+        @media (max-width: 767px) {
+          .kerawanan-layer-panel {
+            position: relative !important;
+            top: auto !important;
+            left: auto !important;
+            right: auto !important;
+            bottom: auto !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: 52svh !important;
+            grid-column: 1 / -1 !important;
+            grid-row: auto !important;
+          }
+          .kerawanan-panel-reopen {
+            position: relative !important;
+            top: auto !important;
+            left: auto !important;
+            right: auto !important;
+            bottom: auto !important;
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+        }
+
       `}</style>
 
       {/* =========================================================
@@ -12904,7 +13552,7 @@ const Kerawanan = () => {
             </button>
           </div>
           <div
-            className="kerawanan-workspace min-h-0 flex-1 grid grid-cols-1 gap-0 transition-[grid-template-rows] duration-300 ease-out"
+            className={`kerawanan-workspace min-h-0 flex-1 grid grid-cols-1 gap-0 transition-[grid-template-rows] duration-300 ease-out ${isBottomSummaryOpen ? "bottom-summary-open" : "bottom-summary-closed"}`}
             style={{
               gridTemplateRows: isBottomSummaryOpen
                 ? "minmax(0, 1fr) 200px"
@@ -13043,20 +13691,6 @@ const Kerawanan = () => {
                   )}
               </div>
 
-              {/* Quick map controls */}
-              <div className="absolute right-3 top-3 z-[1600] flex flex-col rounded-lg overflow-hidden border border-slate-200 shadow-md bg-white">
-                <button
-                  onClick={() => mapInstanceRef.current?.zoomIn()}
-                  className="w-9 h-9 text-slate-700 text-lg hover:bg-slate-50"
-                >
-                  +
-                </button>
-                <button
-                  onClick={() => mapInstanceRef.current?.zoomOut()}
-                  className="w-9 h-9 border-t text-slate-700 text-lg hover:bg-slate-50"
-                ></button>
-              </div>
-
               {enterpriseMetadataLayer && (
                 <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[2100] w-[320px] max-w-[calc(100%-24px)]">
                   <div className="rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
@@ -13116,49 +13750,98 @@ const Kerawanan = () => {
               )}
             </section>
 
+            {/* TITIK KLIK PETA — floating card terpisah dari panel kerawanan */}
+                      {mapWeatherPopup.latitude !== null &&
+                        mapWeatherPopup.longitude !== null && (
+                          <div className="map-click-coordinate-card rounded-xl border border-sky-200 bg-sky-50/95 p-3">
+                            <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-sky-800">
+                              <span>📍</span> Informasi Titik Peta
+                            </div>
+                            <div className="space-y-2">
+                              <div>
+                                <div className="text-[9px] text-slate-500">
+                                  Desa/Kelurahan atau wilayah terdekat
+                                </div>
+                                <div className="text-xs font-bold text-slate-800">
+                                  {mapWeatherPopup.locationName ||
+                                    "Mencari nama wilayah..."}
+                                </div>
+                              </div>
+                              {mapWeatherPopup.district && (
+                                <div>
+                                  <div className="text-[9px] text-slate-500">
+                                    Kecamatan/Kabupaten
+                                  </div>
+                                  <div className="text-[10px] font-medium text-slate-700">
+                                    {mapWeatherPopup.district}
+                                  </div>
+                                </div>
+                              )}
+                              {mapWeatherPopup.province && (
+                                <div>
+                                  <div className="text-[9px] text-slate-500">
+                                    Provinsi
+                                  </div>
+                                  <div className="text-[10px] font-medium text-slate-700">
+                                    {mapWeatherPopup.province}
+                                  </div>
+                                </div>
+                              )}
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="rounded-lg border border-slate-200 bg-white p-2">
+                                  <div className="text-[9px] text-slate-500">
+                                    Latitude
+                                  </div>
+                                  <div className="break-all font-mono text-[10px] font-bold text-slate-800">
+                                    {mapWeatherPopup.latitude.toFixed(6)}
+                                  </div>
+                                </div>
+                                <div className="rounded-lg border border-slate-200 bg-white p-2">
+                                  <div className="text-[9px] text-slate-500">
+                                    Longitude
+                                  </div>
+                                  <div className="break-all font-mono text-[10px] font-bold text-slate-800">
+                                    {mapWeatherPopup.longitude.toFixed(6)}
+                                  </div>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void navigator.clipboard.writeText(
+                                    `${mapWeatherPopup.latitude!.toFixed(6)}, ${mapWeatherPopup.longitude!.toFixed(6)}`,
+                                  );
+                                }}
+                                className="w-full rounded-lg border border-sky-200 bg-white px-3 py-2 text-[10px] font-semibold text-sky-700 hover:bg-sky-100"
+                              >
+                                Salin koordinat
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
             {/* =====================================================
                  RIGHT LAYER PANEL — SIMITI • Layer
                  Panel layer dipindahkan dari floating drawer ke
                  kolom kanan agar selalu tersedia seperti mockup.
                 ===================================================== */}
-            {/* =====================================================
-                 RIGHT PANEL TOGGLE — UI only
-                 Panah tetap berada di tepi kanan map saat panel ditutup.
-                ===================================================== */}
-            <button
-              type="button"
-              onClick={() => setIsRightLayerPanelOpen((open) => !open)}
-              aria-expanded={isRightLayerPanelOpen}
-              aria-controls="kerawanan-right-layer-panel"
-              title={
-                isRightLayerPanelOpen
-                  ? "Sembunyikan panel layer"
-                  : "Tampilkan panel layer"
-              }
-              className={`absolute right-0 top-1/2 z-[1200] -translate-y-1/2 flex h-11 w-8 items-center justify-center rounded-l-xl border border-slate-200 bg-white text-slate-600 shadow-lg transition-all duration-300 hover:w-10 hover:bg-slate-50 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 ${
-                isRightLayerPanelOpen ? "xl:right-[350px]" : "xl:right-0"
-              }`}
-            >
-              <svg
-                className={`h-5 w-5 transition-transform duration-300 ${
-                  isRightLayerPanelOpen ? "rotate-0" : "rotate-180"
-                }`}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
+
+            {!isRightLayerPanelOpen && (
+              <button
+                type="button"
+                className="kerawanan-panel-reopen"
+                onClick={() => {
+                  setShowLayerPanel(true);
+                  setIsRightLayerPanelOpen(true);
+                }}
+                aria-controls="kerawanan-right-layer-panel"
+                aria-expanded={false}
+                title="Tampilkan kembali panel layer"
               >
-                <path d="m15 18-6-6 6-6" />
-              </svg>
-              <span className="sr-only">
-                {isRightLayerPanelOpen
-                  ? "Sembunyikan panel layer"
-                  : "Tampilkan panel layer"}
-              </span>
-            </button>
+                <span aria-hidden="true">☰</span>
+                Tampilkan Panel Layer
+              </button>
+            )}
 
             <aside
               id="kerawanan-right-layer-panel"
@@ -13181,7 +13864,10 @@ const Kerawanan = () => {
                       setShowLayerPanel(false);
                       setIsRightLayerPanelOpen(false);
                     }}
-                    className="text-slate-400 text-lg"
+                    type="button"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 text-lg hover:bg-slate-100 hover:text-slate-800 transition-colors"
+                    aria-label="Sembunyikan panel layer"
+                    title="Sembunyikan panel layer"
                   >
                     ×
                   </button>
@@ -13318,46 +14004,6 @@ const Kerawanan = () => {
                                 )}
                             </div>
                           </div>
-                          {selectedAreas.length > 0 &&
-                            (() => {
-                              const coordinateArea = selectedAreas[
-                                selectedAreas.length - 1
-                              ] as any;
-                              const point = getAreaCoordinate(coordinateArea);
-                              return (
-                                <div className="mt-2 rounded-lg border border-emerald-100 bg-emerald-50/70 px-2.5 py-2">
-                                  <div className="mb-1 text-[8px] font-extrabold uppercase tracking-[0.1em] text-emerald-700">
-                                    Koordinat Wilayah Terpilih
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                      <div className="text-[8px] text-slate-500">
-                                        Latitude
-                                      </div>
-                                      <div className="font-mono text-[10px] font-bold text-slate-800">
-                                        {point.latitude !== null
-                                          ? point.latitude.toFixed(6)
-                                          : "Geometri belum tersedia"}
-                                      </div>
-                                    </div>
-                                    <div>
-                                      <div className="text-[8px] text-slate-500">
-                                        Longitude
-                                      </div>
-                                      <div className="font-mono text-[10px] font-bold text-slate-800">
-                                        {point.longitude !== null
-                                          ? point.longitude.toFixed(6)
-                                          : "Geometri belum tersedia"}
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div className="mt-1 text-[7px] text-slate-500">
-                                    Titik tengah perkiraan dari geometri
-                                    wilayah, bukan koordinat GPS perangkat.
-                                  </div>
-                                </div>
-                              );
-                            })()}
                         </>
                       ) : (
                         <div className="relative">
@@ -13413,75 +14059,6 @@ const Kerawanan = () => {
                             )}
                         </div>
                       )}
-                      {/* TITIK KLIK — ADMINISTRASI */}
-                      {mapWeatherPopup.latitude !== null &&
-                        mapWeatherPopup.longitude !== null && (
-                          <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50/70 p-3">
-                            <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-sky-800">
-                              <span>📍</span> Informasi Titik Peta
-                            </div>
-                            <div className="space-y-2">
-                              <div>
-                                <div className="text-[9px] text-slate-500">
-                                  Desa/Kelurahan atau wilayah terdekat
-                                </div>
-                                <div className="text-xs font-bold text-slate-800">
-                                  {mapWeatherPopup.locationName ||
-                                    "Mencari nama wilayah..."}
-                                </div>
-                              </div>
-                              {mapWeatherPopup.district && (
-                                <div>
-                                  <div className="text-[9px] text-slate-500">
-                                    Kecamatan/Kabupaten
-                                  </div>
-                                  <div className="text-[10px] font-medium text-slate-700">
-                                    {mapWeatherPopup.district}
-                                  </div>
-                                </div>
-                              )}
-                              {mapWeatherPopup.province && (
-                                <div>
-                                  <div className="text-[9px] text-slate-500">
-                                    Provinsi
-                                  </div>
-                                  <div className="text-[10px] font-medium text-slate-700">
-                                    {mapWeatherPopup.province}
-                                  </div>
-                                </div>
-                              )}
-                              <div className="grid grid-cols-2 gap-2">
-                                <div className="rounded-lg border border-slate-200 bg-white p-2">
-                                  <div className="text-[9px] text-slate-500">
-                                    Latitude
-                                  </div>
-                                  <div className="break-all font-mono text-[10px] font-bold text-slate-800">
-                                    {mapWeatherPopup.latitude.toFixed(6)}
-                                  </div>
-                                </div>
-                                <div className="rounded-lg border border-slate-200 bg-white p-2">
-                                  <div className="text-[9px] text-slate-500">
-                                    Longitude
-                                  </div>
-                                  <div className="break-all font-mono text-[10px] font-bold text-slate-800">
-                                    {mapWeatherPopup.longitude.toFixed(6)}
-                                  </div>
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void navigator.clipboard.writeText(
-                                    `${mapWeatherPopup.latitude!.toFixed(6)}, ${mapWeatherPopup.longitude!.toFixed(6)}`,
-                                  );
-                                }}
-                                className="w-full rounded-lg border border-sky-200 bg-white px-3 py-2 text-[10px] font-semibold text-sky-700 hover:bg-sky-100"
-                              >
-                                Salin koordinat
-                              </button>
-                            </div>
-                          </div>
-                        )}
                       {(activeTab === "administrasi"
                         ? selectedAreas.length > 0
                         : selectedDas.length > 0) && (
@@ -13525,15 +14102,6 @@ const Kerawanan = () => {
                   </div>
                 )}
 
-                {authorizationError && (
-                  <div className="mx-3 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[9px] text-amber-800">
-                    <div className="font-bold">
-                      Authorization layer bermasalah
-                    </div>
-                    <div className="mt-0.5">{authorizationError}</div>
-                  </div>
-                )}
-
                 <div className="flex-1 overflow-y-auto dashboard-scroll p-3">
                   <div className="mb-4">
                     <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-200">
@@ -13562,11 +14130,11 @@ const Kerawanan = () => {
                           .map((layer) => (
                             <label
                               key={layer.id}
-                              className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer"
+                              className="flex min-w-0 items-start gap-2.5 rounded-lg border border-transparent px-2.5 py-2 hover:border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
                             >
                               <input
                                 type="checkbox"
-                                className="w-3.5 h-3.5 accent-emerald-700"
+                                className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-emerald-700"
                                 checked={activeLayers.has(layer.name)}
                                 onChange={(e) =>
                                   handleLayerToggle(
@@ -13576,7 +14144,7 @@ const Kerawanan = () => {
                                 }
                                 disabled={loadingLayerNames.has(layer.name)}
                               />
-                              <span className="text-[10px] flex-1 truncate">
+                              <span className="min-w-0 flex-1 break-words text-[10px] leading-4 text-slate-700">
                                 {loadingLayerNames.has(layer.name) ? "⏳ " : ""}
                                 {formatTableName(layer.name)}
                               </span>
@@ -13621,11 +14189,11 @@ const Kerawanan = () => {
                                 .map((layer: any) => (
                                   <label
                                     key={layer.id}
-                                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer"
+                                    className="flex min-w-0 items-start gap-2.5 rounded-lg border border-transparent px-2.5 py-2 hover:border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
                                   >
                                     <input
                                       type="checkbox"
-                                      className="w-3.5 h-3.5 accent-emerald-700"
+                                      className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-emerald-700"
                                       checked={
                                         activeLayers.has(
                                           String(
@@ -13659,7 +14227,7 @@ const Kerawanan = () => {
                                         layer.name,
                                       )}
                                     />
-                                    <span className="text-[10px] flex-1 truncate">
+                                    <span className="min-w-0 flex-1 break-words text-[10px] leading-4 text-slate-700">
                                       {formatTableName(layer.name)}
                                     </span>
                                   </label>
@@ -13682,7 +14250,7 @@ const Kerawanan = () => {
             <section
               id="kerawanan-bottom-summary-panel"
               className={`kerawanan-bottom-summary min-h-0 min-w-0 grid grid-cols-[minmax(240px,0.72fr)_minmax(0,1.38fr)_minmax(0,1.18fr)] overflow-hidden bg-white transition-opacity duration-200 ${
-                isBottomSummaryOpen ? "opacity-100" : "hidden"
+                isBottomSummaryOpen ? "opacity-100" : "kerawanan-bottom-summary-hidden"
               } xl:col-span-full`}
             >
               {/* =====================================================
