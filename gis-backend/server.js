@@ -342,7 +342,7 @@ async function insertAccessLog({
 }
 
 // ============================================================
-// LAPORAN PENGGUNA Ã¢â‚¬â€ REAL DATA FROM SYSTEM ACCESS LOG
+// LAPORAN PENGGUNA ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â REAL DATA FROM SYSTEM ACCESS LOG
 // ============================================================
 app.get("/api/laporan-pengguna", (req, res, next) => {
   const authHeader = req.headers.authorization || "";
@@ -1275,7 +1275,7 @@ async function ensureMasterRoleStatusColumn() {
 }
 
 ensureMasterRoleStatusColumn().catch((error) => {
-  console.error("Ã¢ÂÅ’ master_role status init:", error);
+  console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ master_role status init:", error);
 });
 
 // let riskAnalysisCache = new Map();
@@ -1694,9 +1694,9 @@ ensureMasterRoleStatusColumn().catch((error) => {
 
 //   try {
 //     await client.query(createTableSQL);
-//     console.log('Ã¢Å“â€¦ All tables created successfully');
+//     console.log('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ All tables created successfully');
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error creating tables:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error creating tables:', error);
 //   }
 // };
 
@@ -1940,7 +1940,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 
 //   return data.map(row => ({
 //     nama_das: row['Nama DAS'] || '',
-//     luas: parseFloat(row['Luas (kmÃ‚Â²)']) || 0,
+//     luas: parseFloat(row['Luas (kmÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â²)']) || 0,
 //     tutupan_vegetasi: row['Tutupan Vegetasi'] || '',
 //     sedimentasi: row['Sedimentasi'] || '',
 //     status_kekritisan: row['Status Kekritisan'] || ''
@@ -1992,12 +1992,12 @@ ensureMasterRoleStatusColumn().catch((error) => {
 
 //   // Try different header formats
 //   return {
-//     sangat_datar: parseFloat(row['0-2Ã‚Â° Sangat Datar (ha)'] || row['0-8Ã‚Â° Sangat Datar (Ha)'] || 0),
-//     datar: parseFloat(row['2-8Ã‚Â° Datar (ha)'] || row['0-8Ã‚Â° Datar (Ha)'] || 0),
-//     landai: parseFloat(row['8-15Ã‚Â° Landai (ha)'] || row['8-15Ã‚Â° Landai (Ha)'] || 0),
-//     agak_curam: parseFloat(row['15-25Ã‚Â° Agak Curam (ha)'] || row['15-25Ã‚Â° Agak Curam (Ha)'] || 0),
-//     curam: parseFloat(row['>25Ã‚Â° Curam (ha)'] || row['25-40Ã‚Â° Curam (Ha)'] || 0),
-//     sangat_curam: parseFloat(row['>25Ã‚Â° Sangat Curam (ha)'] || row['>40Ã‚Â° Sangat Curam (Ha)'] || 0)
+//     sangat_datar: parseFloat(row['0-2ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° Sangat Datar (ha)'] || row['0-8ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° Sangat Datar (Ha)'] || 0),
+//     datar: parseFloat(row['2-8ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° Datar (ha)'] || row['0-8ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° Datar (Ha)'] || 0),
+//     landai: parseFloat(row['8-15ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° Landai (ha)'] || row['8-15ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° Landai (Ha)'] || 0),
+//     agak_curam: parseFloat(row['15-25ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° Agak Curam (ha)'] || row['15-25ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° Agak Curam (Ha)'] || 0),
+//     curam: parseFloat(row['>25ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° Curam (ha)'] || row['25-40ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° Curam (Ha)'] || 0),
+//     sangat_curam: parseFloat(row['>25ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° Sangat Curam (ha)'] || row['>40ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° Sangat Curam (Ha)'] || 0)
 //   };
 // }
 
@@ -2013,7 +2013,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //     kel_desa: row['Kelurahan/Desa'] || '',
 //     jumlah_kk: parseInt(row['Jumlah KK']) || 0,
 //     jumlah_jiwa: parseInt(row['Jumlah Jiwa']) || 0,
-//     kepadatan: parseFloat(row['Kepadatan (jiwa/kmÃ‚Â²)']) || 0,
+//     kepadatan: parseFloat(row['Kepadatan (jiwa/kmÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â²)']) || 0,
 //     klasifikasi: row['Klasifikasi'] || ''
 //   }));
 // }
@@ -3080,12 +3080,12 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //   try {
 //     const result = {};
 
-//     // Ã¢Å“â€¦ FIX: Gunakan nama tabel yang benar
+//     // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ FIX: Gunakan nama tabel yang benar
 //     const tableConfigs = {
 //       provinsi: 'provinsi',
-//       kabupaten: 'kab_kota',      // Ã¢Å“â€¦ UBAH dari 'kabupaten' ke 'kab_kota'
+//       kabupaten: 'kab_kota',      // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ UBAH dari 'kabupaten' ke 'kab_kota'
 //       kecamatan: 'kecamatan',
-//       kelurahan: 'kel_desa',       // Ã¢Å“â€¦ UBAH dari 'kelurahan' ke 'kel_desa'
+//       kelurahan: 'kel_desa',       // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ UBAH dari 'kelurahan' ke 'kel_desa'
 //       das: 'das'
 //     };
 
@@ -3095,17 +3095,17 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //           `SELECT DISTINCT tahun_data FROM ${tableName} WHERE tahun_data IS NOT NULL ORDER BY tahun_data DESC`
 //         );
 //         result[key] = query.rows.map(r => r.tahun_data);
-//         console.log(`Ã¢Å“â€¦ Found ${result[key].length} years in ${tableName}:`, result[key]);
+//         console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${result[key].length} years in ${tableName}:`, result[key]);
 //       } catch (err) {
-//         console.log(`Ã¢Å¡Â Ã¯Â¸Â Table ${tableName} might not exist or has no tahun_data:`, err.message);
+//         console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Table ${tableName} might not exist or has no tahun_data:`, err.message);
 //         result[key] = [];
 //       }
 //     }
 
-//     console.log('Ã°Å¸â€œâ€¦ Available years result:', result);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Available years result:', result);
 //     res.json(result);
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error in /api/available-years/location:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error in /api/available-years/location:', error);
 //     res.status(500).json({ error: error.message });
 //   }
 // });
@@ -3120,17 +3120,17 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       return res.status(400).json({ error: 'Invalid table name format' });
 //     }
 
-//     console.log(`Ã°Å¸â€Â Fetching years for disaster table: ${tableName}`);
+//     console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Fetching years for disaster table: ${tableName}`);
 
 //     const query = `SELECT DISTINCT tahun_data FROM ${tableName} WHERE tahun_data IS NOT NULL ORDER BY tahun_data DESC`;
 //     const result = await client.query(query);
 
 //     const years = result.rows.map(r => r.tahun_data);
-//     console.log(`Ã¢Å“â€¦ Found ${years.length} years in ${tableName}:`, years);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${years.length} years in ${tableName}:`, years);
 
 //     res.json(years);
 //   } catch (error) {
-//     console.error(`Ã¢ÂÅ’ Error fetching years for ${tableName}:`, error.message);
+//     console.error(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching years for ${tableName}:`, error.message);
 
 //     // Check if table exists
 //     try {
@@ -3194,7 +3194,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       return res.status(400).json({ error: 'Invalid level' });
 //     }
 
-//     console.log(`Ã°Å¸â€Â Fetching ${level} for year ${year}`);
+//     console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Fetching ${level} for year ${year}`);
 
 //     // PERBAIKAN: Tambahkan filter untuk exclude NULL values
 //     let query = `SELECT DISTINCT ${config.column} as name, tahun_data FROM ${config.table}`;
@@ -3238,11 +3238,11 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //     query += ` ORDER BY ${config.column}`;
 
 //     const result = await client.query(query, params);
-//     console.log(`Ã¢Å“â€¦ Found ${result.rows.length} ${level}(s)`);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${result.rows.length} ${level}(s)`);
 
 //     res.json(result.rows);
 //   } catch (error) {
-//     console.error(`Ã¢ÂÅ’ Error fetching ${level}:`, error);
+//     console.error(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching ${level}:`, error);
 //     res.status(500).json({ error: error.message });
 //   }
 // });
@@ -3270,7 +3270,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       return res.status(400).json({ error: 'Invalid level' });
 //     }
 
-//     console.log(`Ã°Å¸â€Â Fetching ${level} with max year ${maxYear}`);
+//     console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Fetching ${level} with max year ${maxYear}`);
 
 //     // PERBAIKAN: Gunakan subquery untuk mendapatkan max year per lokasi
 //     let query = `
@@ -3316,15 +3316,15 @@ ensureMasterRoleStatusColumn().catch((error) => {
 
 //     query += ` ORDER BY name`;
 
-//     console.log('Ã°Å¸â€œÂ Executing query:', query);
-//     console.log('Ã°Å¸â€œÂ With params:', params);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Executing query:', query);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â With params:', params);
 
 //     const result = await client.query(query, params);
-//     console.log(`Ã¢Å“â€¦ Found ${result.rows.length} ${level}(s) with max year ${maxYear}`);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${result.rows.length} ${level}(s) with max year ${maxYear}`);
 
 //     res.json(result.rows);
 //   } catch (error) {
-//     console.error(`Ã¢ÂÅ’ Error fetching ${level} with max year:`, error);
+//     console.error(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching ${level} with max year:`, error);
 //     res.status(500).json({ error: error.message });
 //   }
 // });
@@ -3342,7 +3342,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //     let query, params;
 
 //     if (level === 'kabupaten' && provinsi) {
-//       console.log(`Ã°Å¸â€Â Fetching kabupaten for provinsi: ${provinsi}, year: ${year}`);
+//       console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Fetching kabupaten for provinsi: ${provinsi}, year: ${year}`);
 
 //       // Cari mapping dari provinsi ke kabupaten
 //       const mappingQuery = `
@@ -3370,7 +3370,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       params = [year, provinsiFilter];
 
 //     } else if (level === 'kecamatan' && kabupaten) {
-//       console.log(`Ã°Å¸â€Â Fetching kecamatan for kabupaten: ${kabupaten}, year: ${year}`);
+//       console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Fetching kecamatan for kabupaten: ${kabupaten}, year: ${year}`);
 
 //       const mappingQuery = `
 //         SELECT DISTINCT target_value
@@ -3397,7 +3397,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       params = [year, kabupatenFilter];
 
 //     } else if (level === 'kelurahan' && kecamatan) {
-//       console.log(`Ã°Å¸â€Â Fetching kelurahan for kecamatan: ${kecamatan}, year: ${year}`);
+//       console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Fetching kelurahan for kecamatan: ${kecamatan}, year: ${year}`);
 
 //       const mappingQuery = `
 //         SELECT DISTINCT target_value
@@ -3428,12 +3428,12 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //     }
 
 //     const result = await client.query(query, params);
-//     console.log(`Ã¢Å“â€¦ Cascading ${level} for year ${year}:`, result.rows.length);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Cascading ${level} for year ${year}:`, result.rows.length);
 
 //     res.json(result.rows);
 
 //   } catch (error) {
-//     console.error(`Ã¢ÂÅ’ Error in cascading ${level}:`, error);
+//     console.error(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error in cascading ${level}:`, error);
 //     res.status(500).json({ error: error.message });
 //   }
 // });
@@ -3500,7 +3500,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       });
 //     }
 
-//     console.log(`Ã°Å¸Å½Â¨ Fetching incident counts for coloring: ${disaster_type}, ${level}, year ${year}`);
+//     console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Â¨ Fetching incident counts for coloring: ${disaster_type}, ${level}, year ${year}`);
 
 //     let kejadianQuery;
 //     let params = [];
@@ -3544,13 +3544,13 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       incidentMap[row.location_key] = parseInt(row.incident_count);
 //     });
 
-//     console.log(`Ã¢Å“â€¦ Found incident counts for ${result.rows.length} locations`);
-//     console.log('Ã°Å¸â€œÅ  Sample data:', result.rows.slice(0, 3));
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found incident counts for ${result.rows.length} locations`);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Sample data:', result.rows.slice(0, 3));
 
 //     res.json({ incidentMap, totalLocations: result.rows.length });
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching incident counts:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching incident counts:', error);
 //     res.status(500).json({ error: error.message });
 //   }
 // });
@@ -4069,7 +4069,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //   try {
 //     const { disaster_type, provinsi, das, start_year, end_year } = req.query;
 
-//     console.log('Ã°Å¸â€œÅ  Year stats request:', { disaster_type, provinsi, das, start_year, end_year });
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Year stats request:', { disaster_type, provinsi, das, start_year, end_year });
 
 //     if (!disaster_type) {
 //       return res.status(400).json({ error: 'disaster_type is required' });
@@ -4118,8 +4118,8 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       ORDER BY year
 //     `;
 
-//     console.log('Ã°Å¸â€Â Executing query:', query);
-//     console.log('Ã°Å¸â€œÂ With params:', params);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Executing query:', query);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â With params:', params);
 
 //     const result = await client.query(query, params);
 
@@ -4128,12 +4128,12 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       count: parseInt(row.count)
 //     }));
 
-//     console.log('Ã¢Å“â€¦ Year stats results:', formattedResults);
+//     console.log('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Year stats results:', formattedResults);
 
 //     res.json(formattedResults);
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching year stats:', error);
-//     console.error('Ã¢ÂÅ’ Error stack:', error.stack);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching year stats:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error stack:', error.stack);
 //     res.status(500).json({
 //       error: 'Internal Server Error',
 //       message: error.message,
@@ -4147,7 +4147,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //   try {
 //     const { disaster_type, provinsi, das, year } = req.query;
 
-//     console.log('Ã°Å¸â€œâ€¦ Monthly stats request:', { disaster_type, provinsi, das, year });
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Monthly stats request:', { disaster_type, provinsi, das, year });
 
 //     if (!disaster_type || !year) {
 //       return res.status(400).json({ error: 'disaster_type and year are required' });
@@ -4184,8 +4184,8 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       ORDER BY month
 //     `;
 
-//     console.log('Ã°Å¸â€Â Executing query:', query);
-//     console.log('Ã°Å¸â€œÂ With params:', params);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Executing query:', query);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â With params:', params);
 
 //     const result = await client.query(query, params);
 
@@ -4194,12 +4194,12 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       count: parseInt(row.count)
 //     }));
 
-//     console.log('Ã¢Å“â€¦ Monthly stats results:', formattedResults);
+//     console.log('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Monthly stats results:', formattedResults);
 
 //     res.json(formattedResults);
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching monthly stats:', error);
-//     console.error('Ã¢ÂÅ’ Error stack:', error.stack);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching monthly stats:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error stack:', error.stack);
 //     res.status(500).json({
 //       error: 'Internal Server Error',
 //       message: error.message,
@@ -4212,7 +4212,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //   try {
 //     const { disaster_type, provinsi, das, year } = req.query;
 
-//     console.log('Ã°Å¸â€œÅ  Impact stats request:', { disaster_type, provinsi, das, year });
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Impact stats request:', { disaster_type, provinsi, das, year });
 
 //     if (!disaster_type || !year) {
 //       return res.status(400).json({ error: 'disaster_type and year are required' });
@@ -4248,16 +4248,16 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       params.push(das);
 //     }
 
-//     console.log('Ã°Å¸â€Â Executing query:', query);
-//     console.log('Ã°Å¸â€œÂ With params:', params);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Executing query:', query);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â With params:', params);
 
 //     const result = await client.query(query, params);
 
-//     console.log('Ã¢Å“â€¦ Impact stats results:', result.rows[0]);
+//     console.log('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Impact stats results:', result.rows[0]);
 
 //     res.json(result.rows[0]);
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching impact stats:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching impact stats:', error);
 //     res.status(500).json({
 //       error: 'Internal Server Error',
 //       message: error.message
@@ -4269,7 +4269,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //   try {
 //     const { disaster_type, provinsi, das, year } = req.query;
 
-//     console.log('Ã°Å¸â€œÂ Kejadian by year request:', { disaster_type, provinsi, das, year });
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Kejadian by year request:', { disaster_type, provinsi, das, year });
 
 //     if (!disaster_type || !year) {
 //       return res.status(400).json({ error: 'disaster_type and year are required' });
@@ -4308,16 +4308,16 @@ ensureMasterRoleStatusColumn().catch((error) => {
 
 //     query += ` ORDER BY incident_date DESC`;
 
-//     console.log('Ã°Å¸â€Â Executing query:', query);
-//     console.log('Ã°Å¸â€œÂ With params:', params);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Executing query:', query);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â With params:', params);
 
 //     const result = await client.query(query, params);
 
-//     console.log(`Ã¢Å“â€¦ Found ${result.rows.length} incidents for year ${year}`);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${result.rows.length} incidents for year ${year}`);
 
 //     res.json(result.rows);
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching incidents by year:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching incidents by year:', error);
 //     res.status(500).json({
 //       error: 'Internal Server Error',
 //       message: error.message
@@ -5456,15 +5456,15 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       }
 //     }
 
-//     console.log('Ã°Å¸â€Â Fetching layer lahan_kritis for year', year);
-//     console.log('Ã°Å¸â€œâ€¹ Applied filters:', appliedFilter);
-//     console.log('Ã°Å¸â€œÂ Executing query with params:', params);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Fetching layer lahan_kritis for year', year);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Applied filters:', appliedFilter);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Executing query with params:', params);
 
 //     query += ' LIMIT 10000';
 
 //     const result = await client.query(query, params);
 
-//     console.log(`Ã¢Å“â€¦ Found ${result.rows.length} record(s) in lahan_kritis for year ${year}`);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${result.rows.length} record(s) in lahan_kritis for year ${year}`);
 
 //     if (result.rows.length === 0) {
 //       return res.json([]);
@@ -5474,7 +5474,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //     res.json(features);
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching lahan_kritis with year:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching lahan_kritis with year:', error);
 //     res.status(500).json({
 //       error: 'Internal Server Error',
 //       message: error.message,
@@ -5547,15 +5547,15 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       }
 //     }
 
-//     console.log('Ã°Å¸â€Â Fetching layer penutupan_lahan_2024 for year', year);
-//     console.log('Ã°Å¸â€œâ€¹ Applied filters:', appliedFilter);
-//     console.log('Ã°Å¸â€œÂ Executing query with params:', params);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Fetching layer penutupan_lahan_2024 for year', year);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Applied filters:', appliedFilter);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Executing query with params:', params);
 
 //     query += ' LIMIT 10000';
 
 //     const result = await client.query(query, params);
 
-//     console.log(`Ã¢Å“â€¦ Found ${result.rows.length} record(s) in penutupan_lahan_2024 for year ${year}`);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${result.rows.length} record(s) in penutupan_lahan_2024 for year ${year}`);
 
 //     if (result.rows.length === 0) {
 //       return res.json([]);
@@ -5565,7 +5565,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //     res.json(features);
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching penutupan_lahan_2024 with year:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching penutupan_lahan_2024 with year:', error);
 //     res.status(500).json({
 //       error: 'Internal Server Error',
 //       message: error.message,
@@ -5593,15 +5593,15 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //     // jadi untuk sementara hanya filter by year
 //     // Ketika mapping sudah tersedia, bisa ditambahkan filter lokasi di sini
 
-//     console.log('Ã°Å¸â€Â Fetching layer areal_karhutla_2024 for year', year);
-//     console.log('Ã°Å¸â€œâ€¹ Applied filters:', appliedFilter);
-//     console.log('Ã°Å¸â€œÂ Executing query with params:', params);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Fetching layer areal_karhutla_2024 for year', year);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Applied filters:', appliedFilter);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Executing query with params:', params);
 
 //     query += ' LIMIT 10000';
 
 //     const result = await client.query(query, params);
 
-//     console.log(`Ã¢Å“â€¦ Found ${result.rows.length} record(s) in areal_karhutla_2024 for year ${year}`);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${result.rows.length} record(s) in areal_karhutla_2024 for year ${year}`);
 
 //     if (result.rows.length === 0) {
 //       return res.json([]);
@@ -5611,7 +5611,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //     res.json(features);
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching areal_karhutla_2024 with year:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching areal_karhutla_2024 with year:', error);
 //     res.status(500).json({
 //       error: 'Internal Server Error',
 //       message: error.message,
@@ -5683,15 +5683,15 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       }
 //     }
 
-//     console.log('Ã°Å¸â€Â Fetching layer rawan_erosi for year', year);
-//     console.log('Ã°Å¸â€œâ€¹ Applied filters:', appliedFilter);
-//     console.log('Ã°Å¸â€œÂ Executing query with params:', params);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Fetching layer rawan_erosi for year', year);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Applied filters:', appliedFilter);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Executing query with params:', params);
 
 //     query += ' LIMIT 10000';
 
 //     const result = await client.query(query, params);
 
-//     console.log(`Ã¢Å“â€¦ Found ${result.rows.length} record(s) in rawan_erosi for year ${year}`);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${result.rows.length} record(s) in rawan_erosi for year ${year}`);
 
 //     if (result.rows.length === 0) {
 //       return res.json([]);
@@ -5701,7 +5701,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //     res.json(features);
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching rawan_erosi with year:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching rawan_erosi with year:', error);
 //     res.status(500).json({
 //       error: 'Internal Server Error',
 //       message: error.message,
@@ -5768,15 +5768,15 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       }
 //     }
 
-//     console.log('Ã°Å¸â€Â Fetching layer rawan_karhutla_2024 for year', year);
-//     console.log('Ã°Å¸â€œâ€¹ Applied filters:', appliedFilter);
-//     console.log('Ã°Å¸â€œÂ Executing query with params:', params);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Fetching layer rawan_karhutla_2024 for year', year);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Applied filters:', appliedFilter);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Executing query with params:', params);
 
 //     query += ' LIMIT 10000';
 
 //     const result = await client.query(query, params);
 
-//     console.log(`Ã¢Å“â€¦ Found ${result.rows.length} record(s) in rawan_karhutla_2024 for year ${year}`);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${result.rows.length} record(s) in rawan_karhutla_2024 for year ${year}`);
 
 //     if (result.rows.length === 0) {
 //       return res.json([]);
@@ -5786,7 +5786,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //     res.json(features);
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching rawan_karhutla_2024 with year:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching rawan_karhutla_2024 with year:', error);
 //     res.status(500).json({
 //       error: 'Internal Server Error',
 //       message: error.message,
@@ -5858,15 +5858,15 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       }
 //     }
 
-//     console.log('Ã°Å¸â€Â Fetching layer rawan_limpasan for year', year);
-//     console.log('Ã°Å¸â€œâ€¹ Applied filters:', appliedFilter);
-//     console.log('Ã°Å¸â€œÂ Executing query with params:', params);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Fetching layer rawan_limpasan for year', year);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Applied filters:', appliedFilter);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Executing query with params:', params);
 
 //     query += ' LIMIT 10000';
 
 //     const result = await client.query(query, params);
 
-//     console.log(`Ã¢Å“â€¦ Found ${result.rows.length} record(s) in rawan_limpasan for year ${year}`);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${result.rows.length} record(s) in rawan_limpasan for year ${year}`);
 
 //     if (result.rows.length === 0) {
 //       return res.json([]);
@@ -5876,7 +5876,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //     res.json(features);
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching rawan_limpasan with year:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching rawan_limpasan with year:', error);
 //     res.status(500).json({
 //       error: 'Internal Server Error',
 //       message: error.message,
@@ -5907,13 +5907,13 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       appliedFilter += `, provinsi: ${req.query.provinsi}`;
 //     }
 
-//     console.log('Ã°Å¸â€Â Fetching provinsi with max year', year);
-//     console.log('Ã°Å¸â€œâ€¹ Applied filters:', appliedFilter);
-//     console.log('Ã°Å¸â€œÂ Executing query with params:', params);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Fetching provinsi with max year', year);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Applied filters:', appliedFilter);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Executing query with params:', params);
 
 //     const result = await client.query(query, params);
 
-//     console.log(`Ã¢Å“â€¦ Found ${result.rows.length} provinsi(s) with max year ${year}`);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${result.rows.length} provinsi(s) with max year ${year}`);
 
 //     if (result.rows.length === 0) {
 //       return res.json([]);
@@ -5923,7 +5923,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //     res.json(features);
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching provinsi with year:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching provinsi with year:', error);
 //     res.status(500).json({
 //       error: 'Internal Server Error',
 //       message: error.message,
@@ -5954,13 +5954,13 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       appliedFilter += `, nama_das: ${req.query.nama_das}`;
 //     }
 
-//     console.log('Ã°Å¸â€Â Fetching das with year', year);
-//     console.log('Ã°Å¸â€œâ€¹ Applied filters:', appliedFilter);
-//     console.log('Ã°Å¸â€œÂ Executing query with params:', params);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Fetching das with year', year);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Applied filters:', appliedFilter);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Executing query with params:', params);
 
 //     const result = await client.query(query, params);
 
-//     console.log(`Ã¢Å“â€¦ Found ${result.rows.length} das(s) with year ${year}`);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${result.rows.length} das(s) with year ${year}`);
 
 //     if (result.rows.length === 0) {
 //       return res.json([]);
@@ -5970,7 +5970,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //     res.json(features);
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching das with year:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching das with year:', error);
 //     res.status(500).json({
 //       error: 'Internal Server Error',
 //       message: error.message,
@@ -5986,7 +5986,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 
 //     // Log first few records for debugging
 //     if (result.rows.length > 0) {
-//       console.log('Ã°Å¸â€œÂ Sample kabupaten records:', result.rows.slice(0, 3));
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Sample kabupaten records:', result.rows.slice(0, 3));
 //     }
 
 //     // Filter out null/empty values
@@ -5994,7 +5994,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 
 //     res.json(validRows);
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching kabupaten/kota:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching kabupaten/kota:', error);
 //     res.status(500).json({ error: 'Internal Server Error', details: error.message });
 //   }
 // });
@@ -6010,22 +6010,22 @@ ensureMasterRoleStatusColumn().catch((error) => {
 //       // Check for null values in the results
 //       const nullCount = result.rows.filter(row => !row.kecamatan || row.kecamatan.trim() === '').length;
 //       if (nullCount > 0) {
-//         console.warn(`Ã¢Å¡Â Ã¯Â¸Â Found ${nullCount} null/empty kecamatan records`);
+//         console.warn(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Found ${nullCount} null/empty kecamatan records`);
 //       }
 //     }
 
 //     // Filter out null/empty values and ensure all are strings
 //     const validRows = result.rows.filter(row => {
 //       if (!row.kecamatan) {
-//         console.warn('Ã¢Å¡Â Ã¯Â¸Â Found null kecamatan:', row);
+//         console.warn('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Found null kecamatan:', row);
 //         return false;
 //       }
 //       if (typeof row.kecamatan !== 'string') {
-//         console.warn('Ã¢Å¡Â Ã¯Â¸Â Found non-string kecamatan:', typeof row.kecamatan, row);
+//         console.warn('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Found non-string kecamatan:', typeof row.kecamatan, row);
 //         return false;
 //       }
 //       if (row.kecamatan.trim() === '') {
-//         console.warn('Ã¢Å¡Â Ã¯Â¸Â Found empty kecamatan:', row);
+//         console.warn('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Found empty kecamatan:', row);
 //         return false;
 //       }
 //       return true;
@@ -6033,7 +6033,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 
 //     res.json(validRows);
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching kecamatan:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching kecamatan:', error);
 //     res.status(500).json({ error: 'Internal Server Error', details: error.message });
 //   }
 // });
@@ -6045,7 +6045,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 
 //     // Log first few records for debugging
 //     if (result.rows.length > 0) {
-//       console.log('Ã°Å¸â€œÂ Sample kelurahan records:', result.rows.slice(0, 3));
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Sample kelurahan records:', result.rows.slice(0, 3));
 //     }
 
 //     // Filter out null/empty values
@@ -6053,7 +6053,7 @@ ensureMasterRoleStatusColumn().catch((error) => {
 
 //     res.json(validRows);
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching kelurahan:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching kelurahan:', error);
 //     res.status(500).json({ error: 'Internal Server Error', details: error.message });
 //   }
 // });
@@ -6473,10 +6473,10 @@ app.use((error, req, res, next) => {
 //     const { tableName } = req.params;
 
 //     console.log('='.repeat(80));
-//     console.log('Ã°Å¸â€œÂ¥ GET Generic Layer Request');
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â¥ GET Generic Layer Request');
 //     console.log('='.repeat(80));
-//     console.log('Ã°Å¸â€œâ€¹ Table:', tableName);
-//     console.log('Ã°Å¸â€Â Query params:', req.query);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Table:', tableName);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Query params:', req.query);
 //     console.log('='.repeat(80));
 
 //     // STEP 1: Validasi table name untuk keamanan - cek apakah tabel benar-benar ada di database
@@ -6491,11 +6491,11 @@ app.use((error, req, res, next) => {
 //         AND table_name NOT LIKE 'sql_%'
 //     `;
 
-//     console.log('Ã°Å¸â€Â Validating table existence...');
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Validating table existence...');
 //     const tableCheck = await client.query(tableCheckQuery, [tableName]);
 
 //     if (tableCheck.rows.length === 0) {
-//       console.error('Ã¢ÂÅ’ Table not found or not accessible:', tableName);
+//       console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Table not found or not accessible:', tableName);
 //       console.log('='.repeat(80));
 //       return res.status(404).json({
 //         error: 'Table not found',
@@ -6503,7 +6503,7 @@ app.use((error, req, res, next) => {
 //       });
 //     }
 
-//     console.log('Ã¢Å“â€¦ Table validation passed:', tableName);
+//     console.log('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Table validation passed:', tableName);
 
 //     let query = `
 //       SELECT
@@ -6715,7 +6715,7 @@ app.use((error, req, res, next) => {
 //   try {
 //     const { tableName, year } = req.params;
 
-//     console.log('Ã°Å¸â€œÂ¥ GET Layer by year request:', { tableName, year });
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â¥ GET Layer by year request:', { tableName, year });
 
 //     // STEP 1: Validasi table name untuk keamanan - cek apakah tabel benar-benar ada di database
 //     const tableCheckQuery = `
@@ -6732,14 +6732,14 @@ app.use((error, req, res, next) => {
 //     const tableCheck = await client.query(tableCheckQuery, [tableName]);
 
 //     if (tableCheck.rows.length === 0) {
-//       console.error('Ã¢ÂÅ’ Table not found or not accessible:', tableName);
+//       console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Table not found or not accessible:', tableName);
 //       return res.status(404).json({
 //         error: 'Table not found',
 //         message: `Table '${tableName}' does not exist or is not accessible`
 //       });
 //     }
 
-//     console.log('Ã¢Å“â€¦ Table validation passed:', tableName);
+//     console.log('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Table validation passed:', tableName);
 
 //     let query = `
 //       SELECT
@@ -6805,7 +6805,7 @@ app.use((error, req, res, next) => {
 // //   const { bbox, filterType, provinceName, dasName } = req.query;
 
 // //   try {
-// //     console.log(`Ã°Å¸â€Â Fetching layer ${tableName} for year ${year}`);
+// //     console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Fetching layer ${tableName} for year ${year}`);
 
 // //     let query = `
 // //       SELECT
@@ -6879,7 +6879,7 @@ app.use((error, req, res, next) => {
 // //         }, {})
 // //     }));
 
-// //     console.log(`Ã¢Å“â€¦ Found ${features.length} features in ${tableName} for year ${year}`);
+// //     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${features.length} features in ${tableName} for year ${year}`);
 
 // //     res.json({
 // //       type: 'FeatureCollection',
@@ -6891,7 +6891,7 @@ app.use((error, req, res, next) => {
 // //       }
 // //     });
 // //   } catch (error) {
-// //     console.error(`Ã¢ÂÅ’ Error fetching layer ${tableName}:`, error);
+// //     console.error(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching layer ${tableName}:`, error);
 // //     res.status(500).json({ error: error.message });
 // //   }
 // // });
@@ -6900,10 +6900,10 @@ app.use((error, req, res, next) => {
 // //   const { tableName, year } = req.params;
 // //   const { filterType, provinceName, dasName } = req.query;
 
-// //   console.log(`Ã°Å¸â€Â Fetching layer ${tableName} for year ${year}`);
+// //   console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Fetching layer ${tableName} for year ${year}`);
 
 // //   try {
-// //     // Ã¢Å“â€¦ FIX 1: Parse year ke INTEGER
+// //     // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ FIX 1: Parse year ke INTEGER
 // //     const yearInt = parseInt(year, 10);
 // //     if (isNaN(yearInt)) {
 // //       return res.status(400).json({ error: 'Invalid year parameter' });
@@ -6919,7 +6919,7 @@ app.use((error, req, res, next) => {
 
 // //     // Check if tahun_data exists
 // //     if (!columns.includes('tahun_data')) {
-// //       console.warn(`Ã¢Å¡Â Ã¯Â¸Â Table ${tableName} does not have tahun_data column`);
+// //       console.warn(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Table ${tableName} does not have tahun_data column`);
 // //       return res.status(400).json({
 // //         error: `Table ${tableName} does not have tahun_data column`
 // //       });
@@ -6931,7 +6931,7 @@ app.use((error, req, res, next) => {
 
 // //     const nameColumn = await resolveNameColumn(tableName);
 
-// //     // Ã¢Å“â€¦ FIX 2: Query dengan INTEGER comparison
+// //     // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ FIX 2: Query dengan INTEGER comparison
 // //     let query = `
 // //       SELECT
 // //         ${idColumn} AS id,
@@ -6943,13 +6943,13 @@ app.use((error, req, res, next) => {
 // //         AND geom IS NOT NULL
 // //     `;
 
-// //     const params = [yearInt];  // Ã¢Å“â€¦ Use integer, not string
+// //     const params = [yearInt];  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Use integer, not string
 
 // //     // --- Filter provinsi (jika ada) ---
 // //     if (filterType === 'province' && provinceName) {
 // //       // Check if provinsi column exists
 // //       if (!columns.includes('provinsi')) {
-// //         console.warn(`Ã¢Å¡Â Ã¯Â¸Â Table ${tableName} does not have provinsi column`);
+// //         console.warn(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Table ${tableName} does not have provinsi column`);
 // //       } else {
 // //         let mappedName = provinceName;
 
@@ -6966,10 +6966,10 @@ app.use((error, req, res, next) => {
 
 // //           if (mappingResult.rows.length > 0) {
 // //             mappedName = mappingResult.rows[0].target_value;
-// //             console.log(`Ã°Å¸â€œÂ Mapped province: ${provinceName} Ã¢â€ â€™ ${mappedName}`);
+// //             console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Mapped province: ${provinceName} ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ ${mappedName}`);
 // //           }
 // //         } catch (err) {
-// //           console.warn('Ã¢Å¡Â Ã¯Â¸Â Province mapping lookup failed, using original name');
+// //           console.warn('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Province mapping lookup failed, using original name');
 // //         }
 
 // //         params.push(mappedName);
@@ -6980,7 +6980,7 @@ app.use((error, req, res, next) => {
 // //     // --- Filter DAS (jika ada) ---
 // //     if (filterType === 'das' && dasName) {
 // //       if (!columns.includes('nama_das')) {
-// //         console.warn(`Ã¢Å¡Â Ã¯Â¸Â Table ${tableName} does not have nama_das column`);
+// //         console.warn(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Table ${tableName} does not have nama_das column`);
 // //       } else {
 // //         let mappedName = dasName;
 
@@ -6997,10 +6997,10 @@ app.use((error, req, res, next) => {
 
 // //           if (mappingResult.rows.length > 0) {
 // //             mappedName = mappingResult.rows[0].target_value;
-// //             console.log(`Ã°Å¸â€œÂ Mapped DAS: ${dasName} Ã¢â€ â€™ ${mappedName}`);
+// //             console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Mapped DAS: ${dasName} ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ ${mappedName}`);
 // //           }
 // //         } catch (err) {
-// //           console.warn('Ã¢Å¡Â Ã¯Â¸Â DAS mapping lookup failed, using original name');
+// //           console.warn('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â DAS mapping lookup failed, using original name');
 // //         }
 
 // //         params.push(mappedName);
@@ -7010,13 +7010,13 @@ app.use((error, req, res, next) => {
 
 // //     query += ` ORDER BY ${nameColumn}`;
 
-// //     console.log('Ã°Å¸â€œÂ Executing query with params:', params);
+// //     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Executing query with params:', params);
 // //     let result = await client.query(query, params);
 // //     let rows = result.rows;
 
 // //     // --- Jika kosong, coba fallback ke tahun terdekat ---
 // //     if (!rows || rows.length === 0) {
-// //       console.log(`Ã¢Å¡Â Ã¯Â¸Â No records found for ${tableName} in year ${yearInt}, trying closest lower year`);
+// //       console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â No records found for ${tableName} in year ${yearInt}, trying closest lower year`);
 
 // //       const fallbackRes = await client.query(
 // //         `SELECT DISTINCT tahun_data
@@ -7030,7 +7030,7 @@ app.use((error, req, res, next) => {
 
 // //       if (fallbackRes.rows.length > 0) {
 // //         const fallbackYear = fallbackRes.rows[0].tahun_data;
-// //         console.log(`Ã¢â€ Â©Ã¯Â¸Â Using fallback year ${fallbackYear} for ${tableName}`);
+// //         console.log(`ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ãƒâ€šÃ‚Â©ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Using fallback year ${fallbackYear} for ${tableName}`);
 
 // //         // Re-run query with fallback year
 // //         const fallbackParams = [fallbackYear];
@@ -7060,12 +7060,12 @@ app.use((error, req, res, next) => {
 
 // //         const fallbackResult = await client.query(fallbackQuery, fallbackParams);
 // //         rows = fallbackResult.rows;
-// //         console.log(`Ã¢Å“â€¦ Found ${rows.length} fallback record(s) in ${tableName} for year ${fallbackYear}`);
+// //         console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${rows.length} fallback record(s) in ${tableName} for year ${fallbackYear}`);
 // //       } else {
-// //         console.log(`Ã¢Å¡Â Ã¯Â¸Â No fallback year found for ${tableName}`);
+// //         console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â No fallback year found for ${tableName}`);
 // //       }
 // //     } else {
-// //       console.log(`Ã¢Å“â€¦ Found ${rows.length} record(s) in ${tableName} for year ${yearInt}`);
+// //       console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${rows.length} record(s) in ${tableName} for year ${yearInt}`);
 // //     }
 
 // //     // --- Transform to GeoJSON features ---
@@ -7091,7 +7091,7 @@ app.use((error, req, res, next) => {
 // //     });
 
 // //   } catch (error) {
-// //     console.error(`Ã¢ÂÅ’ Error fetching layer ${tableName}:`, error);
+// //     console.error(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching layer ${tableName}:`, error);
 // //     res.status(500).json({
 // //       error: error.message,
 // //       table: tableName,
@@ -7139,7 +7139,7 @@ app.use((error, req, res, next) => {
 //   return ((originalPoints - simplifiedPoints) / originalPoints) * 100;
 // }
 
-// // Ã¢Å“â€¦ FUNGSI BARU 2: Apply Douglas-Peucker dengan tolerance
+// // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ FUNGSI BARU 2: Apply Douglas-Peucker dengan tolerance
 // function applyDouglasPeucker(geometry, tolerance, preventRemoval) {
 //   if (!geometry || !geometry.type) return geometry;
 
@@ -7227,7 +7227,7 @@ app.use((error, req, res, next) => {
 //   return geometry;
 // }
 
-// // Ã¢Å“â€¦ FUNGSI BARU 3: Simplify dengan target persentase (BINARY SEARCH)
+// // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ FUNGSI BARU 3: Simplify dengan target persentase (BINARY SEARCH)
 // function simplifyDouglasPeuckerWithTargetPercentage(geometry, targetPercentage, preventRemoval) {
 //   try {
 //     if (!geometry || !geometry.type) {
@@ -7334,7 +7334,7 @@ app.use((error, req, res, next) => {
 //     const { method, percentage, preventShapeRemoval } = req.body;
 //     const files = req.files;
 
-//     console.log('Ã°Å¸â€â€ž Simplification request:', {
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ Simplification request:', {
 //       method,
 //       percentage: `${percentage}%`,
 //       preventShapeRemoval,
@@ -7354,12 +7354,12 @@ app.use((error, req, res, next) => {
 //       return res.status(400).json({ error: 'No .shp file found' });
 //     }
 
-//     console.log('Ã°Å¸â€œâ€š Processing files:', {
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ Processing files:', {
 //       shp: shpFile.filename,
 //       dbf: dbfFile?.filename || 'none'
 //     });
 
-//     const targetPercentage = parseFloat(percentage); // Ã¢Å“â€¦ Gunakan langsung sebagai target persentase
+//     const targetPercentage = parseFloat(percentage); // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Gunakan langsung sebagai target persentase
 //     const statistics = [];
 
 //     const source = dbfFile
@@ -7369,8 +7369,8 @@ app.use((error, req, res, next) => {
 //     let result = await source.read();
 //     let featureIndex = 0;
 
-//     console.log('Ã°Å¸â€œâ€“ Reading and simplifying features...');
-//     console.log(`Ã°Å¸Å½Â¯ Target simplification: ${targetPercentage}% maximum reduction per feature`);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ Reading and simplifying features...');
+//     console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Â¯ Target simplification: ${targetPercentage}% maximum reduction per feature`);
 
 //     while (!result.done) {
 //       const feature = result.value;
@@ -7381,7 +7381,7 @@ app.use((error, req, res, next) => {
 
 //         let simplifiedGeometry;
 
-//         // Ã¢Å“â€¦ GUNAKAN FUNGSI BARU dengan target persentase
+//         // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ GUNAKAN FUNGSI BARU dengan target persentase
 //         if (method === 'douglas-peucker') {
 //           simplifiedGeometry = simplifyDouglasPeuckerWithTargetPercentage(
 //             feature.geometry,
@@ -7419,7 +7419,7 @@ app.use((error, req, res, next) => {
 //         });
 
 //         if (featureIndex % 10 === 0) {
-//           console.log(`Ã¢Å“â€¦ Processed ${featureIndex + 1} features...`);
+//           console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Processed ${featureIndex + 1} features...`);
 //         }
 //       }
 
@@ -7427,7 +7427,7 @@ app.use((error, req, res, next) => {
 //       featureIndex++;
 //     }
 
-//     console.log(`Ã¢Å“â€¦ Simplification completed: ${statistics.length} features processed`);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Simplification completed: ${statistics.length} features processed`);
 
 //     // Summary statistics
 //     const totalOriginal = statistics.reduce((sum, s) => sum + s.original_points, 0);
@@ -7435,13 +7435,13 @@ app.use((error, req, res, next) => {
 //     const overallReduction = calculateReductionPercentage(totalOriginal, totalSimplified);
 //     const withinTargetCount = statistics.filter(s => s.within_target).length;
 
-//     console.log(`Ã°Å¸â€œÅ  Summary:`);
+//     console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Summary:`);
 //     console.log(`   - Total original points: ${totalOriginal}`);
 //     console.log(`   - Total simplified points: ${totalSimplified}`);
 //     console.log(`   - Overall reduction: ${overallReduction.toFixed(1)}%`);
 //     console.log(`   - Features within target: ${withinTargetCount}/${statistics.length}`);
 
-//     // Ã¢Å“â€¦ PENTING: Store simplified data information untuk tracking
+//     // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ PENTING: Store simplified data information untuk tracking
 //     const tempId = Date.now().toString();
 //     const tempData = {
 //       method,
@@ -7462,7 +7462,7 @@ app.use((error, req, res, next) => {
 //     const tempPath = path.join(uploadDir, `simplified_${tempId}.json`);
 //     fs.writeFileSync(tempPath, JSON.stringify(tempData, null, 2));
 
-//     console.log('Ã°Å¸â€™Â¾ Saved simplification metadata:', tempPath);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢Ãƒâ€šÃ‚Â¾ Saved simplification metadata:', tempPath);
 
 //     res.json({
 //       statistics,
@@ -7473,7 +7473,7 @@ app.use((error, req, res, next) => {
 //     });
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error during simplification:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error during simplification:', error);
 //     console.error('Stack:', error.stack);
 
 //     uploadedFilePaths.forEach(filePath => {
@@ -7550,13 +7550,13 @@ app.use((error, req, res, next) => {
 //       columnMapping,
 //       simplificationApplied,
 //       method,
-//       percentage,              // Ã¢â€ Â Nilai dari slider (misal: "70")
+//       percentage,              // ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ãƒâ€šÃ‚Â Nilai dari slider (misal: "70")
 //       preventShapeRemoval
 //     } = req.body;
 
 //     const files = req.files;
 
-//     console.log('Ã°Å¸â€œÂ¤ Upload to DB request:', {
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â¤ Upload to DB request:', {
 //       tableName,
 //       year,
 //       simplificationApplied,
@@ -7582,17 +7582,17 @@ app.use((error, req, res, next) => {
 //       return res.status(400).json({ error: 'Missing required .shp or .dbf file' });
 //     }
 
-//     console.log('Ã°Å¸â€œâ€š Files found:', {
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ Files found:', {
 //       shp: shpFile.filename,
 //       dbf: dbfFile.filename
 //     });
 
-//     // Ã¢Å“â€¦ PERUBAHAN UTAMA: Konversi percentage ke targetPercentage
+//     // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ PERUBAHAN UTAMA: Konversi percentage ke targetPercentage
 //     const targetPercentage = simplificationApplied === 'true' && percentage
 //       ? parseFloat(percentage)
 //       : 0;
 
-//     console.log('Ã°Å¸â€Â§ Simplification settings:', {
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â§ Simplification settings:', {
 //       applied: simplificationApplied === 'true',
 //       method: method || 'none',
 //       targetPercentage: targetPercentage > 0 ? `${targetPercentage}%` : 'N/A'
@@ -7608,7 +7608,7 @@ app.use((error, req, res, next) => {
 //       countResult = await source.read();
 //     }
 
-//     console.log(`Ã°Å¸â€œÅ  Total features to process: ${totalFeatures}`);
+//     console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Total features to process: ${totalFeatures}`);
 
 //     // Send initial progress
 //     sendProgress(sessionId, {
@@ -7639,16 +7639,16 @@ app.use((error, req, res, next) => {
 //           // Apply simplification if enabled
 //           let geometryToInsert = feature.geometry;
 
-//           // Ã¢Å“â€¦ PERUBAHAN: Gunakan fungsi baru dengan target persentase
+//           // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ PERUBAHAN: Gunakan fungsi baru dengan target persentase
 //           if (simplificationApplied === 'true' && method && targetPercentage > 0) {
 //             const originalPoints = getAllCoordinates(feature.geometry).length;
 //             totalOriginalPoints += originalPoints;
 
 //             if (method === 'douglas-peucker') {
-//               // Ã¢Å“â€¦ Gunakan fungsi baru dengan target persentase
+//               // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Gunakan fungsi baru dengan target persentase
 //               geometryToInsert = simplifyDouglasPeuckerWithTargetPercentage(
 //                 feature.geometry,
-//                 targetPercentage,  // Ã¢â€ Â Gunakan targetPercentage langsung
+//                 targetPercentage,  // ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ãƒâ€šÃ‚Â Gunakan targetPercentage langsung
 //                 preventShapeRemoval === 'true'
 //               );
 //             } else if (method === 'visvalingam-effective' || method === 'visvalingam-weighted') {
@@ -7671,7 +7671,7 @@ app.use((error, req, res, next) => {
 //               // Log untuk debug (setiap 10 feature)
 //               if (simplifiedCount % 10 === 0) {
 //                 const reduction = ((originalPoints - simplifiedPoints) / originalPoints * 100).toFixed(1);
-//                 console.log(`  Ã°Å¸â€Â¸ Feature ${insertedCount}: ${originalPoints} Ã¢â€ â€™ ${simplifiedPoints} points (${reduction}% reduction)`);
+//                 console.log(`  ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â¸ Feature ${insertedCount}: ${originalPoints} ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ ${simplifiedPoints} points (${reduction}% reduction)`);
 //               }
 //             }
 //           }
@@ -7720,35 +7720,35 @@ app.use((error, req, res, next) => {
 //               }
 //             } else if (mapConfig.type === 'manual_table') {
 //                 // Manual table data adalah array of objects dengan _rowId
-//                 console.log(`Ã°Å¸â€Â§ Processing manual_table for column: ${dbCol}`);
-//                 console.log(`Ã°Å¸â€œÅ  Manual data exists:`, !!mapConfig.data);
-//                 console.log(`Ã°Å¸â€œÅ  Manual data is array:`, Array.isArray(mapConfig.data));
-//                 console.log(`Ã°Å¸â€œÅ  Manual data length:`, mapConfig.data?.length || 0);
-//                 console.log(`Ã°Å¸â€œÅ  Current insertedCount:`, insertedCount);
+//                 console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â§ Processing manual_table for column: ${dbCol}`);
+//                 console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Manual data exists:`, !!mapConfig.data);
+//                 console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Manual data is array:`, Array.isArray(mapConfig.data));
+//                 console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Manual data length:`, mapConfig.data?.length || 0);
+//                 console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Current insertedCount:`, insertedCount);
 
 //                 if (mapConfig.data && Array.isArray(mapConfig.data)) {
 //                   // Coba cari berdasarkan _rowId
 //                   const rowData = mapConfig.data.find(row => row._rowId === insertedCount);
-//                   console.log(`Ã°Å¸â€Â Found row by _rowId (${insertedCount}):`, !!rowData);
+//                   console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Found row by _rowId (${insertedCount}):`, !!rowData);
 
 //                   if (rowData && rowData[dbCol] !== undefined) {
-//                     console.log(`Ã¢Å“â€¦ Using value from _rowId match: "${rowData[dbCol]}"`);
+//                     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Using value from _rowId match: "${rowData[dbCol]}"`);
 //                     values.push(rowData[dbCol]);
 //                   } else {
 //                     // Fallback: coba akses langsung by index
 //                     const directData = mapConfig.data[insertedCount];
-//                     console.log(`Ã°Å¸â€Â Trying direct index access [${insertedCount}]:`, !!directData);
+//                     console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Trying direct index access [${insertedCount}]:`, !!directData);
 
 //                     if (directData && directData[dbCol] !== undefined) {
-//                       console.log(`Ã¢Å“â€¦ Using value from direct index: "${directData[dbCol]}"`);
+//                       console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Using value from direct index: "${directData[dbCol]}"`);
 //                       values.push(directData[dbCol]);
 //                     } else {
-//                       console.log(`Ã¢Å¡Â Ã¯Â¸Â No data found for column ${dbCol}, using null`);
+//                       console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â No data found for column ${dbCol}, using null`);
 //                       values.push(null);
 //                     }
 //                   }
 //                 } else {
-//                   console.log(`Ã¢ÂÅ’ mapConfig.data is not valid array, using null`);
+//                   console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ mapConfig.data is not valid array, using null`);
 //                   values.push(null);
 //                 }
 //                 placeholders.push(`$${paramIndex++}`);
@@ -7770,7 +7770,7 @@ app.use((error, req, res, next) => {
 
 //           // Debug log for first insert
 //           if (insertedCount === 0) {
-//             console.log('Ã°Å¸â€Â First insert debug:', {
+//             console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â First insert debug:', {
 //               columns: columns.length,
 //               values: values.length,
 //               simplified: simplificationApplied === 'true',
@@ -7793,11 +7793,11 @@ app.use((error, req, res, next) => {
 //               message: `Memasukkan data ke database... ${insertedCount}/${totalFeatures}`
 //             });
 
-//             console.log(`Ã¢Å“â€¦ Progress: ${insertedCount}/${totalFeatures} (${progressPercentage.toFixed(1)}%)`);
+//             console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Progress: ${insertedCount}/${totalFeatures} (${progressPercentage.toFixed(1)}%)`);
 //           }
 
 //         } catch (insertError) {
-//           console.error(`Ã¢ÂÅ’ Error inserting feature ${insertedCount}:`, insertError.message);
+//           console.error(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error inserting feature ${insertedCount}:`, insertError.message);
 //           errors.push({
 //             feature: insertedCount,
 //             error: insertError.message
@@ -7824,13 +7824,13 @@ app.use((error, req, res, next) => {
 //       }
 //     });
 
-//     // Ã¢Å“â€¦ TAMBAHAN: Hitung overall reduction jika ada simplifikasi
+//     // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ TAMBAHAN: Hitung overall reduction jika ada simplifikasi
 //     let overallReduction = 0;
 //     if (simplificationApplied === 'true' && totalOriginalPoints > 0) {
 //       overallReduction = ((totalOriginalPoints - totalSimplifiedPoints) / totalOriginalPoints * 100);
 //     }
 
-//     console.log(`Ã¢Å“â€¦ Upload complete:`, {
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Upload complete:`, {
 //       inserted: insertedCount,
 //       simplified: simplifiedCount,
 //       errors: errors.length,
@@ -7860,7 +7860,7 @@ app.use((error, req, res, next) => {
 //       delete global.progressClients[sessionId];
 //     }
 
-//     // Ã¢Å“â€¦ PERUBAHAN: Response dengan info lebih detail
+//     // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ PERUBAHAN: Response dengan info lebih detail
 //     const responseMessage = simplificationApplied === 'true'
 //       ? `Successfully uploaded ${insertedCount} features to ${tableName} (${simplifiedCount} features simplified with target ${targetPercentage}% max reduction, actual overall reduction: ${overallReduction.toFixed(1)}%)`
 //       : `Successfully uploaded ${insertedCount} features to ${tableName}`;
@@ -7884,7 +7884,7 @@ app.use((error, req, res, next) => {
 //     });
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error during upload to database:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error during upload to database:', error);
 //     console.error('Stack:', error.stack);
 
 //     const sessionId = req.headers['x-session-id'];
@@ -8002,10 +8002,10 @@ app.use((error, req, res, next) => {
 //     const { tableName, year } = req.params;
 
 //     console.log('='.repeat(80));
-//     console.log('Ã°Å¸â€”â€˜Ã¯Â¸Â DELETE Layer Data Request');
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ÂÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â DELETE Layer Data Request');
 //     console.log('='.repeat(80));
-//     console.log('Ã°Å¸â€œâ€¹ Table:', tableName);
-//     console.log('Ã°Å¸â€œâ€¦ Year:', year);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Table:', tableName);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Year:', year);
 //     console.log('='.repeat(80));
 
 //     // STEP 1: Validasi table name untuk keamanan - cek apakah tabel benar-benar ada di database
@@ -8020,11 +8020,11 @@ app.use((error, req, res, next) => {
 //         AND table_name NOT LIKE 'sql_%'
 //     `;
 
-//     console.log('Ã°Å¸â€Â Checking if table exists...');
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Checking if table exists...');
 //     const tableCheck = await client.query(tableCheckQuery, [tableName]);
 
 //     if (tableCheck.rows.length === 0) {
-//       console.error('Ã¢ÂÅ’ Table not found or not accessible:', tableName);
+//       console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Table not found or not accessible:', tableName);
 //       console.log('='.repeat(80));
 //       return res.status(404).json({
 //         error: 'Table not found',
@@ -8032,7 +8032,7 @@ app.use((error, req, res, next) => {
 //       });
 //     }
 
-//     console.log('Ã¢Å“â€¦ Table exists:', tableName);
+//     console.log('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Table exists:', tableName);
 
 //     // Cek apakah tabel memiliki kolom tahun_data
 //     const checkColumnQuery = `
@@ -8043,7 +8043,7 @@ app.use((error, req, res, next) => {
 //     const columnCheck = await client.query(checkColumnQuery, [tableName]);
 
 //     if (columnCheck.rows.length === 0) {
-//       console.error('Ã¢ÂÅ’ Table does not have tahun_data column');
+//       console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Table does not have tahun_data column');
 //       return res.status(400).json({
 //         error: 'Table does not support year-based deletion',
 //         message: `Table ${tableName} does not have tahun_data column`
@@ -8059,7 +8059,7 @@ app.use((error, req, res, next) => {
 //     const yearsResult = await client.query(countYearsQuery);
 //     const totalYears = parseInt(yearsResult.rows[0].total_years);
 
-//     console.log(`Ã°Å¸â€œÅ  Total unique years in table: ${totalYears}`);
+//     console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Total unique years in table: ${totalYears}`);
 
 //     // STEP 4: Cek apakah tahun yang akan dihapus ada di tabel
 //     const checkYearQuery = `
@@ -8071,7 +8071,7 @@ app.use((error, req, res, next) => {
 //     const rowsToDelete = parseInt(checkYearResult.rows[0].count);
 
 //     if (rowsToDelete === 0) {
-//       console.warn('Ã¢Å¡Â Ã¯Â¸Â No data found for deletion');
+//       console.warn('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â No data found for deletion');
 //       console.log('='.repeat(80));
 //       return res.status(404).json({
 //         error: 'No data found',
@@ -8079,13 +8079,13 @@ app.use((error, req, res, next) => {
 //       });
 //     }
 
-//     console.log(`Ã°Å¸â€œÅ  Rows to delete: ${rowsToDelete}`);
+//     console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Rows to delete: ${rowsToDelete}`);
 
-//     // Ã¢Å“â€¦ FITUR BARU: Jika ini tahun terakhir, DROP TABLE instead of DELETE
+//     // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ FITUR BARU: Jika ini tahun terakhir, DROP TABLE instead of DELETE
 //     if (totalYears === 1) {
 //       console.log('='.repeat(80));
-//       console.log('Ã°Å¸â€Â¥ THIS IS THE LAST YEAR IN TABLE!');
-//       console.log('Ã°Å¸â€”â€˜Ã¯Â¸Â Dropping entire table instead of deleting rows...');
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â¥ THIS IS THE LAST YEAR IN TABLE!');
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ÂÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Dropping entire table instead of deleting rows...');
 //       console.log('='.repeat(80));
 
 //       const dropTableQuery = `DROP TABLE IF EXISTS ${tableName} CASCADE`;
@@ -8094,10 +8094,10 @@ app.use((error, req, res, next) => {
 //         await client.query(dropTableQuery);
 
 //         console.log('='.repeat(80));
-//         console.log(`Ã¢Å“â€¦ TABLE DROPPED SUCCESSFULLY`);
-//         console.log(`Ã°Å¸â€œâ€¹ Table: ${tableName}`);
-//         console.log(`Ã°Å¸â€œâ€¦ Last year: ${year}`);
-//         console.log(`Ã°Å¸â€œÅ  Total rows removed: ${rowsToDelete}`);
+//         console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ TABLE DROPPED SUCCESSFULLY`);
+//         console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Table: ${tableName}`);
+//         console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Last year: ${year}`);
+//         console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Total rows removed: ${rowsToDelete}`);
 //         console.log('='.repeat(80));
 
 //         return res.json({
@@ -8109,7 +8109,7 @@ app.use((error, req, res, next) => {
 //           deletedCount: rowsToDelete
 //         });
 //       } catch (dropError) {
-//         console.error('Ã¢ÂÅ’ Error dropping table:', dropError);
+//         console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error dropping table:', dropError);
 //         return res.status(500).json({
 //           error: 'Failed to drop table',
 //           message: dropError.message
@@ -8118,7 +8118,7 @@ app.use((error, req, res, next) => {
 //     }
 
 //     // STEP 5: Jika bukan tahun terakhir, DELETE data seperti biasa
-//     console.log('Ã¢â€žÂ¹Ã¯Â¸Â Not the last year, deleting rows only...');
+//     console.log('ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¹ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Not the last year, deleting rows only...');
 
 //     const deleteQuery = `
 //       DELETE FROM ${tableName}
@@ -8126,21 +8126,21 @@ app.use((error, req, res, next) => {
 //       RETURNING gid
 //     `;
 
-//     console.log('Ã°Å¸â€”â€˜Ã¯Â¸Â Executing DELETE query...');
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ÂÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Executing DELETE query...');
 //     console.log('Query:', deleteQuery);
 //     console.log('Param:', [parseInt(year)]);
 
 //     const deleteResult = await client.query(deleteQuery, [parseInt(year)]);
 
 //     if (deleteResult.rowCount === 0) {
-//       console.warn('Ã¢Å¡Â Ã¯Â¸Â No data found for deletion');
+//       console.warn('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â No data found for deletion');
 //       return res.status(404).json({
 //         error: 'No data found',
 //         message: `No data found in ${tableName} for year ${year}`
 //       });
 //     }
 
-//     console.log(`Ã¢Å“â€¦ Deleted ${deleteResult.rowCount} rows from ${tableName} for year ${year}`);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Deleted ${deleteResult.rowCount} rows from ${tableName} for year ${year}`);
 
 //     res.json({
 //       success: true,
@@ -8153,7 +8153,7 @@ app.use((error, req, res, next) => {
 //     });
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error deleting layer data:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error deleting layer data:', error);
 //     res.status(500).json({
 //       error: 'Failed to delete layer data',
 //       message: error.message
@@ -8340,19 +8340,19 @@ app.use((error, req, res, next) => {
 //     // Clean up temporary file
 //     fs.unlinkSync(tempFilePath);
 
-//     console.log('Ã¢Å“â€¦ DBF parsed successfully');
-//     console.log('Ã°Å¸â€œâ€¹ Columns:', columns);
-//     console.log('Ã°Å¸â€œÅ  Record count:', recordCount);
-//     console.log('Ã°Å¸â€œÂ Sample data (first 3):', allData.slice(0, 3));
+//     console.log('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ DBF parsed successfully');
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Columns:', columns);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Record count:', recordCount);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Sample data (first 3):', allData.slice(0, 3));
 
 //     res.json({
 //       columns: columns,
 //       recordCount: recordCount,
-//       data: allData  // Ã¢Å“â€¦ Return all data
+//       data: allData  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Return all data
 //     });
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error in parse-dbf:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error in parse-dbf:', error);
 //     res.status(500).json({
 //       error: 'Failed to parse DBF file',
 //       details: error.message
@@ -8373,7 +8373,7 @@ app.use((error, req, res, next) => {
 //       const { tableName, year, columnMapping } = req.body;
 //       const files = req.files;
 
-//       console.log('Ã°Å¸â€œÂ¤ Upload Direct Request:');
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â¤ Upload Direct Request:');
 //       console.log('- Table:', tableName);
 //       console.log('- Year:', year);
 //       console.log('- Files:', files?.length || 0);
@@ -8389,10 +8389,10 @@ app.use((error, req, res, next) => {
 //       const mapping = JSON.parse(columnMapping);
 
 //       console.log('\n' + '='.repeat(80));
-//       console.log('Ã°Å¸â€”ÂºÃ¯Â¸Â COLUMN MAPPING DETAIL:');
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â COLUMN MAPPING DETAIL:');
 //       console.log('='.repeat(80));
 //       for (const [dbCol, mapConfig] of Object.entries(mapping)) {
-//         console.log(`\nÃ°Å¸â€œâ€¹ Column: ${dbCol}`);
+//         console.log(`\nÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Column: ${dbCol}`);
 //         console.log(`   Type: ${mapConfig.type}`);
 //         console.log(`   Source: ${mapConfig.source}`);
 //         if (mapConfig.type === 'manual_table') {
@@ -8418,9 +8418,9 @@ app.use((error, req, res, next) => {
 //         return res.status(400).json({ error: 'Missing required .shp or .dbf file' });
 //       }
 
-//       console.log('Ã°Å¸â€œâ€š Reading shapefile...');
-//       console.log('Ã°Å¸â€œâ€š SHP file:', shpFile.path);
-//       console.log('Ã°Å¸â€œâ€š DBF file:', dbfFile.path);
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ Reading shapefile...');
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ SHP file:', shpFile.path);
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ DBF file:', dbfFile.path);
 
 //       // Read shapefile
 //       const source = await shapefile.open(shpFile.path, dbfFile.path);
@@ -8477,35 +8477,35 @@ app.use((error, req, res, next) => {
 //                 }
 //               } else if (mapConfig.type === 'manual_table') {
 //                 // Manual table data adalah array of objects dengan _rowId
-//                 console.log(`Ã°Å¸â€Â§ Processing manual_table for column: ${dbCol}`);
-//                 console.log(`Ã°Å¸â€œÅ  Manual data exists:`, !!mapConfig.data);
-//                 console.log(`Ã°Å¸â€œÅ  Manual data is array:`, Array.isArray(mapConfig.data));
-//                 console.log(`Ã°Å¸â€œÅ  Manual data length:`, mapConfig.data?.length || 0);
-//                 console.log(`Ã°Å¸â€œÅ  Current insertedCount:`, insertedCount);
+//                 console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â§ Processing manual_table for column: ${dbCol}`);
+//                 console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Manual data exists:`, !!mapConfig.data);
+//                 console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Manual data is array:`, Array.isArray(mapConfig.data));
+//                 console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Manual data length:`, mapConfig.data?.length || 0);
+//                 console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â  Current insertedCount:`, insertedCount);
 
 //                 if (mapConfig.data && Array.isArray(mapConfig.data)) {
 //                   // Coba cari berdasarkan _rowId
 //                   const rowData = mapConfig.data.find(row => row._rowId === insertedCount);
-//                   console.log(`Ã°Å¸â€Â Found row by _rowId (${insertedCount}):`, !!rowData);
+//                   console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Found row by _rowId (${insertedCount}):`, !!rowData);
 
 //                   if (rowData && rowData[dbCol] !== undefined) {
-//                     console.log(`Ã¢Å“â€¦ Using value from _rowId match: "${rowData[dbCol]}"`);
+//                     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Using value from _rowId match: "${rowData[dbCol]}"`);
 //                     values.push(rowData[dbCol]);
 //                   } else {
 //                     // Fallback: coba akses langsung by index
 //                     const directData = mapConfig.data[insertedCount];
-//                     console.log(`Ã°Å¸â€Â Trying direct index access [${insertedCount}]:`, !!directData);
+//                     console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Trying direct index access [${insertedCount}]:`, !!directData);
 
 //                     if (directData && directData[dbCol] !== undefined) {
-//                       console.log(`Ã¢Å“â€¦ Using value from direct index: "${directData[dbCol]}"`);
+//                       console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Using value from direct index: "${directData[dbCol]}"`);
 //                       values.push(directData[dbCol]);
 //                     } else {
-//                       console.log(`Ã¢Å¡Â Ã¯Â¸Â No data found for column ${dbCol}, using null`);
+//                       console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â No data found for column ${dbCol}, using null`);
 //                       values.push(null);
 //                     }
 //                   }
 //                 } else {
-//                   console.log(`Ã¢ÂÅ’ mapConfig.data is not valid array, using null`);
+//                   console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ mapConfig.data is not valid array, using null`);
 //                   values.push(null);
 //                 }
 //                 placeholders.push(`$${paramIndex++}`);
@@ -8528,14 +8528,14 @@ app.use((error, req, res, next) => {
 //             // Debug log untuk first insert
 //             if (insertedCount === 0) {
 //               console.log('='.repeat(80));
-//               console.log('Ã°Å¸â€Â DEBUG INSERT QUERY:');
+//               console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â DEBUG INSERT QUERY:');
 //               console.log('='.repeat(80));
-//               console.log('Ã°Å¸â€œâ€¹ Table name:', tableName);
-//               console.log('Ã°Å¸â€œâ€¹ Columns:', columns);
-//               console.log('Ã°Å¸â€œâ€¹ Placeholders:', placeholders);
-//               console.log('Ã°Å¸â€œâ€¹ Values count:', values.length);
-//               console.log('Ã°Å¸â€œâ€¹ Query:', insertQuery);
-//               console.log('Ã°Å¸â€œâ€¹ First geometry (200 chars):', JSON.stringify(feature.geometry).substring(0, 200));
+//               console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Table name:', tableName);
+//               console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Columns:', columns);
+//               console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Placeholders:', placeholders);
+//               console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Values count:', values.length);
+//               console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Query:', insertQuery);
+//               console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ First geometry (200 chars):', JSON.stringify(feature.geometry).substring(0, 200));
 //               console.log('='.repeat(80));
 //             }
 
@@ -8543,11 +8543,11 @@ app.use((error, req, res, next) => {
 //             insertedCount++;
 
 //             if (insertedCount % 10 === 0) {
-//               console.log(`Ã¢Å“â€¦ Inserted ${insertedCount} features...`);
+//               console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Inserted ${insertedCount} features...`);
 //             }
 
 //           } catch (insertError) {
-//             console.error(`Ã¢ÂÅ’ Error inserting feature ${insertedCount}:`, insertError.message);
+//             console.error(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error inserting feature ${insertedCount}:`, insertError.message);
 //             console.error('Full error:', insertError);
 //             errors.push({
 //               feature: insertedCount,
@@ -8570,9 +8570,9 @@ app.use((error, req, res, next) => {
 //         }
 //       });
 
-//       console.log(`Ã¢Å“â€¦ Upload complete: ${insertedCount} features inserted`);
+//       console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Upload complete: ${insertedCount} features inserted`);
 //       if (errors.length > 0) {
-//         console.log(`Ã¢Å¡Â Ã¯Â¸Â ${errors.length} errors occurred`);
+//         console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â ${errors.length} errors occurred`);
 //       }
 
 //       res.json({
@@ -8583,7 +8583,7 @@ app.use((error, req, res, next) => {
 //       });
 
 //     } catch (error) {
-//       console.error('Ã¢ÂÅ’ Error during direct upload:', error);
+//       console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error during direct upload:', error);
 //       console.error('Stack:', error.stack);
 
 //       // Clean up uploaded files on error
@@ -8610,7 +8610,7 @@ app.use((error, req, res, next) => {
 //         return res.status(400).json({ error: 'No filenames provided' });
 //       }
 
-//       console.log('Ã°Å¸â€”â€˜Ã¯Â¸Â Cleanup request for files:', filenames);
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ÂÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Cleanup request for files:', filenames);
 
 //       let deletedCount = 0;
 //       let notFoundCount = 0;
@@ -8630,7 +8630,7 @@ app.use((error, req, res, next) => {
 
 //         if (matchingFiles.length === 0) {
 //           notFoundCount++;
-//           console.warn(`Ã¢Å¡Â Ã¯Â¸Â No matching files found for: ${originalFilename}`);
+//           console.warn(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â No matching files found for: ${originalFilename}`);
 //           return;
 //         }
 
@@ -8648,9 +8648,9 @@ app.use((error, req, res, next) => {
 //               if (allowedExtensions.includes(ext)) {
 //                 fs.unlinkSync(filePath);
 //                 deletedCount++;
-//                 console.log(`Ã°Å¸â€”â€˜Ã¯Â¸Â Deleted: ${filename}`);
+//                 console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ÂÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Deleted: ${filename}`);
 //               } else {
-//                 console.warn(`Ã¢Å¡Â Ã¯Â¸Â Skipped (not SHP file): ${filename}`);
+//                 console.warn(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Skipped (not SHP file): ${filename}`);
 //               }
 //             }
 //           } catch (fileError) {
@@ -8658,12 +8658,12 @@ app.use((error, req, res, next) => {
 //               filename,
 //               error: fileError.message
 //             });
-//             console.error(`Ã¢ÂÅ’ Failed to delete ${filename}:`, fileError.message);
+//             console.error(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Failed to delete ${filename}:`, fileError.message);
 //           }
 //         });
 //       });
 
-//       console.log(`Ã¢Å“â€¦ Cleanup summary: ${deletedCount} deleted, ${notFoundCount} not found, ${errors.length} errors`);
+//       console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Cleanup summary: ${deletedCount} deleted, ${notFoundCount} not found, ${errors.length} errors`);
 
 //       res.json({
 //         success: true,
@@ -8674,7 +8674,7 @@ app.use((error, req, res, next) => {
 //       });
 
 //     } catch (error) {
-//       console.error('Ã¢ÂÅ’ Error during cleanup:', error);
+//       console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error during cleanup:', error);
 //       res.status(500).json({
 //         error: 'Failed to cleanup files',
 //         message: error.message
@@ -8685,13 +8685,13 @@ app.use((error, req, res, next) => {
 //   function detectColumnType(columnName, sampleValues) {
 //   const lowerName = columnName.toLowerCase();
 
-//   // Ã¢Å“â€¦ PERBAIKAN 1: Kolom khusus yang PASTI bukan serial
+//   // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ PERBAIKAN 1: Kolom khusus yang PASTI bukan serial
 //   // Kolom ID dari SHP adalah INTEGER biasa, bukan auto-increment
 //   if (lowerName.includes('objectid') || lowerName.includes('fid') || lowerName === 'id') {
 //     return 'integer';  // Bukan serial!
 //   }
 
-//   // Ã¢Å“â€¦ PERBAIKAN 2: GlobalID/UUID selalu VARCHAR (bahkan jika sample-nya angka)
+//   // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ PERBAIKAN 2: GlobalID/UUID selalu VARCHAR (bahkan jika sample-nya angka)
 //   if (lowerName.includes('globalid') || lowerName.includes('uuid') || lowerName.includes('guid')) {
 //     return 'varchar(255)';  // UUID bisa jadi string atau angka di SHP
 //   }
@@ -8708,7 +8708,7 @@ app.use((error, req, res, next) => {
 //     return 'numeric(15,2)';
 //   }
 
-//   // Ã¢Å“â€¦ PERBAIKAN 3: Analisis sample values dengan hati-hati
+//   // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ PERBAIKAN 3: Analisis sample values dengan hati-hati
 //   if (!sampleValues || sampleValues.length === 0) {
 //     return 'text';
 //   }
@@ -8719,7 +8719,7 @@ app.use((error, req, res, next) => {
 //     return 'text';
 //   }
 
-//   // Cek apakah ada nilai string panjang (>50 char) Ã¢â€ â€™ pasti text/varchar
+//   // Cek apakah ada nilai string panjang (>50 char) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ pasti text/varchar
 //   const hasLongString = nonNullValues.some(v => String(v).length > 50);
 //   if (hasLongString) {
 //     const maxLength = Math.max(...nonNullValues.map(v => String(v).length));
@@ -8804,7 +8804,7 @@ app.use((error, req, res, next) => {
 
 //     fs.unlinkSync(tempFilePath);
 
-//     console.log('Ã¢Å“â€¦ Analyzed DBF structure:', columnDefinitions);
+//     console.log('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Analyzed DBF structure:', columnDefinitions);
 
 //     res.json({
 //       columns: columnDefinitions,
@@ -8813,7 +8813,7 @@ app.use((error, req, res, next) => {
 //     });
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error analyzing DBF structure:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error analyzing DBF structure:', error);
 //     res.status(500).json({
 //       error: 'Failed to analyze DBF structure',
 //       details: error.message
@@ -8828,7 +8828,7 @@ app.use((error, req, res, next) => {
 //   try {
 //     const { tableName, columns, addDefaultColumns } = req.body;
 
-//     console.log('Ã°Å¸â€œâ€¹ Create table request:', {
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Create table request:', {
 //       tableName,
 //       columnsCount: columns?.length || 0,
 //       addDefaultColumns
@@ -8883,7 +8883,7 @@ app.use((error, req, res, next) => {
 //       )
 //     `;
 
-//     console.log('Ã°Å¸â€Â¨ Creating table with query:');
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â¨ Creating table with query:');
 //     console.log(createTableQuery);
 
 //     await client.query(createTableQuery);
@@ -8896,7 +8896,7 @@ app.use((error, req, res, next) => {
 
 //     await client.query(createIndexQuery);
 
-//     console.log(`Ã¢Å“â€¦ Table '${tableName}' created successfully with spatial index`);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Table '${tableName}' created successfully with spatial index`);
 
 //     res.json({
 //       success: true,
@@ -8906,7 +8906,7 @@ app.use((error, req, res, next) => {
 //     });
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error creating table:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error creating table:', error);
 //     res.status(500).json({
 //       error: 'Failed to create table',
 //       details: error.message
@@ -8932,7 +8932,7 @@ app.use((error, req, res, next) => {
 //     const { tableName, year, columnMapping, isNewTable } = req.body;
 //     const files = req.files;
 
-//     console.log('Ã°Å¸â€ â€¢ Create table + upload request:', {
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Create table + upload request:', {
 //       tableName,
 //       year,
 //       isNewTable,
@@ -8956,7 +8956,7 @@ app.use((error, req, res, next) => {
 
 //     // STEP 1: Jika tabel baru, create table dulu
 //     if (isNewTable === 'true') {
-//       console.log('Ã°Å¸â€Â¨ Creating new table:', tableName);
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â¨ Creating new table:', tableName);
 
 //       // Analyze DBF untuk detect column types
 //       const source = await shapefile.openDbf(dbfFile.path);
@@ -9011,7 +9011,7 @@ app.use((error, req, res, next) => {
 //         )
 //       `;
 
-//       console.log('Ã°Å¸â€œâ€¹ Creating table:', createTableQuery);
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Creating table:', createTableQuery);
 
 //       await client.query(createTableQuery);
 //       tableCreated = true;
@@ -9022,11 +9022,11 @@ app.use((error, req, res, next) => {
 //         ON ${tableName} USING GIST (geom)
 //       `);
 
-//       console.log(`Ã¢Å“â€¦ Table '${tableName}' created successfully`);
+//       console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Table '${tableName}' created successfully`);
 //     }
 
 //     // STEP 2: Upload data ke table
-//     console.log('Ã°Å¸â€œÂ¤ Uploading data to table:', tableName);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â¤ Uploading data to table:', tableName);
 
 //     const source = await shapefile.open(shpFile.path, dbfFile.path);
 //     let result = await source.read();
@@ -9097,19 +9097,19 @@ app.use((error, req, res, next) => {
 
 //           if (insertedCount === 0) {
 //             console.log('='.repeat(80));
-//             console.log('Ã°Å¸â€Â DEBUG INSERT QUERY:');
+//             console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â DEBUG INSERT QUERY:');
 //             console.log('='.repeat(80));
-//             console.log('Ã°Å¸â€œâ€¹ Table name:', tableName);
-//             console.log('Ã°Å¸â€œâ€¹ Columns:', columns);
-//             console.log('Ã°Å¸â€œâ€¹ Placeholders:', placeholders);
-//             console.log('Ã°Å¸â€œâ€¹ Values types:', values.map((v, i) => `[${i}] ${typeof v}`));
-//             console.log('Ã°Å¸â€œâ€¹ Values preview:', values.map((v, i) => {
+//             console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Table name:', tableName);
+//             console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Columns:', columns);
+//             console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Placeholders:', placeholders);
+//             console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Values types:', values.map((v, i) => `[${i}] ${typeof v}`));
+//             console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Values preview:', values.map((v, i) => {
 //               if (typeof v === 'string' && v.length > 100) {
 //                 return `[${i}] ${v.substring(0, 100)}... (${v.length} chars)`;
 //               }
 //               return `[${i}] ${v}`;
 //             }));
-//             console.log('Ã°Å¸â€œâ€¹ Query:', insertQuery);
+//             console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Query:', insertQuery);
 //             console.log('='.repeat(80));
 //           }
 
@@ -9117,11 +9117,11 @@ app.use((error, req, res, next) => {
 //           insertedCount++;
 
 //           if (insertedCount % 10 === 0) {
-//             console.log(`Ã¢Å“â€¦ Inserted ${insertedCount} features...`);
+//             console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Inserted ${insertedCount} features...`);
 //           }
 
 //         } catch (insertError) {
-//           console.error(`Ã¢ÂÅ’ Error inserting feature ${insertedCount}:`, insertError.message);
+//           console.error(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error inserting feature ${insertedCount}:`, insertError.message);
 //           errors.push({
 //             feature: insertedCount,
 //             error: insertError.message
@@ -9147,7 +9147,7 @@ app.use((error, req, res, next) => {
 //       }
 //     });
 
-//     console.log(`Ã¢Å“â€¦ Upload complete: ${insertedCount} features inserted`);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Upload complete: ${insertedCount} features inserted`);
 
 //     res.json({
 //       success: true,
@@ -9161,13 +9161,13 @@ app.use((error, req, res, next) => {
 //     });
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error during create table + upload:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error during create table + upload:', error);
 
 //     // Rollback: Drop table jika sudah dibuat
 //     if (tableCreated && req.body.tableName) {
 //       try {
 //         await client.query(`DROP TABLE IF EXISTS ${req.body.tableName} CASCADE`);
-//         console.log(`Ã°Å¸â€â€ž Rolled back: dropped table ${req.body.tableName}`);
+//         console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ Rolled back: dropped table ${req.body.tableName}`);
 //       } catch (rollbackError) {
 //         console.error('Error during rollback:', rollbackError);
 //       }
@@ -9219,7 +9219,7 @@ app.use((error, req, res, next) => {
 
 //     const files = req.files;
 
-//     console.log('Ã°Å¸â€ â€¢ Create table + simplify + upload request:', {
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Create table + simplify + upload request:', {
 //       tableName,
 //       year,
 //       isNewTable,
@@ -9246,7 +9246,7 @@ app.use((error, req, res, next) => {
 
 //     // STEP 1: Jika tabel baru, create table dulu (sama seperti endpoint sebelumnya)
 //     if (isNewTable === 'true') {
-//       console.log('Ã°Å¸â€Â¨ Creating new table:', tableName);
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â¨ Creating new table:', tableName);
 
 //       const source = await shapefile.openDbf(dbfFile.path);
 //       const firstResult = await source.read();
@@ -9297,7 +9297,7 @@ app.use((error, req, res, next) => {
 //         )
 //       `;
 
-//       console.log('Ã°Å¸â€œâ€¹ Creating table:', createTableQuery);
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ Creating table:', createTableQuery);
 
 //       await client.query(createTableQuery);
 //       tableCreated = true;
@@ -9307,11 +9307,11 @@ app.use((error, req, res, next) => {
 //         ON ${tableName} USING GIST (geom)
 //       `);
 
-//       console.log(`Ã¢Å“â€¦ Table '${tableName}' created successfully`);
+//       console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Table '${tableName}' created successfully`);
 //     }
 
 //     // STEP 2: Upload data dengan simplifikasi
-//     console.log('Ã°Å¸â€œÂ¤ Uploading data with simplification to table:', tableName);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â¤ Uploading data with simplification to table:', tableName);
 
 //     const targetPercentage = simplificationApplied === 'true' && percentage
 //       ? parseFloat(percentage)
@@ -9421,11 +9421,11 @@ app.use((error, req, res, next) => {
 //           insertedCount++;
 
 //           if (insertedCount % 10 === 0) {
-//             console.log(`Ã¢Å“â€¦ Inserted ${insertedCount} features...`);
+//             console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Inserted ${insertedCount} features...`);
 //           }
 
 //         } catch (insertError) {
-//           console.error(`Ã¢ÂÅ’ Error inserting feature ${insertedCount}:`, insertError.message);
+//           console.error(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error inserting feature ${insertedCount}:`, insertError.message);
 //           errors.push({
 //             feature: insertedCount,
 //             error: insertError.message
@@ -9456,7 +9456,7 @@ app.use((error, req, res, next) => {
 //       overallReduction = ((totalOriginalPoints - totalSimplifiedPoints) / totalOriginalPoints * 100);
 //     }
 
-//     console.log(`Ã¢Å“â€¦ Upload complete:`, {
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Upload complete:`, {
 //       inserted: insertedCount,
 //       simplified: simplifiedCount,
 //       errors: errors.length,
@@ -9488,13 +9488,13 @@ app.use((error, req, res, next) => {
 //     });
 
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error during create table + simplify + upload:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error during create table + simplify + upload:', error);
 
 //     // Rollback: Drop table jika sudah dibuat
 //     if (tableCreated && req.body.tableName) {
 //       try {
 //         await client.query(`DROP TABLE IF EXISTS ${req.body.tableName} CASCADE`);
-//         console.log(`Ã°Å¸â€â€ž Rolled back: dropped table ${req.body.tableName}`);
+//         console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ Rolled back: dropped table ${req.body.tableName}`);
 //       } catch (rollbackError) {
 //         console.error('Error during rollback:', rollbackError);
 //       }
@@ -9684,25 +9684,25 @@ app.use((error, req, res, next) => {
 //       return res.status(400).json({ error: 'Rekomendasi ini sudah memiliki kegiatan' });
 //     }
 
-//     // Ã¢Å“â€¦ Process files dengan path yang benar
+//     // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Process files dengan path yang benar
 //     const dokumenTerkait = req.files['dokumen_terkait']
-//       ? req.files['dokumen_terkait'].map(f => `/uploads/documents/${f.filename}`)  // Ã¢Å“â€¦ Ubah path
+//       ? req.files['dokumen_terkait'].map(f => `/uploads/documents/${f.filename}`)  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Ubah path
 //       : [];
 
 //     const fotoDokumentasi = req.files['foto_dokumentasi']
-//       ? req.files['foto_dokumentasi'].map(f => `/uploads/images/${f.filename}`)  // Ã¢Å“â€¦ Ubah path
+//       ? req.files['foto_dokumentasi'].map(f => `/uploads/images/${f.filename}`)  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Ubah path
 //       : [];
 
 //     const petaAwal = req.files['peta_awal']
-//       ? `/uploads/images/${req.files['peta_awal'][0].filename}`  // Ã¢Å“â€¦ Ubah path
+//       ? `/uploads/images/${req.files['peta_awal'][0].filename}`  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Ubah path
 //       : null;
 
 //     const petaSetelah = req.files['peta_setelah']
-//       ? `/uploads/images/${req.files['peta_setelah'][0].filename}`  // Ã¢Å“â€¦ Ubah path
+//       ? `/uploads/images/${req.files['peta_setelah'][0].filename}`  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Ubah path
 //       : null;
 
 //     const petaKerentanan = req.files['peta_kerentanan']
-//       ? `/uploads/images/${req.files['peta_kerentanan'][0].filename}`  // Ã¢Å“â€¦ Ubah path
+//       ? `/uploads/images/${req.files['peta_kerentanan'][0].filename}`  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Ubah path
 //       : null;
 
 //     // Insert into database
@@ -9752,25 +9752,25 @@ app.use((error, req, res, next) => {
 
 //     const existingKegiatan = existingResult.rows[0];
 
-//     // Ã¢Å“â€¦ Process files dengan path yang benar
+//     // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Process files dengan path yang benar
 //     const dokumenTerkait = req.files['dokumen_terkait']
-//       ? req.files['dokumen_terkait'].map(f => `/uploads/documents/${f.filename}`)  // Ã¢Å“â€¦ Ubah path
+//       ? req.files['dokumen_terkait'].map(f => `/uploads/documents/${f.filename}`)  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Ubah path
 //       : (existingKegiatan.dokumen_terkait ? JSON.parse(existingKegiatan.dokumen_terkait) : []);
 
 //     const fotoDokumentasi = req.files['foto_dokumentasi']
-//       ? req.files['foto_dokumentasi'].map(f => `/uploads/images/${f.filename}`)  // Ã¢Å“â€¦ Ubah path
+//       ? req.files['foto_dokumentasi'].map(f => `/uploads/images/${f.filename}`)  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Ubah path
 //       : (existingKegiatan.foto_dokumentasi ? JSON.parse(existingKegiatan.foto_dokumentasi) : []);
 
 //     const petaAwal = req.files['peta_awal']
-//       ? `/uploads/images/${req.files['peta_awal'][0].filename}`  // Ã¢Å“â€¦ Ubah path
+//       ? `/uploads/images/${req.files['peta_awal'][0].filename}`  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Ubah path
 //       : existingKegiatan.peta_awal;
 
 //     const petaSetelah = req.files['peta_setelah']
-//       ? `/uploads/images/${req.files['peta_setelah'][0].filename}`  // Ã¢Å“â€¦ Ubah path
+//       ? `/uploads/images/${req.files['peta_setelah'][0].filename}`  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Ubah path
 //       : existingKegiatan.peta_setelah;
 
 //     const petaKerentanan = req.files['peta_kerentanan']
-//       ? `/uploads/images/${req.files['peta_kerentanan'][0].filename}`  // Ã¢Å“â€¦ Ubah path
+//       ? `/uploads/images/${req.files['peta_kerentanan'][0].filename}`  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Ubah path
 //       : existingKegiatan.peta_kerentanan;
 
 //     // Update database
@@ -9865,7 +9865,7 @@ app.use((error, req, res, next) => {
 //   try {
 //     const { disaster_type, level, location_name } = req.query;
 
-//     console.log('Ã°Å¸â€œÂ¸ Fetching photos for:', { disaster_type, level, location_name });
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â¸ Fetching photos for:', { disaster_type, level, location_name });
 
 //     if (!disaster_type || !level || !location_name) {
 //       return res.status(400).json({ error: 'Missing required parameters' });
@@ -9881,50 +9881,50 @@ app.use((error, req, res, next) => {
 //     // PENTING: Gunakan UPPER() dan TRIM() untuk konsistensi dengan risk-analysis
 //     if (level === 'Indonesia') {
 //       // Untuk Indonesia, tidak ada filter lokasi tambahan
-//       console.log('Ã°Å¸â€œÂ Level: Indonesia - fetching all kejadian for disaster type');
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Level: Indonesia - fetching all kejadian for disaster type');
 //     } else if (level === 'provinsi') {
 //       // Case-insensitive comparison untuk provinsi
 //       query += ` AND UPPER(TRIM(provinsi)) = UPPER(TRIM($2))`;
 //       params.push(location_name);
-//       console.log('Ã°Å¸â€œÂ Level: provinsi -', location_name);
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Level: provinsi -', location_name);
 //     } else if (level === 'Provinsi') {
 //       query += ` AND UPPER(TRIM(provinsi)) = UPPER(TRIM($2))`;
 //       params.push(location_name);
-//       console.log('Ã°Å¸â€œÂ Level: Provinsi -', location_name);
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Level: Provinsi -', location_name);
 //     } else if (level === 'kabupaten') {
 //       query += ` AND UPPER(TRIM(kabupaten)) = UPPER(TRIM($2))`;
 //       params.push(location_name);
-//       console.log('Ã°Å¸â€œÂ Level: kabupaten -', location_name);
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Level: kabupaten -', location_name);
 //     } else if (level === 'Kabupaten/Kota') {
 //       query += ` AND UPPER(TRIM(kabupaten)) = UPPER(TRIM($2))`;
 //       params.push(location_name);
-//       console.log('Ã°Å¸â€œÂ Level: Kabupaten/Kota -', location_name);
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Level: Kabupaten/Kota -', location_name);
 //     } else if (level === 'kecamatan') {
 //       query += ` AND UPPER(TRIM(kecamatan)) = UPPER(TRIM($2))`;
 //       params.push(location_name);
-//       console.log('Ã°Å¸â€œÂ Level: kecamatan -', location_name);
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Level: kecamatan -', location_name);
 //     } else if (level === 'Kecamatan') {
 //       query += ` AND UPPER(TRIM(kecamatan)) = UPPER(TRIM($2))`;
 //       params.push(location_name);
-//       console.log('Ã°Å¸â€œÂ Level: Kecamatan -', location_name);
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Level: Kecamatan -', location_name);
 //     } else if (level === 'kelurahan') {
 //       query += ` AND UPPER(TRIM(kelurahan)) = UPPER(TRIM($2))`;
 //       params.push(location_name);
-//       console.log('Ã°Å¸â€œÂ Level: kelurahan -', location_name);
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Level: kelurahan -', location_name);
 //     } else if (level === 'Kelurahan/Desa') {
 //       query += ` AND UPPER(TRIM(kelurahan)) = UPPER(TRIM($2))`;
 //       params.push(location_name);
-//       console.log('Ã°Å¸â€œÂ Level: Kelurahan/Desa -', location_name);
+//       console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â Level: Kelurahan/Desa -', location_name);
 //     } else {
 //       return res.status(400).json({ error: 'Invalid level: ' + level });
 //     }
 
-//     console.log('Ã°Å¸â€Â Executing query:', query);
-//     console.log('Ã°Å¸â€œâ€¹ With params:', params);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Executing query:', query);
+//     console.log('ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ With params:', params);
 
 //     const result = await client.query(query, params);
 
-//     console.log(`Ã¢Å“â€¦ Found ${result.rows.length} kejadian records`);
+//     console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Found ${result.rows.length} kejadian records`);
 
 //     // Kumpulkan semua foto dari kejadian-kejadian tersebut
 //     const allPhotos = [];
@@ -9958,10 +9958,10 @@ app.use((error, req, res, next) => {
 //       }
 //     });
 
-//     console.log(`Ã°Å¸â€œÂ· Returning ${allPhotos.length} photos:`, allPhotos.slice(0, 3), '...');
+//     console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â· Returning ${allPhotos.length} photos:`, allPhotos.slice(0, 3), '...');
 //     res.json({ photos: allPhotos });
 //   } catch (error) {
-//     console.error('Ã¢ÂÅ’ Error fetching kejadian photos:', error);
+//     console.error('ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error fetching kejadian photos:', error);
 //     res.status(500).json({ error: 'Internal server error', details: error.message });
 //   }
 // });
@@ -9969,7 +9969,7 @@ app.use((error, req, res, next) => {
 const uploadsDir = path.join(__dirname, "uploads");
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
-  console.log("Ã¢Å“â€¦ Created uploads directory");
+  console.log("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Created uploads directory");
 }
 
 // Konfigurasi Multer untuk upload file
@@ -10051,9 +10051,9 @@ const createKejadianTable = async () => {
 
   try {
     await client.query(createTableSQL);
-    console.log("Ã¢Å“â€¦ Kejadian table created successfully");
+    console.log("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Kejadian table created successfully");
   } catch (error) {
-    console.error("Ã¢ÂÅ’ Error creating kejadian table:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Error creating kejadian table:", error);
   }
 };
 
@@ -10065,10 +10065,15 @@ const createLayerMetadataTable = async () => {
       table_name VARCHAR(255) NOT NULL UNIQUE,
       section VARCHAR(50) NOT NULL CHECK (section IN ('kerawanan', 'mitigasiAdaptasi', 'lainnya', 'kejadian')),
       original_files TEXT[],
+      status VARCHAR(20) NOT NULL DEFAULT 'published',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
+
+    -- Migrasi aman untuk tabel yang sudah ada.
+    ALTER TABLE public.layer_metadata
+      ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'published';
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_layer_metadata_section ON layer_metadata(section);
     CREATE INDEX IF NOT EXISTS idx_layer_metadata_created_at ON layer_metadata(created_at DESC);
@@ -10092,17 +10097,23 @@ const createLayerMetadataTable = async () => {
 
   try {
     await client.query(createTableSQL);
-    console.log("Ã¢Å“â€¦ Layer metadata table created successfully");
+    console.log("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Layer metadata table created successfully");
   } catch (error) {
-    console.error("Ã¢ÂÅ’ Error creating layer metadata table:", error);
+    console.error("[layer_metadata] Gagal membuat/migrasi tabel:", error.message);
+    throw error;
   }
 };
-
+ 
+// Inisialisasi metadata ditangani agar kegagalan tidak menjadi unhandled rejection.
+const layerMetadataInitialization = createLayerMetadataTable().catch((error) => {
+  console.error("[layer_metadata] Inisialisasi gagal:", error.message);
+  throw error;
+});
 pool
   .query("SELECT current_database() AS database, current_user AS user")
   .then((result) => {
     console.log("========================================");
-    console.log("Ã¢Å“â€¦ PostgreSQL connected");
+    console.log("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ PostgreSQL connected");
     console.log("Database :", result.rows[0].database);
     console.log("User     :", result.rows[0].user);
     console.log("Host     :", process.env.DB_HOST);
@@ -10110,7 +10121,7 @@ pool
     console.log("========================================");
   })
   .catch((err) => {
-    console.error("Ã¢ÂÅ’ PostgreSQL connection error:");
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ PostgreSQL connection error:");
     console.error(err.message);
   });
 
@@ -10357,7 +10368,7 @@ app.post("/api/login", async (req, res) => {
     // --------------------------------------------------------
 
     if (!username || !password) {
-      console.log("Ã¢ÂÅ’ STOP 1: username/password kosong");
+      console.log("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ STOP 1: username/password kosong");
 
       return res.status(400).json({
         success: false,
@@ -10413,7 +10424,7 @@ app.post("/api/login", async (req, res) => {
     });
 
     if (result.rows.length === 0) {
-      console.log("Ã¢ÂÅ’ STOP 4: user tidak ditemukan");
+      console.log("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ STOP 4: user tidak ditemukan");
 
       return res.status(401).json({
         success: false,
@@ -10438,7 +10449,7 @@ app.post("/api/login", async (req, res) => {
     // --------------------------------------------------------
 
     if (user.status !== "active") {
-      console.log("Ã¢ÂÅ’ STOP 5: status user =", user.status);
+      console.log("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ STOP 5: status user =", user.status);
 
       return res.status(403).json({
         success: false,
@@ -10459,7 +10470,7 @@ app.post("/api/login", async (req, res) => {
     console.log("9. Password result:", passwordValid);
 
     if (!passwordValid) {
-      console.log("Ã¢ÂÅ’ STOP 6: password salah");
+      console.log("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ STOP 6: password salah");
 
       return res.status(401).json({
         success: false,
@@ -10544,7 +10555,7 @@ console.log("13. JWT generated");
       },
     });
   } catch (error) {
-    console.error("\nÃ¢ÂÅ’Ã¢ÂÅ’Ã¢ÂÅ’ LOGIN CRASH Ã¢ÂÅ’Ã¢ÂÅ’Ã¢ÂÅ’");
+    console.error("\nÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ LOGIN CRASH ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢");
     console.error("Message:", error.message);
     console.error("Name:", error.name);
     console.error("Stack:", error.stack);
@@ -12544,15 +12555,19 @@ app.get("/api/layers", async (req, res) => {
   try {
     const authorizedLayerIds = await getAuthorizedLayerIds(req);
     const result = await pool.query(`
-      SELECT id, table_name, section, created_at
+      SELECT id, table_name, section, status, created_at
       FROM layer_metadata
       ORDER BY created_at DESC
     `);
 
-    const visibleRows =
+    const includeDrafts = String(req.query.includeDrafts || "") === "1";
+    const authorizedRows =
       authorizedLayerIds === null || authorizedLayerIds === "ALL"
         ? result.rows
         : result.rows.filter((row) => authorizedLayerIds.has(Number(row.id)));
+    const visibleRows = authorizedRows.filter(
+      (row) => includeDrafts || row.status === "published",
+    );
 
     // Get kejadian grouped by category and year (dari tabel kejadian - auto)
     const kejadianResult = await pool.query(`
@@ -12580,6 +12595,7 @@ app.get("/api/layers", async (req, res) => {
           id: row.id.toString(),
           name: row.table_name,
           createdAt: row.created_at,
+          status: row.status,
           isManual: true, // Flag untuk layer manual upload
           isShapefile: true,
         });
@@ -12588,6 +12604,7 @@ app.get("/api/layers", async (req, res) => {
           id: row.id.toString(),
           name: row.table_name,
           createdAt: row.created_at,
+          status: row.status,
         });
       }
     });
@@ -12800,14 +12817,14 @@ async function monitorTableInsertProgress(tableName, checkInterval = 1000) {
 // console.log('Creating table...');
 // await client.query(createTableSQL);
 // tableCreated = true;
-// console.log('Ã¢Å“â€œ Table created');
+// console.log('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ Table created');
 
 //     // Create spatial index
 //     await client.query(`
 //       CREATE INDEX ${sanitizedTableName}_geom_idx
 //       ON ${sanitizedTableName} USING GIST (geom)
 //     `);
-//     console.log('Ã¢Å“â€œ Spatial index created');
+//     console.log('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ Spatial index created');
 
 //     // ============================================================
 //     // STEP 3: Insert features ONE BY ONE
@@ -12881,7 +12898,7 @@ async function monitorTableInsertProgress(tableName, checkInterval = 1000) {
 //       if (inserted % COMMIT_INTERVAL === 0) {
 //         await client.query('COMMIT');
 //         await client.query('BEGIN');
-//         console.log(`  Ã°Å¸â€™Â¾ COMMIT at ${inserted} features`);
+//         console.log(`  ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢Ãƒâ€šÃ‚Â¾ COMMIT at ${inserted} features`);
 //         sendProgress(sanitizedTableName, Math.min(Math.round((inserted / (inserted + 10000)) * 95), 95), `${inserted.toLocaleString()} features - committing...`);
 
 //         if (global.gc) {
@@ -12919,7 +12936,7 @@ async function monitorTableInsertProgress(tableName, checkInterval = 1000) {
 //   }
 // }
 
-// console.log('\nÃ¢Å“â€œ Insertion Complete');
+// console.log('\nÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ Insertion Complete');
 // console.log('  Inserted:', inserted);
 // console.log('  Skipped:', skipped);
 
@@ -12948,11 +12965,11 @@ async function monitorTableInsertProgress(tableName, checkInterval = 1000) {
 //       RETURNING id, table_name, section, created_at
 //     `, [sanitizedTableName, section, files.map(f => f.originalname)]);
 
-//     console.log('Ã¢Å“â€œ Metadata saved');
+//     console.log('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ Metadata saved');
 
 //     // Final COMMIT
 //     await client.query('COMMIT');
-//     console.log('Ã¢Å“â€œ Final COMMIT');
+//     console.log('ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ Final COMMIT');
 
 //     // Cleanup
 //     uploadedFilePaths.forEach(fp => {
@@ -13001,7 +13018,7 @@ async function monitorTableInsertProgress(tableName, checkInterval = 1000) {
 //   }
 // });
 
-app.post("/api/layers", shapefileUpload.array("files"), async (req, res) => {
+app.post("/api/layers", verifyToken, shapefileUpload.array("files"), async (req, res) => {
   console.log("\n========================================");
   console.log("START POST /api/layers");
   console.log("========================================");
@@ -13162,14 +13179,14 @@ app.post("/api/layers", shapefileUpload.array("files"), async (req, res) => {
     console.log("Creating table...");
     await client.query(createTableSQL);
     tableCreated = true;
-    console.log("Ã¢Å“â€œ Table created");
+    console.log("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ Table created");
 
     // Create spatial index
     await client.query(`
       CREATE INDEX ${sanitizedTableName}_geom_valid_idx 
       ON ${sanitizedTableName} USING GIST (geom_valid)
     `);
-    console.log("Ã¢Å“â€œ Spatial index created");
+    console.log("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ Spatial index created");
 
     // ============================================================
     // STEP 3: Insert features ONE BY ONE
@@ -13263,7 +13280,7 @@ app.post("/api/layers", shapefileUpload.array("files"), async (req, res) => {
           if (inserted % COMMIT_INTERVAL === 0) {
             await client.query("COMMIT");
             await client.query("BEGIN");
-            console.log(`  Ã°Å¸â€™Â¾ COMMIT at ${inserted} features`);
+            console.log(`  ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢Ãƒâ€šÃ‚Â¾ COMMIT at ${inserted} features`);
             sendProgress(
               sanitizedTableName,
               Math.min(Math.round((inserted / (inserted + 10000)) * 95), 95),
@@ -13306,7 +13323,7 @@ app.post("/api/layers", shapefileUpload.array("files"), async (req, res) => {
       }
     }
 
-    console.log("\nÃ¢Å“â€œ Insertion Complete");
+    console.log("\nÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ Insertion Complete");
     console.log("  Inserted:", inserted);
     console.log("  Skipped:", skipped);
 
@@ -13337,18 +13354,18 @@ app.post("/api/layers", shapefileUpload.array("files"), async (req, res) => {
     console.log("\n--- STEP 4: Saving Metadata ---");
     const metaResult = await client.query(
       `
-      INSERT INTO layer_metadata (table_name, section, original_files)
-      VALUES ($1, $2, $3)
-      RETURNING id, table_name, section, created_at
+      INSERT INTO layer_metadata (table_name, section, original_files, status)
+      VALUES ($1, $2, $3, 'draft')
+      RETURNING id, table_name, section, status, created_at
     `,
       [sanitizedTableName, section, files.map((f) => f.originalname)],
     );
 
-    console.log("Ã¢Å“â€œ Metadata saved");
+    console.log("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ Metadata saved");
 
     // Final COMMIT
     await client.query("COMMIT");
-    console.log("Ã¢Å“â€œ Final COMMIT");
+    console.log("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ Final COMMIT");
 
     // Cleanup
     uploadedFilePaths.forEach((fp) => {
@@ -13404,54 +13421,196 @@ app.post("/api/layers", shapefileUpload.array("files"), async (req, res) => {
 });
 
 // Endpoint untuk delete layer
-app.delete("/api/layers/:id", async (req, res) => {
+app.patch("/api/layers/:id", verifyToken, async (req, res) => {
+  try {
+    if (!isPrivilegedLayerToken(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: "Hanya administrator yang dapat mengelola data spasial.",
+      });
+    }
+
+    const id = Number(req.params.id);
+    const { status, section } = req.body || {};
+    const allowedStatuses = ["draft", "published"];
+    const allowedSections = [
+      "kerawanan",
+      "mitigasiAdaptasi",
+      "lainnya",
+      "kejadian",
+    ];
+
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "ID layer tidak valid.",
+      });
+    }
+
+    if (status !== undefined && !allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Status harus draft atau published.",
+      });
+    }
+
+    if (section !== undefined && !allowedSections.includes(section)) {
+      return res.status(400).json({
+        success: false,
+        message: "Kategori layer tidak valid.",
+      });
+    }
+
+    if (status === undefined && section === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "Tidak ada perubahan yang dikirim.",
+      });
+    }
+
+    const updates = [];
+    const values = [];
+    let p = 1;
+
+    if (status !== undefined) {
+      updates.push(`status = $${p++}`);
+      values.push(status);
+    }
+
+    if (section !== undefined) {
+      updates.push(`section = $${p++}`);
+      values.push(section);
+    }
+
+    values.push(id);
+
+    const result = await pool.query(
+      `UPDATE layer_metadata
+       SET ${updates.join(", ")}
+       WHERE id = $${p}
+       RETURNING id, table_name, section, status, created_at`,
+      values,
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Data spasial tidak ditemukan.",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Metadata data spasial berhasil diperbarui.",
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Gagal memperbarui metadata layer:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Gagal memperbarui metadata data spasial.",
+    });
+  }
+});
+
+app.delete("/api/layers/:id", verifyToken, async (req, res) => {
+  if (!isPrivilegedLayerToken(req.user)) {
+    return res.status(403).json({
+      success: false,
+      message: "Hanya administrator yang dapat menghapus data spasial.",
+    });
+  }
+
+  const id = Number(req.params.id);
+
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "ID layer tidak valid.",
+    });
+  }
+
   const client = await pool.connect();
+  let transactionStarted = false;
 
   try {
-    const { id } = req.params;
-
     await client.query("BEGIN");
+    transactionStarted = true;
 
-    // Get table name before deleting
-    const metadataResult = await client.query(
-      "SELECT table_name FROM layer_metadata WHERE id = $1",
+    const result = await client.query(
+      "SELECT table_name FROM layer_metadata WHERE id = $1 FOR UPDATE",
       [id],
     );
 
-    if (metadataResult.rows.length === 0) {
+    if (result.rows.length === 0) {
       await client.query("ROLLBACK");
-      return res.status(404).json({ error: "Layer not found" });
+      transactionStarted = false;
+
+      return res.status(404).json({
+        success: false,
+        message: "Data spasial tidak ditemukan.",
+      });
     }
 
-    const tableName = metadataResult.rows[0].table_name;
+    const tableName = String(result.rows[0].table_name || "");
 
-    // Drop the actual table
-    await client.query(`DROP TABLE IF EXISTS ${tableName} CASCADE`);
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
+      throw new Error("Nama tabel tidak valid; penghapusan dibatalkan.");
+    }
 
-    // Delete metadata
-    await client.query("DELETE FROM layer_metadata WHERE id = $1", [id]);
+    const tableCheck = await client.query(
+      `SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = $1
+      ) AS exists`,
+      [tableName],
+    );
+
+    if (tableCheck.rows[0].exists) {
+      await client.query(`DROP TABLE public."${tableName}"`);
+    }
+
+    await client.query(
+      "DELETE FROM layer_metadata WHERE id = $1",
+      [id],
+    );
 
     await client.query("COMMIT");
+    transactionStarted = false;
 
-    res.json({ success: true, message: "Layer deleted successfully" });
+    return res.json({
+      success: true,
+      message: "Data spasial dan metadata berhasil dihapus.",
+    });
   } catch (error) {
-    await client.query("ROLLBACK");
-    console.error("Error deleting layer:", error);
-    res.status(500).json({ error: "Failed to delete layer" });
+    if (transactionStarted) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        console.error("Rollback gagal:", rollbackError);
+      }
+    }
+
+    console.error("Gagal menghapus layer:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Gagal menghapus data spasial.",
+    });
   } finally {
     client.release();
   }
 });
-
 app.get("/api/layers/progress/:tableName", (req, res) => {
   const { tableName } = req.params;
 
-  console.log("Ã°Å¸â€Â¥ [GEOJSON] RAW tableName:", JSON.stringify(tableName));
+  console.log("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â¥ [GEOJSON] RAW tableName:", JSON.stringify(tableName));
   console.log(
-    "Ã°Å¸â€Â¥ [GEOJSON] tableName chars:",
+    "ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â¥ [GEOJSON] tableName chars:",
     [...String(tableName || "")].map((c) => `${c}=${c.charCodeAt(0)}`),
   );
-  console.log("Ã°Å¸â€Â¥ [GEOJSON] SAFE:", isSafeSqlIdentifier(tableName));
+  console.log("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â¥ [GEOJSON] SAFE:", isSafeSqlIdentifier(tableName));
 
   // Simpan client untuk table name ini
   if (!progressClients.has(tableName)) {
@@ -13954,7 +14113,7 @@ app.get("/api/bnpb/layers/:key/image", async (req, res) => {
       params.set("layers", `show:${config.layerId}`);
 
     const upstreamUrl = `${config.url}/${config.type === "MapServer" ? "export" : "exportImage"}?${params.toString()}`;
-    console.log("Ã°Å¸â€ºÂ°Ã¯Â¸Â [BNPB PROXY]", {
+    console.log("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂºÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â [BNPB PROXY]", {
       key: req.params.key,
       type: config.type,
       zoom,
@@ -13968,7 +14127,7 @@ app.get("/api/bnpb/layers/:key/image", async (req, res) => {
     const contentType = upstream.headers.get("content-type") || "";
     if (!upstream.ok || !contentType.toLowerCase().startsWith("image/")) {
       const body = await upstream.text();
-      console.error("Ã¢ÂÅ’ [BNPB PROXY] upstream error", {
+      console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [BNPB PROXY] upstream error", {
         key: req.params.key,
         status: upstream.status,
         body: body.slice(0, 1000),
@@ -13990,11 +14149,11 @@ app.get("/api/bnpb/layers/:key/image", async (req, res) => {
       "X-BNPB-Zoom": String(zoom),
     });
     console.log(
-      `Ã¢Å“â€¦ [BNPB PROXY] ${config.name}: ${buffer.length} bytes (${Date.now() - startedAt}ms)`,
+      `ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [BNPB PROXY] ${config.name}: ${buffer.length} bytes (${Date.now() - startedAt}ms)`,
     );
     return res.send(buffer);
   } catch (error) {
-    console.error("Ã¢ÂÅ’ [BNPB PROXY]", req.params.key, error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [BNPB PROXY]", req.params.key, error);
     return res.status(500).json({
       success: false,
       error: "Failed to load BNPB layer",
@@ -14030,7 +14189,7 @@ app.get("/api/layer-overlay/catalog", async (req, res) => {
   const startedAt = Date.now();
 
   try {
-    console.log("Ã°Å¸â€œÅ¡ [LAYER OVERLAY] GET /api/layer-overlay/catalog");
+    console.log("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€¦Ã‚Â¡ [LAYER OVERLAY] GET /api/layer-overlay/catalog");
 
     // ============================================================
     // 1. LOAD LAYER METADATA
@@ -14127,7 +14286,7 @@ app.get("/api/layer-overlay/catalog", async (req, res) => {
     for (const row of visibleMetadataRows) {
       const geometryColumn = geometryMap.get(row.table_name);
 
-      // Tidak punya geometry Ã¢â€ â€™ bukan layer spatial
+      // Tidak punya geometry ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ bukan layer spatial
       if (!geometryColumn) {
         continue;
       }
@@ -14199,7 +14358,7 @@ app.get("/api/layer-overlay/catalog", async (req, res) => {
     const durationMs = Date.now() - startedAt;
 
     console.log(
-      `Ã¢Å“â€¦ [LAYER OVERLAY] catalog loaded: ${layers.length} layers in ${durationMs}ms`,
+      `ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [LAYER OVERLAY] catalog loaded: ${layers.length} layers in ${durationMs}ms`,
     );
 
     // ============================================================
@@ -14219,7 +14378,7 @@ app.get("/api/layer-overlay/catalog", async (req, res) => {
       durationMs,
     });
   } catch (error) {
-    console.error("Ã¢ÂÅ’ [LAYER OVERLAY] catalog error:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [LAYER OVERLAY] catalog error:", error);
 
     return res.status(500).json({
       success: false,
@@ -14313,7 +14472,7 @@ app.get("/api/layer-overlay/data/:layerId", async (req, res) => {
       endpoint: geojsonUrl,
     });
   } catch (error) {
-    console.error("Ã¢ÂÅ’ [LAYER OVERLAY] data error:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [LAYER OVERLAY] data error:", error);
 
     res.status(500).json({
       success: false,
@@ -14333,7 +14492,7 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
     const requestedZoom = Number.parseInt(String(req.query.zoom ?? "5"), 10);
     const zoom = Number.isFinite(requestedZoom) ? Math.max(0, Math.min(22, requestedZoom)) : 5;
 
-    console.log("Ã°Å¸â€”ÂºÃ¯Â¸Â [GEOJSON] request", {
+    console.log("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â [GEOJSON] request", {
       tableName,
       bounds: bounds || null,
       zoom,
@@ -14346,7 +14505,7 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
     const layerAuth = await authorizeLayerByTable(req, tableName, client);
     if (!layerAuth.ok) {
       console.warn(
-        `Ã°Å¸Å¡Â« [GEOJSON] DENIED user=${layerAuth.user?.id ?? "anonymous"} layer=${tableName}`,
+        `ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â« [GEOJSON] DENIED user=${layerAuth.user?.id ?? "anonymous"} layer=${tableName}`,
       );
       return res.status(layerAuth.status).json({
         success: false,
@@ -14724,7 +14883,7 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       `;
 
       console.log(
-        `âœ‚ï¸ [ADMIN CLIP] ${tableName}`,
+        `ÃƒÂ¢Ã…â€œÃ¢â‚¬Å¡ÃƒÂ¯Ã‚Â¸Ã‚Â [ADMIN CLIP] ${tableName}`,
         `level=${adminLevel}`,
         `names=${JSON.stringify(adminNames)}`,
         `boundary=${adminTable}.${adminColumn}.${adminGeom}`,
@@ -14789,14 +14948,14 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
         });
       } catch (parseError) {
         console.warn(
-          `Ã¢Å¡Â Ã¯Â¸Â [GEOJSON] geometry invalid pada ${tableName}:`,
+          `ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â [GEOJSON] geometry invalid pada ${tableName}:`,
           parseError.message,
         );
       }
     }
 
     console.log(
-      `Ã¢Å“â€¦ [GEOJSON] ${tableName}: ${features.length} features (${Date.now() - startedAt}ms)`,
+      `ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [GEOJSON] ${tableName}: ${features.length} features (${Date.now() - startedAt}ms)`,
     );
 
     res.set("Cache-Control", "private, max-age=20");
@@ -14810,7 +14969,7 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       layer: tableName,
     });
   } catch (err) {
-    console.error(`Ã¢ÂÅ’ [GEOJSON] ${req.params.tableName}:`, err);
+    console.error(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [GEOJSON] ${req.params.tableName}:`, err);
     return res.status(500).json({
       success: false,
       error: "Failed to load GeoJSON layer",
@@ -15039,10 +15198,10 @@ app.get("/api/areas/search", async (req, res) => {
   try {
     const { query, level, provinsi: filterProvinsi, kab_kota: filterKabKota, kecamatan: filterKecamatan } = req.query;
 
-    console.log("Ã°Å¸â€Â [SEARCH] Incoming request:", { query, level });
+    console.log("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â [SEARCH] Incoming request:", { query, level });
 
     if (!query || query.trim().length < 2) {
-      console.log("Ã¢ÂÅ’ [SEARCH] Query too short or empty");
+      console.log("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [SEARCH] Query too short or empty");
       return res.json([]);
     }
 
@@ -15054,13 +15213,13 @@ app.get("/api/areas/search", async (req, res) => {
     }
 
     const searchPattern = `%${query.toLowerCase().trim()}%`;
-    console.log("Ã°Å¸â€œÂ [SEARCH] Search pattern:", searchPattern);
+    console.log("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â [SEARCH] Search pattern:", searchPattern);
 
     let result;
 
     switch (level.toLowerCase()) {
       case "provinsi":
-        console.log("Ã°Å¸â€”ÂºÃ¯Â¸Â  [SEARCH] Searching provinsi...");
+        console.log("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â  [SEARCH] Searching provinsi...");
         const provinsiResult = await client.query(
           `
           SELECT 
@@ -15076,11 +15235,11 @@ app.get("/api/areas/search", async (req, res) => {
         );
 
         console.log(
-          `Ã¢Å“â€¦ [SEARCH] Found ${provinsiResult.rows.length} provinsi results`,
+          `ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [SEARCH] Found ${provinsiResult.rows.length} provinsi results`,
         );
         if (provinsiResult.rows.length > 0) {
           console.log(
-            "Ã°Å¸â€œâ€¹ [SEARCH] Sample results:",
+            "ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ [SEARCH] Sample results:",
             provinsiResult.rows.slice(0, 3).map((r) => r.provinsi),
           );
         }
@@ -15095,7 +15254,7 @@ app.get("/api/areas/search", async (req, res) => {
         );
 
       case "kabupaten":
-        console.log("Ã°Å¸â€”ÂºÃ¯Â¸Â  [SEARCH] Searching kabupaten...");
+        console.log("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â  [SEARCH] Searching kabupaten...");
         const kabupatenResult = await client.query(
           `
           SELECT 
@@ -15112,11 +15271,11 @@ app.get("/api/areas/search", async (req, res) => {
         );
 
         console.log(
-          `Ã¢Å“â€¦ [SEARCH] Found ${kabupatenResult.rows.length} kabupaten results`,
+          `ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [SEARCH] Found ${kabupatenResult.rows.length} kabupaten results`,
         );
         if (kabupatenResult.rows.length > 0) {
           console.log(
-            "Ã°Å¸â€œâ€¹ [SEARCH] Sample results:",
+            "ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ [SEARCH] Sample results:",
             kabupatenResult.rows.slice(0, 3).map((r) => r.kab_kota),
           );
         }
@@ -15132,7 +15291,7 @@ app.get("/api/areas/search", async (req, res) => {
         );
 
       case "kecamatan":
-        console.log("Ã°Å¸â€”ÂºÃ¯Â¸Â  [SEARCH] Searching kecamatan...");
+        console.log("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â  [SEARCH] Searching kecamatan...");
         const kecamatanResult = await client.query(
           `
           SELECT 
@@ -15150,11 +15309,11 @@ app.get("/api/areas/search", async (req, res) => {
         );
 
         console.log(
-          `Ã¢Å“â€¦ [SEARCH] Found ${kecamatanResult.rows.length} kecamatan results`,
+          `ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [SEARCH] Found ${kecamatanResult.rows.length} kecamatan results`,
         );
         if (kecamatanResult.rows.length > 0) {
           console.log(
-            "Ã°Å¸â€œâ€¹ [SEARCH] Sample results:",
+            "ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ [SEARCH] Sample results:",
             kecamatanResult.rows.slice(0, 3).map((r) => r.kecamatan),
           );
         }
@@ -15171,7 +15330,7 @@ app.get("/api/areas/search", async (req, res) => {
         );
 
       case "kelurahan":
-        console.log("Ã°Å¸â€”ÂºÃ¯Â¸Â  [SEARCH] Searching kelurahan...");
+        console.log("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â  [SEARCH] Searching kelurahan...");
         const kelurahanResult = await client.query(
           `
           SELECT 
@@ -15190,11 +15349,11 @@ app.get("/api/areas/search", async (req, res) => {
         );
 
         console.log(
-          `Ã¢Å“â€¦ [SEARCH] Found ${kelurahanResult.rows.length} kelurahan results`,
+          `ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [SEARCH] Found ${kelurahanResult.rows.length} kelurahan results`,
         );
         if (kelurahanResult.rows.length > 0) {
           console.log(
-            "Ã°Å¸â€œâ€¹ [SEARCH] Sample results:",
+            "ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ [SEARCH] Sample results:",
             kelurahanResult.rows.slice(0, 3).map((r) => r.kel_desa),
           );
         }
@@ -15212,14 +15371,14 @@ app.get("/api/areas/search", async (req, res) => {
         );
 
       default:
-        console.log("Ã¢ÂÅ’ [SEARCH] Invalid level:", level);
+        console.log("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [SEARCH] Invalid level:", level);
         return res.status(400).json({
           error:
             "Invalid level. Use: provinsi, kabupaten, kecamatan, or kelurahan",
         });
     }
   } catch (error) {
-    console.error("Ã¢ÂÅ’ [SEARCH] Error:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [SEARCH] Error:", error);
     res.status(500).json({ error: "Failed to search areas: " + error.message });
   } finally {
     client.release();
@@ -16045,7 +16204,7 @@ app.post("/api/debug/layers-in-bounds", async (req, res) => {
 
     const [minLat, minLng, maxLat, maxLng] = bounds;
 
-    console.log("Ã°Å¸â€Â [DEBUG] Checking layers in bounds:", {
+    console.log("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â [DEBUG] Checking layers in bounds:", {
       minLat,
       minLng,
       maxLat,
@@ -16074,7 +16233,7 @@ app.post("/api/debug/layers-in-bounds", async (req, res) => {
         maxLat,
       ]);
 
-      console.log(`Ã¢Å“â€¦ [DEBUG] Table ${tableName}:`, result.rows[0]);
+      console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [DEBUG] Table ${tableName}:`, result.rows[0]);
 
       return res.json({
         tableName,
@@ -16124,13 +16283,13 @@ app.post("/api/debug/layers-in-bounds", async (req, res) => {
             bbox: result.rows[0].bbox ? JSON.parse(result.rows[0].bbox) : null,
           });
 
-          console.log(`Ã¢Å“â€¦ [DEBUG] ${layer.table_name}: ${count} features`);
+          console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [DEBUG] ${layer.table_name}: ${count} features`);
         } else {
-          console.log(`Ã¢Å¡Âª [DEBUG] ${layer.table_name}: 0 features`);
+          console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Âª [DEBUG] ${layer.table_name}: 0 features`);
         }
       } catch (error) {
         console.error(
-          `Ã¢ÂÅ’ [DEBUG] Error checking ${layer.table_name}:`,
+          `ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [DEBUG] Error checking ${layer.table_name}:`,
           error.message,
         );
         results.push({
@@ -16144,9 +16303,9 @@ app.post("/api/debug/layers-in-bounds", async (req, res) => {
     // Sort by feature count descending
     results.sort((a, b) => (b.featureCount || 0) - (a.featureCount || 0));
 
-    console.log(`Ã¢Å“â€¦ [DEBUG] Total tables checked: ${layersQuery.rows.length}`);
+    console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [DEBUG] Total tables checked: ${layersQuery.rows.length}`);
     console.log(
-      `Ã¢Å“â€¦ [DEBUG] Tables with data: ${results.filter((r) => r.featureCount > 0).length}`,
+      `ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [DEBUG] Tables with data: ${results.filter((r) => r.featureCount > 0).length}`,
     );
 
     res.json({
@@ -16156,7 +16315,7 @@ app.post("/api/debug/layers-in-bounds", async (req, res) => {
       results: results,
     });
   } catch (error) {
-    console.error("Ã¢ÂÅ’ [DEBUG] Error:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [DEBUG] Error:", error);
     res.status(500).json({ error: error.message });
   } finally {
     client.release();
@@ -16192,7 +16351,7 @@ app.post("/api/debug/layers-in-admin", async (req, res) => {
           ? "kel_desa"
           : level;
 
-    console.log("Ã°Å¸â€Â [DEBUG] Checking layers in admin area:", { level, name });
+    console.log("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â [DEBUG] Checking layers in admin area:", { level, name });
 
     // Get admin area geometry
     const adminQuery = `
@@ -16222,7 +16381,7 @@ app.post("/api/debug/layers-in-admin", async (req, res) => {
       const result = await client.query(query, [name]);
 
       console.log(
-        `Ã¢Å“â€¦ [DEBUG] Table ${tableName} in ${level} ${name}:`,
+        `ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [DEBUG] Table ${tableName} in ${level} ${name}:`,
         result.rows[0],
       );
 
@@ -16266,13 +16425,13 @@ app.post("/api/debug/layers-in-admin", async (req, res) => {
             bbox: result.rows[0].bbox ? JSON.parse(result.rows[0].bbox) : null,
           });
 
-          console.log(`Ã¢Å“â€¦ [DEBUG] ${layer.table_name}: ${count} features`);
+          console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [DEBUG] ${layer.table_name}: ${count} features`);
         } else {
-          console.log(`Ã¢Å¡Âª [DEBUG] ${layer.table_name}: 0 features`);
+          console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Âª [DEBUG] ${layer.table_name}: 0 features`);
         }
       } catch (error) {
         console.error(
-          `Ã¢ÂÅ’ [DEBUG] Error checking ${layer.table_name}:`,
+          `ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [DEBUG] Error checking ${layer.table_name}:`,
           error.message,
         );
         results.push({
@@ -16292,7 +16451,7 @@ app.post("/api/debug/layers-in-admin", async (req, res) => {
       results: results,
     });
   } catch (error) {
-    console.error("Ã¢ÂÅ’ [DEBUG] Error:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [DEBUG] Error:", error);
     res.status(500).json({ error: error.message });
   } finally {
     client.release();
@@ -16313,7 +16472,7 @@ app.post("/api/debug/layers-in-das", async (req, res) => {
       });
     }
 
-    console.log("Ã°Å¸â€Â [DEBUG] Checking layers in DAS:", dasName);
+    console.log("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â [DEBUG] Checking layers in DAS:", dasName);
 
     // Jika tableName spesifik diberikan
     if (tableName) {
@@ -16330,7 +16489,7 @@ app.post("/api/debug/layers-in-das", async (req, res) => {
       const result = await client.query(query, [dasName]);
 
       console.log(
-        `Ã¢Å“â€¦ [DEBUG] Table ${tableName} in DAS ${dasName}:`,
+        `ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [DEBUG] Table ${tableName} in DAS ${dasName}:`,
         result.rows[0],
       );
 
@@ -16374,13 +16533,13 @@ app.post("/api/debug/layers-in-das", async (req, res) => {
             bbox: result.rows[0].bbox ? JSON.parse(result.rows[0].bbox) : null,
           });
 
-          console.log(`Ã¢Å“â€¦ [DEBUG] ${layer.table_name}: ${count} features`);
+          console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [DEBUG] ${layer.table_name}: ${count} features`);
         } else {
-          console.log(`Ã¢Å¡Âª [DEBUG] ${layer.table_name}: 0 features`);
+          console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Âª [DEBUG] ${layer.table_name}: 0 features`);
         }
       } catch (error) {
         console.error(
-          `Ã¢ÂÅ’ [DEBUG] Error checking ${layer.table_name}:`,
+          `ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [DEBUG] Error checking ${layer.table_name}:`,
           error.message,
         );
         results.push({
@@ -16400,7 +16559,7 @@ app.post("/api/debug/layers-in-das", async (req, res) => {
       results: results,
     });
   } catch (error) {
-    console.error("Ã¢ÂÅ’ [DEBUG] Error:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [DEBUG] Error:", error);
     res.status(500).json({ error: error.message });
   } finally {
     client.release();
@@ -16514,7 +16673,7 @@ app.get("/api/users", async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Ã¢ÂÅ’ GET /api/users error:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ GET /api/users error:", error);
 
     res.status(500).json({
       success: false,
@@ -16705,7 +16864,7 @@ app.post("/api/users", async (req, res) => {
       data: result.rows[0],
     });
   } catch (error) {
-    console.error("Ã¢ÂÅ’ POST /api/users error:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ POST /api/users error:", error);
 
     res.status(500).json({
       success: false,
@@ -17642,7 +17801,7 @@ app.get("/api/geocode/reverse", async (req, res) => {
           return res.json(data);
         }
       } catch (error) {
-        console.error("Ã¢ÂÅ’ Nominatim reverse geocoding error:", error);
+        console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Nominatim reverse geocoding error:", error);
 
         if (error?.retryAfterMs) {
           await sleep(error.retryAfterMs);
@@ -17658,7 +17817,7 @@ app.get("/api/geocode/reverse", async (req, res) => {
       }
     })
     .catch((error) => {
-      console.error("Ã¢ÂÅ’ Reverse geocoding queue error:", error);
+      console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Reverse geocoding queue error:", error);
       if (!res.headersSent) {
         return res.status(502).json({
           success: false,
@@ -17691,7 +17850,7 @@ app.get("/api/geocode/search", async (req, res) => {
       } catch (error) {
         primaryError = error;
         console.warn(
-          "Ã¢Å¡Â Ã¯Â¸Â Nominatim geocoding unavailable:",
+          "ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Nominatim geocoding unavailable:",
           error?.message || error,
         );
 
@@ -17702,9 +17861,9 @@ app.get("/api/geocode/search", async (req, res) => {
       if (!Array.isArray(data) || data.length === 0) {
         try {
           data = await geocodeWithPhoton(q);
-          console.log(`Ã¢Å“â€¦ Photon geocoding fallback: "${q}"`);
+          console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Photon geocoding fallback: "${q}"`);
         } catch (fallbackError) {
-          console.error("Ã¢ÂÅ’ Geocoding fallback failed:", fallbackError);
+          console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Geocoding fallback failed:", fallbackError);
           if (primaryError)
             throw new Error(
               `${primaryError.message}; fallback: ${fallbackError.message}`,
@@ -17721,7 +17880,7 @@ app.get("/api/geocode/search", async (req, res) => {
       res.json(data);
     })
     .catch((error) => {
-      console.error("Ã¢ÂÅ’ Geocoding error:", error);
+      console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Geocoding error:", error);
       if (!res.headersSent) {
         res.status(502).json({
           error: "Gagal mencari lokasi.",
@@ -17734,7 +17893,7 @@ app.get("/api/geocode/search", async (req, res) => {
 });
 
 // ============================================================
-// SIMITI ENTERPRISE Ã¢â‚¬â€ MEMBER / INSTITUTION REGISTRATION
+// SIMITI ENTERPRISE ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â MEMBER / INSTITUTION REGISTRATION
 // Adapted to current server.js: PostgreSQL + existing SHA-256 hashPassword()
 // ============================================================
 const ensureMemberRegistrationTables = async () => {
@@ -17788,9 +17947,9 @@ const ensureMemberRegistrationTables = async () => {
       CREATE INDEX IF NOT EXISTS idx_member_registration_status ON member_registration_requests(status);
       CREATE INDEX IF NOT EXISTS idx_admin_notifications_unread ON admin_notifications(is_read, created_at DESC);
     `);
-    console.log("Ã¢Å“â€¦ Member registration tables ready");
+    console.log("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Member registration tables ready");
   } catch (error) {
-    console.error("Ã¢ÂÅ’ Member registration table init failed:", error.message);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Member registration table init failed:", error.message);
   }
 };
 void ensureMemberRegistrationTables();
@@ -18291,7 +18450,7 @@ app.post("/api/spatial/detect-location", async (req, res) => {
       const result = await pool.query(sql, params);
       return result.rows[0] || null;
     } catch (error) {
-      console.warn("Ã¢Å¡Â Ã¯Â¸Â [SPATIAL DETECT] query layer gagal:", error.message);
+      console.warn("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â [SPATIAL DETECT] query layer gagal:", error.message);
       return null;
     }
   };
@@ -18387,7 +18546,7 @@ app.post("/api/spatial/detect-location", async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Ã¢ÂÅ’ /api/spatial/detect-location ERROR:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ /api/spatial/detect-location ERROR:", error);
 
     // Detection should never crash the location-entry workflow.
     return res.json({
@@ -18413,7 +18572,7 @@ app.get("/api/location-assessment", async (req, res) => {
   const startedAt = Date.now();
 
   const checkpoint = (label) => {
-    console.log(`Ã¢ÂÂ±Ã¯Â¸Â [LOCATION] ${label}: ${Date.now() - startedAt} ms`);
+    console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â [LOCATION] ${label}: ${Date.now() - startedAt} ms`);
   };
 
   // ==========================================================
@@ -18632,7 +18791,7 @@ app.get("/api/location-assessment", async (req, res) => {
       admin = adminResult.rows[0] || {};
     } catch (adminError) {
       console.warn(
-        "Ã¢Å¡Â Ã¯Â¸Â [LOCATION] ADMIN + DAS lookup gagal, assessment dilanjutkan:",
+        "ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â [LOCATION] ADMIN + DAS lookup gagal, assessment dilanjutkan:",
         adminError?.message || adminError,
       );
       admin = {};
@@ -18748,7 +18907,7 @@ app.get("/api/location-assessment", async (req, res) => {
         };
       } catch (riskError) {
         console.warn(
-          `Ã¢Å¡Â Ã¯Â¸Â Risk layer failed: ${definition.table_name}`,
+          `ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Risk layer failed: ${definition.table_name}`,
           riskError.message,
         );
 
@@ -18908,7 +19067,7 @@ if (complete) {
 
     const totalTime = Date.now() - startedAt;
 
-    console.log(`Ã°Å¸Å¡â‚¬ [LOCATION] TOTAL: ${totalTime} ms`);
+    console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â¡ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ [LOCATION] TOTAL: ${totalTime} ms`);
 
     return res.json({
       success: true,
@@ -18983,7 +19142,7 @@ if (complete) {
       recommendations,
     });
   } catch (error) {
-    console.error("Ã¢ÂÅ’ /api/location-assessment ERROR:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ /api/location-assessment ERROR:", error);
 
     return res.status(500).json({
       success: false,
@@ -19036,7 +19195,7 @@ app.get("/api/location-proximity", async (req, res) => {
   const startedAt = Date.now();
 
   console.log("==============================================");
-  console.log("Ã°Å¸â€œÂ LOCATION PROXIMITY REQUEST");
+  console.log("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â LOCATION PROXIMITY REQUEST");
   console.log({
     latitude,
     longitude,
@@ -19095,7 +19254,7 @@ app.get("/api/location-proximity", async (req, res) => {
     // - risk_status_rule
     // ========================================================
 
-    console.log("Ã°Å¸â€Â [LOCATION PROXIMITY] Loading risk config + scoring...");
+    console.log("ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â [LOCATION PROXIMITY] Loading risk config + scoring...");
 
     const [riskConfigResult, scoringResult, statusResult] = await Promise.all([
       pool.query(`
@@ -19190,7 +19349,7 @@ app.get("/api/location-proximity", async (req, res) => {
     };
 
     console.log(
-      `Ã¢Å“â€¦ [LOCATION PROXIMITY] Risk layers: ${riskLayers.length}, scoring classes: ${scoreMap.size}, status rules: ${statusRules.length}`,
+      `ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [LOCATION PROXIMITY] Risk layers: ${riskLayers.length}, scoring classes: ${scoreMap.size}, status rules: ${statusRules.length}`,
     );
 
     // ========================================================
@@ -19260,7 +19419,7 @@ app.get("/api/location-proximity", async (req, res) => {
           // Sebelumnya bbox menggunakan 5 derajat.
           // Itu terlalu besar untuk proximity GPS.
           //
-          // 0.25 derajat Ã¢â€°Ë† Ã‚Â±27 km di sekitar Indonesia.
+          // 0.25 derajat ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°Ãƒâ€¹Ã¢â‚¬Â  ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â±27 km di sekitar Indonesia.
           //
           // Nilai ini hanya membatasi kandidat spatial.
           // Urutan/output threats tetap sama.
@@ -19428,7 +19587,7 @@ app.get("/api/location-proximity", async (req, res) => {
            * seluruh endpoint menjadi 500.
            */
           console.warn(
-            "Ã¢Å¡Â Ã¯Â¸Â [LOCATION PROXIMITY] Risk layer skipped:",
+            "ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â [LOCATION PROXIMITY] Risk layer skipped:",
             definition.risk_key,
             error.message,
           );
@@ -19478,7 +19637,7 @@ app.get("/api/location-proximity", async (req, res) => {
       })
       .slice(0, threatLimit);
 
-    console.log(`Ã¢Å“â€¦ [LOCATION PROXIMITY] Threats: ${threats.length}`);
+    console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [LOCATION PROXIMITY] Threats: ${threats.length}`);
 
     // ========================================================
     // 3. LOCATION RISK SUMMARY
@@ -19581,10 +19740,10 @@ app.get("/api/location-proximity", async (req, res) => {
           row.distance_meters !== null ? Number(row.distance_meters) : null,
       }));
 
-      console.log(`Ã¢Å“â€¦ [LOCATION PROXIMITY] Mitigations: ${mitigations.length}`);
+      console.log(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [LOCATION PROXIMITY] Mitigations: ${mitigations.length}`);
     } catch (error) {
       console.warn(
-        "Ã¢Å¡Â Ã¯Â¸Â [LOCATION PROXIMITY] Mitigation query skipped:",
+        "ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â [LOCATION PROXIMITY] Mitigation query skipped:",
         error.message,
       );
 
@@ -19672,11 +19831,11 @@ app.get("/api/location-proximity", async (req, res) => {
       }));
 
       console.log(
-        `Ã¢Å“â€¦ [LOCATION PROXIMITY] public.kejadian: ${incidents.length}`,
+        `ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [LOCATION PROXIMITY] public.kejadian: ${incidents.length}`,
       );
     } catch (error) {
       console.warn(
-        "Ã¢Å¡Â Ã¯Â¸Â [LOCATION PROXIMITY] Query public.kejadian skipped:",
+        "ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â [LOCATION PROXIMITY] Query public.kejadian skipped:",
         error.message,
       );
 
@@ -19689,7 +19848,7 @@ app.get("/api/location-proximity", async (req, res) => {
 
     const processingTimeMs = Date.now() - startedAt;
 
-    console.log(`Ã°Å¸Å¡â‚¬ [LOCATION PROXIMITY] TOTAL: ${processingTimeMs} ms`);
+    console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â¡ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ [LOCATION PROXIMITY] TOTAL: ${processingTimeMs} ms`);
 
     console.log("==============================================");
 
@@ -19797,11 +19956,11 @@ app.get("/api/location-proximity", async (req, res) => {
     });
   } catch (error) {
     console.error(
-      "Ã¢ÂÅ’ [LOCATION PROXIMITY] FATAL ERROR:",
+      "ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [LOCATION PROXIMITY] FATAL ERROR:",
       error instanceof Error ? error.message : String(error),
     );
 
-    console.error("Ã¢ÂÅ’ stack:", error instanceof Error ? error.stack : "");
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ stack:", error instanceof Error ? error.stack : "");
 
     return res.status(500).json({
       success: false,
@@ -20269,7 +20428,7 @@ app.get("/api/location-bnpb", async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Ã¢ÂÅ’ [LOCATION BNPB] ERROR:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [LOCATION BNPB] ERROR:", error);
     return res.status(500).json({
       success: false,
       message:
@@ -20638,7 +20797,7 @@ async function ensureUserLayerAuthorizationTable() {
 }
 
 ensureUserLayerAuthorizationTable().catch((error) => {
-  console.error("Ã¢ÂÅ’ User layer authorization table init:", error);
+  console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ User layer authorization table init:", error);
 });
 
 function parsePositiveId(value, fieldName) {
@@ -21488,7 +21647,7 @@ async function ensureInformationCenterTables() {
 }
 
 ensureInformationCenterTables().catch((error) => {
-  console.error("Ã¢ÂÅ’ Information Center table init:", error);
+  console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Information Center table init:", error);
 });
 
 async function sendInfoCenterEmail({ subject, text, html, attachments = [] }) {
@@ -22764,7 +22923,7 @@ async function saveSipeatHistory(payload) {
     return saved;
   } catch (error) {
     // Histori tidak boleh membuat endpoint realtime gagal.
-    console.error("Ã¢Å¡Â Ã¯Â¸Â Gagal menyimpan histori SIPEAT:", error.message);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Gagal menyimpan histori SIPEAT:", error.message);
     return 0;
   }
 }
@@ -22782,7 +22941,7 @@ async function fetchSipeatData({ sensorId = "all", lastdata = "" } = {}) {
   sipeatUrl.searchParams.set("lastdata", lastdata ?? "");
 
   console.log(
-    "Ã°Å¸â€œÂ¡ SIPEAT request:",
+    "ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒâ€šÃ‚Â¡ SIPEAT request:",
     sipeatUrl.origin + sipeatUrl.pathname,
     `ID=${sensorId || "all"}`,
   );
@@ -22802,7 +22961,7 @@ async function fetchSipeatData({ sensorId = "all", lastdata = "" } = {}) {
   try {
     data = JSON.parse(text);
   } catch {
-    console.error("Ã¢ÂÅ’ Response SIPEAT bukan JSON:", text.slice(0, 1000));
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Response SIPEAT bukan JSON:", text.slice(0, 1000));
     const error = new Error("Response dari SIPEAT bukan JSON yang valid.");
     error.statusCode = 502;
     throw error;
@@ -22832,7 +22991,7 @@ app.get("/api/sipeat", async (req, res) => {
 
     return res.json(data);
   } catch (error) {
-    console.error("Ã¢ÂÅ’ SIPEAT proxy error:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ SIPEAT proxy error:", error);
 
     return res.status(error.statusCode || 502).json(
       error.responseData || {
@@ -22858,7 +23017,7 @@ app.get("/api/tma", async (req, res) => {
     // Informasi histori hanya disimpan di backend.
     return res.json(data);
   } catch (error) {
-    console.error("Ã¢ÂÅ’ TMA/SIPEAT error:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ TMA/SIPEAT error:", error);
 
     return res.status(error.statusCode || 502).json(
       error.responseData || {
@@ -22952,7 +23111,7 @@ app.get("/api/tma/history", async (req, res) => {
 
     return res.json({
       success: true,
-      source: "SIMITIGASI PostgreSQL Ã¢â€ Â SIPEAT",
+      source: "SIMITIGASI PostgreSQL ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ãƒâ€šÃ‚Â SIPEAT",
       range: req.query.from || req.query.to ? "custom" : rangeText,
       sensor_id: sensorId,
       from: fromDate.toISOString(),
@@ -22961,7 +23120,7 @@ app.get("/api/tma/history", async (req, res) => {
       data: rows,
     });
   } catch (error) {
-    console.error("Ã¢ÂÅ’ TMA history error:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ TMA history error:", error);
 
     return res.status(500).json({
       success: false,
@@ -23021,7 +23180,7 @@ app.get("/api/tma/history/stats", async (req, res) => {
       data: result.rows[0],
     });
   } catch (error) {
-    console.error("Ã¢ÂÅ’ TMA history stats error:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ TMA history stats error:", error);
 
     return res.status(500).json({
       success: false,
@@ -23033,7 +23192,7 @@ app.get("/api/tma/history/stats", async (req, res) => {
 
 // 404 handler
 app.use((req, res) => {
-  console.warn(`Ã¢Å¡Â Ã¯Â¸Â [404] ${req.method} ${req.originalUrl}`);
+  console.warn(`ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â [404] ${req.method} ${req.originalUrl}`);
   res.status(404).json({
     success: false,
     message: "Route not found",
@@ -23043,26 +23202,37 @@ app.use((req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-const server = app.listen(PORT, () => {
-  console.log(`Ã°Å¸â€Â¥ SIMITIGASI API READY`);
-  console.log(
-    `Ã°Å¸â€Â¥ GEOJSON ROUTE REGISTERED: GET /api/layers/:tableName/geojson`,
-  );
-  console.log(
-    `Ã°Å¸â€Â¥ GEOJSON HEALTH ROUTE: GET /api/layers/:tableName/geojson/health`,
-  );
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`Ã°Å¸â€Â¥ LAYER OVERLAY CATALOG: GET /api/layer-overlay/catalog`);
-  console.log(`Ã°Å¸â€Â¥ LAYER OVERLAY DATA: GET /api/layer-overlay/data/:layerId`);
-  console.log(`Ã°Å¸â€Â¥ LAYER OVERLAY HEALTH: GET /api/layer-overlay/health`);
-});
 
-server.timeout = 7200000; // 2 hours
-server.keepAliveTimeout = 7200000; // 2 hours
-server.headersTimeout = 7210000; // Slightly higher than keepAliveTimeout
+const startServer = async () => {
+  try {
+    await layerMetadataInitialization;
+  const server = app.listen(PORT, () => {
+    console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â¥ SIMITIGASI API READY`);
+    console.log(
+      `ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â¥ GEOJSON ROUTE REGISTERED: GET /api/layers/:tableName/geojson`,
+    );
+    console.log(
+      `ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â¥ GEOJSON HEALTH ROUTE: GET /api/layers/:tableName/geojson/health`,
+    );
+    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â¥ LAYER OVERLAY CATALOG: GET /api/layer-overlay/catalog`);
+    console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â¥ LAYER OVERLAY DATA: GET /api/layer-overlay/data/:layerId`);
+    console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â¥ LAYER OVERLAY HEALTH: GET /api/layer-overlay/health`);
+  });
+  
+  server.timeout = 7200000; // 2 hours
+  server.keepAliveTimeout = 7200000; // 2 hours
+  server.headersTimeout = 7210000; // Slightly higher than keepAliveTimeout
+  
+  // Increase max headers count for large multipart uploads
+  server.maxHeadersCount = 3000;
+  } catch (error) {
+    console.error("[startup] Backend gagal diinisialisasi:", error.message);
+    process.exitCode = 1;
+  }
+};
 
-// Increase max headers count for large multipart uploads
-server.maxHeadersCount = 3000;
+void startServer();
 
 
 

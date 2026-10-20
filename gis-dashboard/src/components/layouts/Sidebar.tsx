@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 
 import {
@@ -98,7 +98,12 @@ const mainMenus: MenuItem[] = [
         icon: Layers3,
       },
       {
-        title: "Tambah Data di Peta",
+        title: "Index Data Spasial",
+          href: "/tambah-data-spasial",
+          icon: Layers3,
+        },
+        {
+          title: "Tambah Data di Peta",
         href: "/gis/add-data",
         icon: PlusCircle,
       },
@@ -1418,3 +1423,5 @@ export default function Sidebar({
     </>
   );
 }
+
+

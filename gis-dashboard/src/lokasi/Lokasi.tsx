@@ -12,8 +12,10 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronsLeft,
   ChevronLeft,
   ChevronRight,
+  ChevronsRight,
   ClipboardCheck,
   Database,
   Download,
@@ -648,7 +650,7 @@ export default function Lokasi() {
   const [error, setError] = useState("");
 
   const [page, setPage] = useState(1);
-  const [limit] = useState(10);
+  const [limit, setLimit] = useState(10);
   const [total, setTotal] = useState(0);
 
   const [viewMode, setViewMode] = useState<"table" | "grid">("table");
@@ -950,6 +952,15 @@ export default function Lokasi() {
   const pageStart = total === 0 ? 0 : (page - 1) * limit + 1;
 
   const pageEnd = total === 0 ? 0 : Math.min(page * limit, total);
+const pageNumbers = useMemo(() => {
+  const start = Math.max(1, Math.min(page - 2, totalPages - 4));
+  const end = Math.min(totalPages, start + 4);
+
+  return Array.from(
+    { length: Math.max(0, end - start + 1) },
+    (_, index) => start + index,
+  );
+}, [page, totalPages]);
 
   /* ==========================================================
      GRID SORT FALLBACK
@@ -2156,103 +2167,94 @@ export default function Lokasi() {
             </div>
           )}
 
-          {/* FOOTER / PAGINATION */}
-
+          {/* FOOTER / PAGINATION — PRO ENTERPRISE */}
           <div
-            className="
-              flex
-              flex-col
-              gap-3
-              border-t
-              px-4
-              py-3
-              sm:flex-row
-              sm:items-center
-              sm:justify-between
-            "
-            style={{
-              borderColor: THEME.border,
-              backgroundColor: THEME.surface2,
-            }}
+            className="flex flex-col gap-4 border-t px-4 py-4 xl:flex-row xl:items-center xl:justify-between"
+            style={{ borderColor: THEME.border, backgroundColor: THEME.surface2 }}
           >
-            <div className="text-[10px] font-medium text-slate-500">
-              Menampilkan{" "}
-              <span className="font-bold text-slate-700">{pageStart}</span> —{" "}
-              <span className="font-bold text-slate-700">{pageEnd}</span> dari{" "}
-              <span className="font-bold text-slate-700">
-                {formatNumber(total)}
-              </span>{" "}
-              lokasi
-            </div>
-
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-                aria-label="Halaman sebelumnya"
-                className="
-                  flex
-                  h-8
-                  w-8
-                  items-center
-                  justify-center
-                  rounded-lg
-                  border
-                  bg-white
-                  text-slate-500
-                  shadow-sm
-                  transition
-                  hover:bg-slate-50
-                  hover:text-slate-800
-                  disabled:cursor-not-allowed
-                  disabled:opacity-30
-                "
-                style={{
-                  borderColor: THEME.border,
-                }}
-              >
-                <ChevronLeft size={14} />
-              </button>
-
-              <div className="flex h-8 min-w-8 items-center justify-center rounded-lg bg-teal-700 px-2 text-[10px] font-extrabold text-white">
-                {page}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+              <div className="text-xs font-medium text-slate-500">
+                Menampilkan{" "}
+                <span className="font-bold text-slate-800">{formatNumber(pageStart)}</span>
+                {" "}–{" "}
+                <span className="font-bold text-slate-800">{formatNumber(pageEnd)}</span>
+                {" "}dari{" "}
+                <span className="font-bold text-slate-800">{formatNumber(total)}</span>
+                {" "}lokasi
               </div>
 
-              <span className="px-1 text-[10px] text-slate-400">
-                / {totalPages}
-              </span>
+              <div className="flex items-center gap-2">
+                <label htmlFor="lokasi-page-size" className="text-xs text-slate-500">
+                  Baris per halaman
+                </label>
+                <select
+                  id="lokasi-page-size"
+                  value={limit}
+                  onChange={(event) => {
+                    setLimit(Number(event.target.value));
+                    setPage(1);
+                  }}
+                  className="h-9 rounded-lg border bg-white px-3 text-xs font-semibold text-slate-700 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                  style={{ borderColor: THEME.border }}
+                >
+                  {[10, 25, 50, 100].map((size) => (
+                    <option key={size} value={size}>{size}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
-              <button
-                type="button"
-                disabled={page >= totalPages}
-                onClick={() =>
-                  setPage((prev) => Math.min(totalPages, prev + 1))
-                }
-                aria-label="Halaman berikutnya"
-                className="
-                  flex
-                  h-8
-                  w-8
-                  items-center
-                  justify-center
-                  rounded-lg
-                  border
-                  bg-white
-                  text-slate-500
-                  shadow-sm
-                  transition
-                  hover:bg-slate-50
-                  hover:text-slate-800
-                  disabled:cursor-not-allowed
-                  disabled:opacity-30
-                "
-                style={{
-                  borderColor: THEME.border,
-                }}
-              >
-                <ChevronRight size={14} />
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button type="button" disabled={page <= 1 || loading}
+                onClick={() => setPage(1)} aria-label="Halaman pertama"
+                title="Halaman pertama"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border bg-white text-slate-600 shadow-sm hover:border-teal-300 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-35"
+                style={{ borderColor: THEME.border }}>
+                <ChevronsLeft size={16} />
               </button>
+
+              <button type="button" disabled={page <= 1 || loading}
+                onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                aria-label="Halaman sebelumnya" title="Halaman sebelumnya"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border bg-white text-slate-600 shadow-sm hover:border-teal-300 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-35"
+                style={{ borderColor: THEME.border }}>
+                <ChevronLeft size={16} />
+              </button>
+
+              {pageNumbers.map((pageNumber) => (
+                <button key={pageNumber} type="button" disabled={loading}
+                  onClick={() => setPage(pageNumber)}
+                  aria-label={`Halaman ${pageNumber}`}
+                  aria-current={page === pageNumber ? "page" : undefined}
+                  className={`flex h-9 min-w-9 items-center justify-center rounded-lg border px-3 text-xs font-bold ${
+                    page === pageNumber
+                      ? "border-teal-700 bg-teal-700 text-white shadow-sm"
+                      : "bg-white text-slate-600 hover:border-teal-300 hover:bg-teal-50"
+                  }`}
+                  style={page === pageNumber ? undefined : { borderColor: THEME.border }}>
+                  {pageNumber}
+                </button>
+              ))}
+
+              <button type="button" disabled={page >= totalPages || loading}
+                onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+                aria-label="Halaman berikutnya" title="Halaman berikutnya"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border bg-white text-slate-600 shadow-sm hover:border-teal-300 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-35"
+                style={{ borderColor: THEME.border }}>
+                <ChevronRight size={16} />
+              </button>
+
+              <button type="button" disabled={page >= totalPages || loading}
+                onClick={() => setPage(totalPages)} aria-label="Halaman terakhir"
+                title="Halaman terakhir"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border bg-white text-slate-600 shadow-sm hover:border-teal-300 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-35"
+                style={{ borderColor: THEME.border }}>
+                <ChevronsRight size={16} />
+              </button>
+
+              <span className="ml-1 whitespace-nowrap text-xs font-medium text-slate-500">
+                Halaman {page} / {totalPages}
+              </span>
             </div>
           </div>
         </section>

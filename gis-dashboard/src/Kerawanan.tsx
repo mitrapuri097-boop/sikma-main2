@@ -174,7 +174,7 @@ const Kerawanan = () => {
   };
 
   // UI-only state; declared before every hook/render reference.
-  const [isBottomSummaryOpen, setIsBottomSummaryOpen] = useState(true);
+  const [isBottomSummaryOpen, setIsBottomSummaryOpen] = useState(false);
 
   // Leaflet needs a size recalculation after the bottom grid row collapses/expands.
   useEffect(() => {
@@ -13236,11 +13236,11 @@ const Kerawanan = () => {
             width: 100% !important;
             min-width: 0 !important;
           }
-          .kerawanan-map > .absolute.top-3.right-3 {
+          .kerawanan-map .kerawanan-basemap-switcher {
             top: 58px !important;
             right: 8px !important;
           }
-          .kerawanan-map > .absolute.top-3.right-3 button {
+          .kerawanan-map .kerawanan-basemap-switcher button {
             min-height: 34px !important;
             padding: 6px 9px !important;
             font-size: 10px !important;
@@ -13390,7 +13390,7 @@ const Kerawanan = () => {
             max-width: calc(100% - 16px) !important;
           }
           .kerawanan-map .mockup-map-search > div:first-child { width: 100% !important; max-width: 100% !important; }
-          .kerawanan-map > .absolute.top-3.right-3 { right: 8px !important; top: 58px !important; }
+          .kerawanan-map .kerawanan-basemap-switcher { right: 8px !important; top: 58px !important; }
           .kerawanan-map .leaflet-control-container { max-width: 100% !important; }
         }
         @media (max-width: 380px) {
@@ -13409,7 +13409,7 @@ const Kerawanan = () => {
           .kerawanan-map .mockup-map-search {
             top: 6px !important;
           }
-          .kerawanan-map > .absolute.top-3.right-3 {
+          .kerawanan-map .kerawanan-basemap-switcher {
             top: 54px !important;
           }
         }
@@ -13431,178 +13431,633 @@ const Kerawanan = () => {
           }
         }
 
-        /* =========================================================
-           SIMITI RESPONSIVE LAYER PANEL — LEFT TOP
-           Desktop/tablet: panel overlays map at upper-left and matches
-           the map height. Mobile: panel flows below map for usability.
-           ========================================================= */
-        @media (min-width: 768px) {
-          .kerawanan-workspace {
-            position: relative !important;
-            isolation: isolate;
-            grid-template-columns: minmax(0, 1fr) !important;
-            min-width: 0 !important;
-            overflow: hidden !important;
-          }
-          .kerawanan-map {
-            grid-column: 1 !important;
-            grid-row: 1 !important;
-            width: 100% !important;
-            min-width: 0 !important;
-            min-height: 0 !important;
-          }
-          .kerawanan-layer-panel {
-            position: absolute !important;
-            top: 12px !important;
-            left: 12px !important;
-            right: auto !important;
-            bottom: 212px !important;
-            width: clamp(270px, 29vw, 360px) !important;
-            min-width: 0 !important;
-            max-width: calc(100% - 24px) !important;
-            height: auto !important;
-            min-height: 0 !important;
-            max-height: none !important;
-            grid-column: auto !important;
-            grid-row: auto !important;
-            z-index: 1300 !important;
-            overflow: hidden !important;
-            box-sizing: border-box !important;
-          }
-          .kerawanan-workspace.bottom-summary-closed .kerawanan-layer-panel {
-            bottom: 12px !important;
-          }
-          .kerawanan-layer-panel > div {
-            width: 100% !important;
-            height: 100% !important;
-            min-height: 0 !important;
-            min-width: 0 !important;
-          }
-          .kerawanan-layer-panel .dashboard-scroll {
-            min-height: 0 !important;
-            overflow-y: auto !important;
-            overscroll-behavior: contain;
-          }
-          .kerawanan-panel-reopen {
-            position: absolute !important;
-            top: 12px !important;
-            left: 12px !important;
-            right: auto !important;
-            bottom: auto !important;
-            z-index: 1350 !important;
-            max-width: calc(100% - 24px) !important;
-          }
+                /* SIMITI RESPONSIVE SYSTEM — satu sumber aturan layout */
+        .kerawanan-root,
+        .kerawanan-root * {
+          box-sizing: border-box;
         }
-        @media (min-width: 768px) and (max-width: 1023px) {
-          .kerawanan-layer-panel {
-            width: clamp(250px, 34vw, 310px) !important;
-            top: 10px !important;
-            left: 10px !important;
-            bottom: 198px !important;
-          }
-          .kerawanan-workspace.bottom-summary-closed .kerawanan-layer-panel {
-            bottom: 10px !important;
-          }
+
+        .kerawanan-root {
+          width: 100%;
+          max-width: 100%;
+          min-width: 0;
+          min-height: 0;
         }
-        /* Panel kiri: jaga ruang kontrol/checkbox agar tidak tertutup elemen tambahan. */
+
+        .kerawanan-workspace {
+          position: relative !important;
+          isolation: isolate;
+          min-width: 0 !important;
+          max-width: 100% !important;
+        }
+
+        .kerawanan-map {
+          position: relative;
+          min-width: 0 !important;
+          max-width: 100% !important;
+          overflow: hidden !important;
+        }
+
+        .kerawanan-map .leaflet-container {
+          width: 100% !important;
+          height: 100% !important;
+        }
+
+        .kerawanan-bottom-summary {
+          min-width: 0 !important;
+          max-width: 100% !important;
+          grid-template-columns:
+            minmax(0, 0.78fr)
+            minmax(0, 1.32fr)
+            minmax(0, 1.15fr) !important;
+        }
+
+        .kerawanan-bottom-summary > * {
+          min-width: 0 !important;
+          min-height: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .kerawanan-bottom-summary.kerawanan-bottom-summary-hidden {
+          display: none !important;
+          visibility: hidden !important;
+          pointer-events: none !important;
+        }
+
         .kerawanan-layer-panel,
         .kerawanan-layer-panel * {
           box-sizing: border-box;
         }
+
         .kerawanan-layer-panel {
           display: flex !important;
           flex-direction: column !important;
+          min-width: 0 !important;
           min-height: 0 !important;
         }
+
+        .kerawanan-layer-panel > div {
+          min-width: 0 !important;
+          min-height: 0 !important;
+        }
+
         .kerawanan-layer-panel .dashboard-scroll {
           flex: 1 1 auto !important;
+          min-width: 0 !important;
           min-height: 0 !important;
           overflow-x: hidden !important;
           overflow-y: auto !important;
-          scrollbar-gutter: stable;
+          overscroll-behavior: contain;
+          -webkit-overflow-scrolling: touch;
         }
+
         .kerawanan-layer-panel input[type="checkbox"] {
           flex: 0 0 auto;
           accent-color: #059669;
         }
+
         .kerawanan-layer-panel label,
         .kerawanan-layer-panel button {
           min-width: 0;
           overflow-wrap: anywhere;
         }
-        @media (max-width: 767px) {
-          .kerawanan-layer-panel {
-            width: 100% !important;
-            max-width: 100% !important;
-            height: auto !important;
-            max-height: min(58svh, 520px) !important;
-            overflow: hidden !important;
-            border-radius: 14px !important;
-          }
-          .kerawanan-layer-panel .dashboard-scroll {
-            max-height: min(48svh, 440px) !important;
-            padding-bottom: max(12px, env(safe-area-inset-bottom)) !important;
-          }
+
+        .kerawanan-panel-reopen {
+          z-index: 1350 !important;
+          max-width: 100%;
         }
 
-        /* Koordinat hasil klik peta berada di sisi kanan, terpisah dari panel kerawanan kiri. */
-        @media (min-width: 768px) {
+        .map-click-coordinate-card {
+          box-sizing: border-box !important;
+          max-width: 100%;
+          overflow-wrap: anywhere;
+        }
+
+        /* Desktop: map sebagai area utama, panel layer di kanan. */
+        @media (min-width: 1200px) {
+          .kerawanan-root main {
+            min-width: 0;
+            min-height: 0;
+            overflow: hidden;
+          }
+
+          .kerawanan-workspace {
+            height: 100%;
+            overflow: hidden !important;
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
+
+          .kerawanan-workspace.bottom-summary-open {
+            grid-template-rows: minmax(0, 1fr) 200px !important;
+            row-gap: 8px !important;
+          }
+
+          .kerawanan-workspace.bottom-summary-closed {
+            grid-template-rows: minmax(0, 1fr) 0px !important;
+            row-gap: 0 !important;
+          }
+
+          .kerawanan-map {
+            grid-column: 1 !important;
+            grid-row: 1 !important;
+            width: 100% !important;
+            height: 100%;
+            min-height: 0 !important;
+          }
+
+          .kerawanan-layer-panel {
+            position: absolute !important;
+            top: 12px !important;
+            right: 12px !important;
+            bottom: 212px !important;
+            left: auto !important;
+            width: clamp(280px, 25vw, 350px) !important;
+            max-width: calc(100% - 24px) !important;
+            height: auto !important;
+            max-height: none !important;
+            z-index: 1300 !important;
+            overflow: hidden !important;
+          }
+
+          .kerawanan-workspace.bottom-summary-closed .kerawanan-layer-panel {
+            bottom: 12px !important;
+          }
+
+          .kerawanan-panel-reopen {
+            position: absolute !important;
+            top: 12px !important;
+            right: 12px !important;
+            bottom: auto !important;
+            left: auto !important;
+            width: auto;
+          }
+
+          .kerawanan-bottom-summary {
+            grid-column: 1 !important;
+            grid-row: 2 !important;
+            width: 100% !important;
+            height: 200px !important;
+            min-height: 0 !important;
+            max-height: 200px !important;
+            overflow: hidden !important;
+          }
+
+          .kerawanan-bottom-summary > * {
+            height: 100%;
+            max-height: 200px;
+            overflow: hidden;
+          }
+
           .map-click-coordinate-card {
             position: absolute !important;
             top: 68px !important;
             right: 12px !important;
             left: auto !important;
             z-index: 1450 !important;
-            width: clamp(260px, 25vw, 330px) !important;
+            width: clamp(250px, 23vw, 320px) !important;
             max-width: calc(100% - 24px) !important;
             max-height: min(360px, calc(100% - 230px)) !important;
             margin: 0 !important;
             overflow-y: auto !important;
-            box-sizing: border-box !important;
             box-shadow: 0 14px 35px rgba(15, 23, 42, 0.18) !important;
-            backdrop-filter: blur(8px);
-          }
-        }
-        @media (max-width: 767px) {
-          .map-click-coordinate-card {
-            position: relative !important;
-            inset: auto !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            max-height: none !important;
-            margin: 8px 0 !important;
-            box-sizing: border-box !important;
-            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08) !important;
           }
         }
 
-        @media (max-width: 767px) {
+        /* Tablet dan laptop kompak. */
+        @media (min-width: 768px) and (max-width: 1199px) {
+          .kerawanan-root main {
+            min-width: 0;
+            min-height: 0;
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+          }
+
+          .kerawanan-workspace {
+            flex: 1 1 auto !important;
+            height: 100% !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
+          }
+
+          .kerawanan-workspace.bottom-summary-open {
+            grid-template-rows: minmax(340px, 1fr) 160px !important;
+            row-gap: 8px !important;
+          }
+
+          .kerawanan-workspace.bottom-summary-closed {
+            grid-template-rows: minmax(340px, 1fr) 0px !important;
+            row-gap: 0 !important;
+          }
+
+          .kerawanan-map {
+            grid-column: 1 !important;
+            grid-row: 1 !important;
+            height: 100% !important;
+            min-height: 0 !important;
+          }
+
           .kerawanan-layer-panel {
-            position: relative !important;
-            top: auto !important;
+            position: absolute !important;
+            top: 10px !important;
+            right: 10px !important;
+            bottom: 172px !important;
             left: auto !important;
-            right: auto !important;
+            width: clamp(240px, 28vw, 300px) !important;
+            max-width: calc(100% - 20px) !important;
+            height: auto !important;
+            max-height: none !important;
+            z-index: 1300 !important;
+            overflow: hidden !important;
+          }
+
+          .kerawanan-workspace.bottom-summary-closed .kerawanan-layer-panel {
+            bottom: 10px !important;
+          }
+
+          .kerawanan-panel-reopen {
+            position: absolute !important;
+            top: 10px !important;
+            right: 10px !important;
+            left: auto !important;
             bottom: auto !important;
+          }
+
+          .kerawanan-bottom-summary {
+            grid-column: 1 !important;
+            grid-row: 2 !important;
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+            width: 100% !important;
+            height: 160px !important;
+            max-height: 160px !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
+          }
+
+          .kerawanan-bottom-summary > * {
+            max-height: 160px;
+            overflow: hidden;
+          }
+
+          .map-click-coordinate-card {
+            position: absolute !important;
+            top: 64px !important;
+            right: 10px !important;
+            left: auto !important;
+            z-index: 1450 !important;
+            width: clamp(230px, 27vw, 290px) !important;
+            max-width: calc(100% - 20px) !important;
+            max-height: 260px !important;
+            overflow-y: auto !important;
+          }
+        }
+
+        /* HP: susun peta, panel layer, dan ringkasan secara vertikal. */
+        @media (max-width: 767px) {
+          .kerawanan-root {
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            min-height: 100vh !important;
+            min-height: 100dvh !important;
+            overflow-x: hidden !important;
+          }
+
+          .kerawanan-root main {
+            min-width: 0 !important;
+            max-width: 100% !important;
+            padding: 6px !important;
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+            overscroll-behavior-y: contain;
+          }
+
+          .kerawanan-workspace {
+            display: grid !important;
+            position: relative !important;
+            isolation: auto;
+            flex: 0 0 auto !important;
             width: 100% !important;
             max-width: 100% !important;
             height: auto !important;
             min-height: 0 !important;
-            max-height: 52svh !important;
-            grid-column: 1 / -1 !important;
-            grid-row: auto !important;
+            grid-template-columns: minmax(0, 1fr) !important;
+            grid-template-rows: auto !important;
+            gap: 10px !important;
+            padding: 6px !important;
+            overflow: visible !important;
           }
-          .kerawanan-panel-reopen {
+
+          .kerawanan-map {
             position: relative !important;
-            top: auto !important;
-            left: auto !important;
-            right: auto !important;
-            bottom: auto !important;
+            inset: auto !important;
+            grid-column: 1 !important;
+            grid-row: 1 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: clamp(280px, 56dvh, 560px) !important;
+            min-height: 280px !important;
+            max-height: 65dvh !important;
+            border-radius: 12px !important;
+            overflow: hidden !important;
+          }
+
+          .kerawanan-map .leaflet-container {
+            width: 100% !important;
+            height: 100% !important;
+          }
+
+          .kerawanan-map .mockup-map-search {
+            top: 8px !important;
+            right: 8px !important;
+            left: 8px !important;
+            width: auto !important;
+            max-width: none !important;
+          }
+
+          .kerawanan-map .mockup-map-search input,
+          .kerawanan-map .mockup-map-search > div:first-child {
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+          }
+
+          .kerawanan-map .kerawanan-basemap-switcher {
+            top: 58px !important;
+            right: 8px !important;
+            max-width: calc(100% - 16px) !important;
+          }
+
+          .kerawanan-layer-panel {
+            position: relative !important;
+            inset: auto !important;
+            grid-column: 1 !important;
+            grid-row: auto !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: min(58dvh, 520px) !important;
+            margin: 0 !important;
+            border-radius: 12px !important;
+            overflow: hidden !important;
+          }
+
+          .kerawanan-layer-panel > div {
             width: 100% !important;
             max-width: 100% !important;
           }
+
+          .kerawanan-layer-panel .dashboard-scroll {
+            max-height: min(46dvh, 420px) !important;
+            padding-bottom: max(12px, env(safe-area-inset-bottom)) !important;
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .kerawanan-panel-reopen {
+            position: relative !important;
+            inset: auto !important;
+            grid-column: 1 !important;
+            grid-row: auto !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            min-height: 40px;
+          }
+
+          .kerawanan-bottom-summary:not(.kerawanan-bottom-summary-hidden) {
+            display: grid !important;
+            position: relative !important;
+            grid-column: 1 !important;
+            grid-row: auto !important;
+            grid-template-columns: minmax(0, 1fr) !important;
+            grid-template-rows: auto !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            overflow: visible !important;
+            border-radius: 12px !important;
+          }
+
+          .kerawanan-bottom-summary > * {
+            width: 100% !important;
+            min-width: 0 !important;
+            min-height: 120px !important;
+            height: auto !important;
+            max-height: 280px !important;
+            overflow: hidden !important;
+            border-left: 0 !important;
+            border-bottom: 1px solid #e2e8f0 !important;
+          }
+
+          .kerawanan-bottom-summary > * > div {
+            min-width: 0 !important;
+            max-width: 100% !important;
+            padding-top: 10px !important;
+            padding-bottom: 10px !important;
+          }
+
+          .kerawanan-bottom-summary .dashboard-scroll {
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .map-click-coordinate-card {
+            position: relative !important;
+            inset: auto !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            max-height: none !important;
+            margin: 8px 0 !important;
+            overflow-wrap: anywhere;
+          }
+
+          .kerawanan-root button,
+          .kerawanan-root input,
+          .kerawanan-root select,
+          .kerawanan-root textarea {
+            max-width: 100%;
+          }
+
+          .kerawanan-root input,
+          .kerawanan-root select,
+          .kerawanan-root textarea {
+            font-size: 16px;
+          }
         }
 
-      `}</style>
+        /* HP kecil */
+        @media (max-width: 380px) {
+          .kerawanan-workspace {
+            padding: 4px !important;
+            gap: 8px !important;
+          }
+
+          .kerawanan-map {
+            height: 52dvh !important;
+            min-height: 260px !important;
+          }
+
+          .kerawanan-bottom-summary > * {
+            padding-left: 10px !important;
+            padding-right: 10px !important;
+          }
+        }
+
+        /* HP landscape: jaga area peta tetap bisa digunakan. */
+        @media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {
+          .kerawanan-root {
+            min-height: 100dvh !important;
+            overflow-y: auto !important;
+          }
+
+          .kerawanan-map {
+            height: 68dvh !important;
+            min-height: 200px !important;
+            max-height: none !important;
+          }
+        }
+              /* SIMITI: posisi switcher basemap dan judul peta. */
+        .kerawanan-map .kerawanan-basemap-switcher {
+          top: 12px !important;
+          left: 12px !important;
+          right: auto !important;
+          z-index: 3000 !important;
+          max-width: calc(100% - 24px) !important;
+        }
+
+        .kerawanan-map .print-map-title {
+          top: 12px !important;
+          right: 12px !important;
+          left: auto !important;
+          max-width: calc(100% - 180px) !important;
+          z-index: 1200 !important;
+        }
+
+        @media (max-width: 1199px) {
+          .kerawanan-map .kerawanan-basemap-switcher {
+            top: 58px !important;
+            left: 8px !important;
+            right: auto !important;
+            max-width: calc(100% - 16px) !important;
+          }
+
+          .kerawanan-map .print-map-title {
+            top: 100px !important;
+            left: 8px !important;
+            right: 8px !important;
+            max-width: calc(100% - 16px) !important;
+            z-index: 1200 !important;
+          }
+        }
+
+        @media (max-width: 767px) and (max-height: 500px) {
+          .kerawanan-map .kerawanan-basemap-switcher {
+            top: 54px !important;
+            left: 8px !important;
+            right: auto !important;
+          }
+        }
+
+
+        /* Saat panel bawah ditutup, hilangkan bingkai/ruang visual sisa agar peta terasa penuh. */
+        .kerawanan-workspace.bottom-summary-closed {
+          background: transparent !important;
+          padding-bottom: 0 !important;
+          row-gap: 0 !important;
+          grid-template-rows: minmax(0, 1fr) 0px !important;
+        }
+        .kerawanan-workspace.bottom-summary-closed > .kerawanan-map {
+          grid-row: 1 !important;
+          height: 100% !important;
+          min-height: 0 !important;
+          border: 0 !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          background: transparent !important;
+        }
+        .kerawanan-workspace.bottom-summary-closed > .kerawanan-bottom-summary {
+          display: none !important;
+          height: 0 !important;
+          min-height: 0 !important;
+          max-height: 0 !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          border: 0 !important;
+        }
+
+        /* HOTFIX: panel bawah ditutup tetap mempertahankan tinggi peta.
+           Override diletakkan paling akhir agar aturan responsive lama tidak
+           mengecilkan workspace/map menjadi area kosong pada viewport mobile. */
+        .kerawanan-workspace.bottom-summary-closed {
+          grid-template-rows: minmax(0, 1fr) 0px !important;
+          row-gap: 0 !important;
+          min-height: 0 !important;
+        }
+        .kerawanan-workspace.bottom-summary-closed > .kerawanan-map {
+          min-width: 0 !important;
+          min-height: 0 !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          grid-row: 1 !important;
+        }
+        @media (max-width: 1279px) {
+          .kerawanan-root {
+            width: 100% !important;
+            max-width: 100vw !important;
+            overflow-x: hidden !important;
+          }
+          .kerawanan-root > .flex-1,
+          .kerawanan-root main {
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+          }
+          .kerawanan-workspace {
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+          }
+          .kerawanan-workspace.bottom-summary-closed {
+            display: grid !important;
+            height: auto !important;
+            grid-template-rows: minmax(420px, 1fr) 0px !important;
+            overflow: visible !important;
+          }
+          .kerawanan-workspace.bottom-summary-closed > .kerawanan-map {
+            height: clamp(420px, calc(100dvh - 80px), 900px) !important;
+            min-height: 420px !important;
+            max-height: none !important;
+            align-self: stretch !important;
+          }
+        }
+        @media (max-width: 767px) {
+          .kerawanan-root main {
+            padding: 0 !important;
+            overflow-x: hidden !important;
+          }
+          .kerawanan-workspace.bottom-summary-closed {
+            padding: 0 !important;
+            gap: 0 !important;
+            grid-template-rows: minmax(420px, 1fr) 0px !important;
+          }
+          .kerawanan-workspace.bottom-summary-closed > .kerawanan-map {
+            width: 100% !important;
+            height: clamp(420px, calc(100dvh - 56px), 900px) !important;
+            min-height: 420px !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+          }
+        }
+
+        `}</style>
 
       {/* =========================================================
           ENTERPRISE SIDEBAR
@@ -13699,7 +14154,7 @@ const Kerawanan = () => {
               <div ref={mapRef} id="simiti-map" className="absolute inset-0" />
 
               {/* BASEMAP SWITCHER */}
-              <div className="absolute top-3 right-3 z-[3000] flex overflow-hidden rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-sm">
+              <div className="kerawanan-basemap-switcher absolute top-3 left-3 z-[3000] flex overflow-hidden rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-sm">
                 <button
                   type="button"
                   onClick={() => setBaseMapType("road")}
@@ -13727,7 +14182,7 @@ const Kerawanan = () => {
                 </button>
               </div>
 
-              <div className="print-map-title absolute top-3 left-3 z-[3000] rounded-lg bg-white/95 border border-slate-200 px-3 py-2 shadow-sm">
+              <div className="print-map-title absolute top-3 right-3 z-[3000] max-w-[calc(100%-180px)] rounded-lg bg-white/95 border border-slate-200 px-3 py-2 shadow-sm">
                 <div className="text-[15px] font-bold text-slate-800">
                   SIMITI • Peta Kawasan Rawan
                 </div>
@@ -13752,7 +14207,7 @@ const Kerawanan = () => {
               <button
                 type="button"
                 onClick={() => setIsBottomSummaryOpen((open) => !open)}
-                className="fixed left-1/2 bottom-0 -translate-x-1/2 z-[9999] flex items-center justify-center w-9 h-7 rounded-t-lg border border-slate-200 bg-white text-slate-500 shadow-lg hover:text-emerald-600 hover:bg-slate-50 transition-colors"
+                className="absolute left-1/2 bottom-0 -translate-x-1/2 z-[9999] flex items-center justify-center w-9 h-7 rounded-t-lg border border-slate-200 bg-white text-slate-500 shadow-lg hover:text-emerald-600 hover:bg-slate-50 transition-colors"
                 aria-expanded={isBottomSummaryOpen}
                 aria-controls="kerawanan-bottom-summary-panel"
                 title={

@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 const API_URL = (
   import.meta.env.VITE_API_URL || "http://localhost:3001"
@@ -69,6 +69,7 @@ interface LoginResponse {
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -248,7 +249,18 @@ export default function Login() {
       /*
        * Dashboard
        */
-      navigate("/dashboard", {
+      const requestedPath = (
+        location.state as { from?: unknown } | null
+      )?.from;
+
+      const destination =
+        typeof requestedPath === "string" &&
+        requestedPath.startsWith("/") &&
+        !requestedPath.startsWith("//")
+          ? requestedPath
+          : "/dashboard";
+
+      navigate(destination, {
         replace: true,
       });
     } catch (err) {

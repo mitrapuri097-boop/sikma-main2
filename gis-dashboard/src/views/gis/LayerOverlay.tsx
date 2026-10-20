@@ -1996,8 +1996,8 @@ export default function LayerOverlay() {
           MAIN GIS AREA
       ====================================================== */}
 
-      <div className="px-4 py-3 lg:px-7">
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-[215px_minmax(0,1fr)_295px]">
+      <div className="overflow-x-auto px-4 py-3 lg:px-7">
+        <div className="grid min-w-0 grid-cols-[minmax(190px,0.32fr)_minmax(0,1fr)] gap-3 2xl:grid-cols-[300px_minmax(0,1fr)_320px]">
           {/* ==================================================
               LEFT - LAYER EXPLORER
           ================================================== */}

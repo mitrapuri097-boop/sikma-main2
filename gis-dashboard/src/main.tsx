@@ -80,6 +80,7 @@ import DetailKejadian from "./detailKejadian";
 // ======================================================
 
 import TambahDataSpasial from "./TambahDataSpasial";
+import IndexDataSpasial from "./IndexDataSpasial";
 
 // ======================================================
 // INVENTARISASI LOKASI KEGIATAN
@@ -183,7 +184,7 @@ createRoot(rootElement).render(
 
             <Route
               path="/tambah-data-spasial"
-              element={<TambahDataSpasial />}
+              element={<IndexDataSpasial />}
             />
 
             {/* ==================================================

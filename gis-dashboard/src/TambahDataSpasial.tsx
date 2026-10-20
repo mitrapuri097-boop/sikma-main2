@@ -375,7 +375,25 @@ const TambahDataSpasial = () => {
          * SEND REQUEST
          */
 
+        const token =
+          localStorage.getItem("smiti_token") ||
+          sessionStorage.getItem("smiti_token") ||
+          localStorage.getItem("adminToken") ||
+          sessionStorage.getItem("adminToken") ||
+          localStorage.getItem("token") ||
+          sessionStorage.getItem("token") ||
+          localStorage.getItem("access_token") ||
+          sessionStorage.getItem("access_token") ||
+          localStorage.getItem("authToken") ||
+          sessionStorage.getItem("authToken");
+
+        if (!token) {
+          reject(new Error("Sesi login tidak ditemukan. Silakan login ulang."));
+          return;
+        }
+
         xhr.open("POST", `${API_URL}/api/layers`);
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
 
         xhr.send(formData);
       });
@@ -393,7 +411,7 @@ const TambahDataSpasial = () => {
       setInsertStatus("Selesai");
 
       setSuccessMessage(
-        `Layer "${tableName}" berhasil dipublikasikan ke SIMITI GIS.`,
+        `Layer "${tableName}" berhasil diunggah dan disimpan sebagai Draft.`,
       );
 
       closeEventSource();
@@ -403,7 +421,7 @@ const TambahDataSpasial = () => {
        */
 
       window.setTimeout(() => {
-        navigate("/kerawanan", {
+        navigate("/tambah-data-spasial", {
           state: {
             refreshLayers: true,
             createdLayer: tableName,
