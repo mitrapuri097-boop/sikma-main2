@@ -2222,18 +2222,56 @@ const Kerawanan = () => {
 
       console.log(` Memuat layer: ${tableName}...`);
 
+      // Jangan kirim "Authorization: Bearer " kosong.
+      // Sejumlah middleware menganggap header Bearer kosong sebagai token invalid,
+      // sehingga endpoint GeoJSON gagal walaupun layer bersifat publik.
+      const authToken = getAuthToken();
+      const requestHeaders: Record<string, string> = {
+        Accept: "application/geo+json, application/json",
+      };
+      if (authToken) requestHeaders.Authorization = `Bearer ${authToken}`;
+
       const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${getAuthToken()}`,
-          Accept: "application/json",
-        },
+        method: "GET",
+        headers: requestHeaders,
+        credentials: "same-origin",
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const responseText = await response.text();
+      let geojsonData: any;
+      try {
+        geojsonData = responseText ? JSON.parse(responseText) : null;
+      } catch {
+        throw new Error(
+          `Respons API layer bukan JSON yang valid (HTTP ${response.status}).`,
+        );
       }
 
-      const geojsonData = await response.json();
+      if (!response.ok) {
+        const detail =
+          geojsonData?.message ||
+          geojsonData?.error ||
+          response.statusText ||
+          "Permintaan GeoJSON gagal";
+        throw new Error(`HTTP ${response.status}: ${detail}`);
+      }
+
+      // Backend bisa mengembalikan FeatureCollection langsung atau membungkusnya
+      // dalam properti data/geojson. Normalisasi sebelum diproses Leaflet.
+      geojsonData =
+        geojsonData?.type === "FeatureCollection"
+          ? geojsonData
+          : geojsonData?.geojson?.type === "FeatureCollection"
+            ? geojsonData.geojson
+            : geojsonData?.data?.type === "FeatureCollection"
+              ? geojsonData.data
+              : geojsonData;
+
+      if (!geojsonData || !Array.isArray(geojsonData.features)) {
+        throw new Error(
+          `Format GeoJSON untuk "${tableName}" tidak sesuai. Periksa respons endpoint ${apiLayerName}/geojson.`,
+        );
+      }
 
       // Request ini sudah tidak relevan; jangan sentuh layer/map dengan data lama.
       if (
@@ -3038,13 +3076,17 @@ const Kerawanan = () => {
         const bencanaColor = getBencanaLayerColor(String(tableName));
         styleFunction = function (feature: any) {
           const kelas = getBencanaFeatureClass(feature);
-          const featureColor = getRiskClassColor(kelas, bencanaColor);
+          // Encode dua informasi tanpa membuat satu layer menutupi layer lain:
+          // warna isi = jenis bencana; warna garis = kelas kerawanan dari data.
+          const classColor = getRiskClassColor(kelas, bencanaColor);
           return {
-            color: featureColor,
-            fillColor: featureColor,
-            weight: zoom > 10 ? 1.8 : 1.2,
-            opacity: 0.95,
-            fillOpacity: 0.32,
+            color: classColor,
+            fillColor: bencanaColor,
+            weight: zoom > 10 ? 2.2 : 1.6,
+            opacity: 0.98,
+            fillOpacity: 0.16,
+            lineCap: "round",
+            lineJoin: "round",
           };
         };
       } else if (tableName === "tutupan_lahan") {
@@ -3591,26 +3633,22 @@ const Kerawanan = () => {
 
         layerGroup.eachLayer((layer: any) => {
           try {
-            if (layer?._path?.style) {
-              layer._path.style.mixBlendMode = "normal";
-            }
-
-            if (layer?.setStyle) {
-              layer.setStyle({
-                color: forcedBencanaColor,
-                fillColor: forcedBencanaColor,
-                weight: zoom > 10 ? 1.6 : 1.1,
-                opacity: 1,
-                fillOpacity: 0.32,
-              });
-            }
-
-            if (layer?.options) {
-              layer.options.color = forcedBencanaColor;
-              layer.options.fillColor = forcedBencanaColor;
-              layer.options.opacity = 1;
-              layer.options.fillOpacity = 0.32;
-            }
+            if (layer?._path?.style) layer._path.style.mixBlendMode = "normal";
+            const classColor = getRiskClassColor(
+              getBencanaFeatureClass(layer?.feature),
+              forcedBencanaColor,
+            );
+            const style = {
+              color: classColor,
+              fillColor: forcedBencanaColor,
+              weight: zoom > 10 ? 2.2 : 1.6,
+              opacity: 0.98,
+              fillOpacity: 0.16,
+              lineCap: "round",
+              lineJoin: "round",
+            };
+            if (layer?.setStyle) layer.setStyle(style);
+            if (layer?.options) Object.assign(layer.options, style);
           } catch (styleError) {
             console.warn("SIMITI: gagal menerapkan warna risiko:", tableName, styleError);
           }
@@ -3623,8 +3661,8 @@ const Kerawanan = () => {
   if (BENCANA_FOCUS_LAYERS.has(String(tableName))) refreshRiskOverlapHatch();
 
       // Urutan layer stabil, tidak bergantung urutan checkbox diklik.
-      // Banjir digambar lebih dulu; kekeringan setelahnya sehingga area irisan
-      // memiliki satu warna solid yang jelas, bukan dua warna transparan.
+      // Semua layer risiko tetap memakai fill transparan; garis kelas dan arsiran
+      // irisan membantu membaca dua sumber data pada lokasi yang sama.
       const bencanaRenderPriority: Record<string, number> = {
         risiko_banjir: 10,
         rawan_banjir: 10,
@@ -6216,23 +6254,24 @@ const Kerawanan = () => {
         // berdasarkan JENIS BENCANA.
         // ======================================================
         color = getBencanaLayerColor(String(layerId));
-
-        layer.setStyle({
+        const classColor = getRiskClassColor(
+          getBencanaFeatureClass(layer?.feature),
           color,
-          weight: zoom > 10 ? 2.2 : 1.5,
-          opacity: 1,
+        );
+        const riskStyle = {
+          color: classColor,
+          weight: zoom > 10 ? 2.2 : 1.6,
+          opacity: 0.98,
           fillColor: color,
-          fillOpacity: 0.32,
-        });
+          fillOpacity: 0.16,
+          lineCap: "round" as const,
+          lineJoin: "round" as const,
+        };
+        layer.setStyle(riskStyle);
 
-        // Sinkronkan juga options Leaflet supaya style berikutnya
-        // tetap menggunakan warna bencana.
-        if (layer.options) {
-          layer.options.color = color;
-          layer.options.fillColor = color;
-          layer.options.opacity = 1;
-          layer.options.fillOpacity = 0.32;
-        }
+        // Jaga style sinkron agar refresh legenda/zoom tidak membuat
+        // polygon kembali opak dan menutupi layer risiko lainnya.
+        if (layer.options) Object.assign(layer.options, riskStyle);
 
         return;
       }

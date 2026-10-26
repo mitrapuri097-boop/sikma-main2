@@ -53,71 +53,125 @@ function getAuthToken() {
 }
 
 function normalizeRiskLevel(value: unknown) {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-  if (normalized.includes("tinggi")) return "Tinggi";
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized.includes("sangat tinggi")) return "Sangat Tinggi";
+  if (normalized.includes("tinggi") || normalized.includes("tinggi sekali")) return "Tinggi";
   if (normalized.includes("sedang")) return "Sedang";
-  if (normalized.includes("rendah")) return "Rendah";
-  return String(value || "").trim();
+  if (normalized.includes("rendah") || normalized.includes("sangat rendah")) return "Rendah";
+  return "";
 }
 
 function riskScoreFromClass(value: unknown) {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-  if (normalized.includes("tinggi")) return 3;
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized.includes("sangat tinggi") || normalized.includes("tinggi")) return 3;
   if (normalized.includes("sedang")) return 2;
   if (normalized.includes("rendah")) return 1;
   return null;
 }
 
+function pointInRing(longitude: number, latitude: number, ring: unknown): boolean {
+  if (!Array.isArray(ring) || ring.length < 4) return false;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[i];
+    const b = ring[j];
+    if (!Array.isArray(a) || !Array.isArray(b)) continue;
+    const xi = Number(a[0]);
+    const yi = Number(a[1]);
+    const xj = Number(b[0]);
+    const yj = Number(b[1]);
+    if (![xi, yi, xj, yj].every(Number.isFinite)) continue;
+    const crosses = (yi > latitude) !== (yj > latitude) &&
+      longitude < ((xj - xi) * (latitude - yi)) / ((yj - yi) || Number.EPSILON) + xi;
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
+function pointInRiskGeometry(longitude: number, latitude: number, geometry: any): boolean {
+  if (!geometry || !Array.isArray(geometry.coordinates)) return false;
+  if (geometry.type === "Polygon") {
+    const rings = geometry.coordinates;
+    if (!Array.isArray(rings) || !rings.length || !pointInRing(longitude, latitude, rings[0])) return false;
+    // A point inside a hole is not inside the polygon.
+    return !rings.slice(1).some((ring: unknown) => pointInRing(longitude, latitude, ring));
+  }
+  if (geometry.type === "MultiPolygon") {
+    return geometry.coordinates.some((polygon: any[]) => {
+      if (!Array.isArray(polygon) || !polygon.length || !pointInRing(longitude, latitude, polygon[0])) return false;
+      return !polygon.slice(1).some((ring: unknown) => pointInRing(longitude, latitude, ring));
+    });
+  }
+  return false;
+}
+
+function getFeatureRiskClass(feature: any): string {
+  const properties = feature?.properties || {};
+  const preferredKeys = ["kelas", "kelas_risiko", "tingkat_risiko", "tingkat", "level_risiko", "risk_level", "kerawanan", "kategori", "class"];
+  for (const key of preferredKeys) {
+    const value = properties[key];
+    if (riskScoreFromClass(value) != null) return normalizeRiskLevel(value);
+  }
+  for (const [key, value] of Object.entries(properties)) {
+    if (/(kelas|tingkat|level|risiko|kerawanan|kategori|class)/i.test(key) && riskScoreFromClass(value) != null) {
+      return normalizeRiskLevel(value);
+    }
+  }
+  return "";
+}
+
 async function fetchLocalRiskFactors(latitude: number, longitude: number) {
-  // Sama seperti Kerawanan.tsx: source utama adalah /api/layers/:table/geojson.
-  // Bbox dibuat kecil di sekitar titik GPS agar response hanya mengambil
-  // polygon risiko di sekitar lokasi, tanpa mengubah endpoint/backend lama.
-  const delta = 0.01;
-  const bounds = [
-    latitude - delta,
-    longitude - delta,
-    latitude + delta,
-    longitude + delta,
-  ].join(",");
+  // Ambil fitur sekitar GPS lalu uji titik terhadap geometri polygon sebenarnya.
+  // Tidak menganggap polygon lain di dalam bbox sebagai risiko pada titik pengguna.
+  const delta = 0.03;
+  const bounds = [latitude - delta, longitude - delta, latitude + delta, longitude + delta].join(",");
   const token = getAuthToken();
 
   const results = await Promise.all(
     LOCAL_RISK_TABLES.map(async ({ key, label, table }) => {
       try {
-        const url =
-          `${API_URL}/api/layers/${table}/geojson` +
-          `?bounds=${encodeURIComponent(bounds)}&zoom=16`;
-
-        const response = await fetch(url, {
+        const url = `${API_URL}/api/layers/${table}/geojson?bounds=${encodeURIComponent(bounds)}&zoom=16`;
+        const response = await fetchWithTimeout(url, {
           headers: token
             ? { Authorization: `Bearer ${token}`, Accept: "application/json" }
             : { Accept: "application/json" },
-        });
-
+        }, 12000);
         const json = await response.json().catch(() => null);
-        if (!response.ok) {
-          throw new Error(json?.message || `HTTP ${response.status}`);
-        }
+        if (!response.ok) throw new Error(json?.message || `HTTP ${response.status}`);
 
-        const features = Array.isArray(json?.features) ? json.features : [];
-        const feature =
-          features.find((item: any) => item?.properties?.kelas) || features[0];
-        const kelas = feature?.properties?.kelas ?? null;
-        const normalizedClass = normalizeRiskLevel(kelas);
-        const score = riskScoreFromClass(normalizedClass);
+        const collection = Array.isArray(json?.features)
+          ? json
+          : Array.isArray(json?.geojson?.features)
+            ? json.geojson
+            : Array.isArray(json?.data?.features)
+              ? json.data
+              : null;
+        if (!collection) throw new Error("Respons bukan GeoJSON FeatureCollection yang valid");
+
+        const matchingFeatures = collection.features.filter((feature: any) =>
+          pointInRiskGeometry(longitude, latitude, feature?.geometry),
+        );
+        const classified = matchingFeatures
+          .map((feature: any) => ({ feature, className: getFeatureRiskClass(feature) }))
+          .filter((item: any) => item.className);
+        // Bila ada lebih dari satu poligon yang tumpang tindih, ambil kelas tertinggi
+        // agar status tidak menyatakan aman ketika ada risiko yang lebih tinggi.
+        const chosen = classified.sort((a: any, b: any) =>
+          Number(riskScoreFromClass(b.className) || 0) - Number(riskScoreFromClass(a.className) || 0),
+        )[0];
+        const className = chosen?.className || "";
+        const score = riskScoreFromClass(className);
+        const noPolygonAtPoint = matchingFeatures.length === 0;
 
         return {
           key,
           label,
           level: score,
-          status: normalizedClass || "",
-          class: normalizedClass || null,
+          status: className || (noPolygonAtPoint ? "Tidak ada poligon pada titik GPS" : "Kelas risiko tidak tersedia"),
+          class: className || null,
           source: `SIMITI PostgreSQL/PostGIS • ${table}`,
-          available: Boolean(feature && score != null),
+          available: Boolean(chosen && score != null),
+          inside: matchingFeatures.length > 0,
         } as RiskFactor;
       } catch (error) {
         console.warn(`Gagal membaca layer risiko lokal ${table}:`, error);
@@ -125,32 +179,31 @@ async function fetchLocalRiskFactors(latitude: number, longitude: number) {
           key,
           label,
           level: null,
-          status: "",
+          status: "Data belum tersedia",
           class: null,
           source: `SIMITI PostgreSQL/PostGIS • ${table}`,
           available: false,
+          inside: false,
         } as RiskFactor;
       }
     }),
   );
 
+  const available = results.filter((item) => item.available);
   const complete = results.every((item) => item.available);
-  const score = complete
-    ? results.reduce((total, item) => total + Number(item.level || 0), 0)
-    : null;
-
-  let status = null;
-  if (score != null) {
-    if (score <= 7) status = "Aman";
-    else if (score <= 10) status = "Siaga";
-    else if (score <= 13) status = "Waspada";
-    else status = "Bahaya";
-  }
+  const scores = available.map((item) => Number(item.level || 0));
+  const score = complete ? scores.reduce((total, item) => total + item, 0) : null;
+  const highestScore = scores.length ? Math.max(...scores) : null;
+  let status: string | null = null;
+  if (highestScore === 3) status = "Tidak Aman";
+  else if (!complete) status = "Data Belum Tersedia";
+  else if (highestScore === 2) status = "Waspada";
+  else if (complete && highestScore === 1) status = "Aman";
 
   return {
     success: true,
     source: "SIMITI PostgreSQL/PostGIS",
-    analysisType: "local-risk-tables",
+    analysisType: "local-risk-tables-point-in-polygon",
     risk: {
       status,
       score,
@@ -159,8 +212,7 @@ async function fetchLocalRiskFactors(latitude: number, longitude: number) {
       maximum: 15,
       complete,
       factors: results,
-      methodology:
-        "Membaca tabel risiko lokal melalui endpoint layer SIMITI seperti Kerawanan.tsx.",
+      methodology: "Status dihitung dari kelas risiko pada poligon yang benar-benar memuat koordinat GPS. Risiko Tinggi = Tidak Aman; Sedang = Waspada; Aman hanya jika semua lima layer memiliki kelas Rendah. Layer yang kosong/gagal dibaca tidak dianggap aman.",
     },
   } as BnpbLocationAssessment;
 }
@@ -244,6 +296,7 @@ type NearbyMitigation = {
   latitude: number;
   longitude: number;
   distanceMeters: number | null;
+  source?: string;
 };
 
 type NearbyIncident = {
@@ -434,7 +487,7 @@ function statusMeta(status?: string) {
    * API lama masih mungkin mengirim "Bahaya".
    * UI resmi SIMITI menggunakan "Rawan".
    */
-  if (value.includes("bahaya") || value.includes("rawan")) {
+  if (value.includes("tidak aman") || value.includes("bahaya") || value.includes("rawan")) {
     return {
       color: "text-red-300",
       bg: "bg-red-500/10",
@@ -513,14 +566,6 @@ function statusMeta(status?: string) {
     dot: "bg-slate-400",
     icon: "•",
   };
-}
-
-function getRiskPercent(level: number | null) {
-  if (level == null || !Number.isFinite(level)) {
-    return null;
-  }
-
-  return Math.min(100, Math.max(0, (level / 3) * 100));
 }
 
 function MapResize() {
@@ -730,24 +775,6 @@ function MitigationRoute({
   );
 }
 
-function RiskBar({ value }: { value: number | null }) {
-  const safeValue =
-    value == null || !Number.isFinite(value)
-      ? null
-      : Math.min(100, Math.max(0, value));
-
-  return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-      <div
-        className="h-full rounded-full bg-cyan-400 transition-all duration-500"
-        style={{
-          width: safeValue == null ? "0%" : `${safeValue}%`,
-        }}
-      />
-    </div>
-  );
-}
-
 function displayKey(key: string) {
   return String(key)
     .replace(/[\_-]+/g, " ")
@@ -794,36 +821,130 @@ function mitigationDistanceMeters(
   return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+
+/**
+ * Ambil infrastruktur mitigasi dari public.bendungan melalui endpoint
+ * GeoJSON layer SIMITI. Pemilihan lokasi dilakukan berdasarkan jarak dari
+ * koordinat GPS aktual, bukan nama wilayah yang di-hardcode.
+ */
+async function fetchBendunganMitigations(
+  latitude: number,
+  longitude: number,
+): Promise<NearbyMitigation[]> {
+  const delta = 1;
+  const bounds = [
+    latitude - delta,
+    longitude - delta,
+    latitude + delta,
+    longitude + delta,
+  ].join(",");
+  const token = getAuthToken();
+  const headers: HeadersInit = { Accept: "application/geo+json, application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetchWithTimeout(
+    `${API_URL}/api/layers/bendungan/geojson?bounds=${encodeURIComponent(bounds)}&zoom=10`,
+    { headers },
+    12000,
+  );
+  if (!response.ok) {
+    throw new Error(`Layer public.bendungan HTTP ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const featureCollection =
+    payload?.type === "FeatureCollection"
+      ? payload
+      : payload?.data?.type === "FeatureCollection"
+        ? payload.data
+        : payload?.geojson?.type === "FeatureCollection"
+          ? payload.geojson
+          : null;
+  const features = Array.isArray(featureCollection?.features)
+    ? featureCollection.features
+    : Array.isArray(payload?.features)
+      ? payload.features
+      : Array.isArray(payload?.data)
+        ? payload.data
+        : Array.isArray(payload?.rows)
+          ? payload.rows
+          : [];
+
+  return features
+    .map((feature: any) => {
+      const row = feature?.properties || feature || {};
+      const geometryCoordinates = feature?.geometry?.type === "Point"
+        ? feature.geometry.coordinates
+        : null;
+      const itemLat = Number(
+        row.latitude ?? row.lat ?? (Array.isArray(geometryCoordinates) ? geometryCoordinates[1] : NaN),
+      );
+      const itemLng = Number(
+        row.longitude ?? row.lon ?? row.lng ?? (Array.isArray(geometryCoordinates) ? geometryCoordinates[0] : NaN),
+      );
+
+      if (
+        !Number.isFinite(itemLat) ||
+        !Number.isFinite(itemLng) ||
+        itemLat < -90 || itemLat > 90 ||
+        itemLng < -180 || itemLng > 180
+      ) return null;
+
+      const distanceMeters = Math.round(
+        mitigationDistanceMeters(latitude, longitude, itemLat, itemLng),
+      );
+      const infraName = String(row.nama_infra || row.nama_kegiatan || row.nama || "Bendungan").trim();
+
+      return {
+        id: row.gid ?? row.id ?? row.objectid ?? row.kode ?? `${itemLat}-${itemLng}`,
+        kode: row.kode ?? row.nomor_regi ?? null,
+        nama_kegiatan: infraName,
+        jenis_kegiatan: row.teknis_typ || row.deskripsi_ || "Infrastruktur bendungan",
+        status: row.status_inf || row.status_pem || row.kondisi_ba || "Status belum tersedia",
+        instansi_pelaksana: row.pengelola || row.kode_balai || null,
+        provinsi: row.provinsi || row.prov_name || null,
+        kabupaten_kota: row.kota_kabup || row.kabkot_nam || null,
+        kecamatan: row.kecamatan || null,
+        desa_kelurahan: row.kelurahan || null,
+        latitude: itemLat,
+        longitude: itemLng,
+        distanceMeters,
+        source: "public.bendungan",
+      } as NearbyMitigation;
+    })
+    .filter((item: NearbyMitigation | null): item is NearbyMitigation => Boolean(item))
+    .sort((a: NearbyMitigation, b: NearbyMitigation) =>
+      Number(a.distanceMeters ?? Infinity) - Number(b.distanceMeters ?? Infinity),
+    )
+    .slice(0, 10);
+}
+
 async function fetchMitigationFallback(
   latitude: number,
   longitude: number,
 ): Promise<NearbyMitigation[]> {
-  const response = await fetchWithTimeout(
-    `${API_URL}/api/lokasi-kegiatan`,
-    {},
-    8000,
-  );
-
-  if (!response.ok) {
-    throw new Error(`Fallback lokasi kegiatan HTTP ${response.status}`);
+  let rows: any[] = [];
+  try {
+    const response = await fetchWithTimeout(`${API_URL}/api/lokasi-kegiatan`, {}, 8000);
+    if (response.ok) {
+      const json = await response.json();
+      rows = Array.isArray(json)
+        ? json
+        : Array.isArray(json?.data)
+          ? json.data
+          : Array.isArray(json?.rows)
+            ? json.rows
+            : [];
+    }
+  } catch (error) {
+    console.warn("Fallback lokasi kegiatan tidak tersedia:", error);
   }
 
-  const json = await response.json();
-  const rows = Array.isArray(json)
-    ? json
-    : Array.isArray(json?.data)
-      ? json.data
-      : Array.isArray(json?.rows)
-        ? json.rows
-        : [];
-
-  return rows
+  const activityMitigations = rows
     .map((row: any) => {
       const itemLat = Number(row.latitude);
       const itemLng = Number(row.longitude);
-
       if (!Number.isFinite(itemLat) || !Number.isFinite(itemLng)) return null;
-
       return {
         ...row,
         id: row.id ?? row.kode ?? `${itemLat}-${itemLng}`,
@@ -833,14 +954,31 @@ async function fetchMitigationFallback(
         distanceMeters: Math.round(
           mitigationDistanceMeters(latitude, longitude, itemLat, itemLng),
         ),
+        source: "lokasi_kegiatan",
       } as NearbyMitigation;
     })
-    .filter(Boolean)
+    .filter((item: NearbyMitigation | null): item is NearbyMitigation => Boolean(item));
+
+  let bendunganMitigations: NearbyMitigation[] = [];
+  try {
+    bendunganMitigations = await fetchBendunganMitigations(latitude, longitude);
+  } catch (error) {
+    console.warn("Fallback public.bendungan tidak tersedia:", error);
+  }
+
+  const seen = new Set<string>();
+  return [...activityMitigations, ...bendunganMitigations]
+    .filter((item) => {
+      const key = String(item.id ?? `${item.latitude},${item.longitude}`);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .sort(
       (a: NearbyMitigation, b: NearbyMitigation) =>
         Number(a.distanceMeters ?? Infinity) - Number(b.distanceMeters ?? Infinity),
     )
-    .slice(0, 5);
+    .slice(0, 10);
 }
 
 function mitigationAddress(item: NearbyMitigation) {
@@ -857,7 +995,11 @@ function mitigationAddress(item: NearbyMitigation) {
 function statusDescription(status?: string) {
   const value = String(status || "").toLowerCase();
 
-  if (value.includes("bahaya") || value.includes("rawan")) {
+  if (value.includes("belum tersedia") || value.includes("belum dapat ditentukan")) {
+    return "Data risiko pada koordinat ini belum cukup untuk menyatakan aman atau tidak aman.";
+  }
+
+  if (value.includes("tidak aman") || value.includes("bahaya") || value.includes("rawan")) {
     return "Kondisi risiko sangat tinggi. Diperlukan kewaspadaan dan tindakan mitigasi segera.";
   }
 
@@ -964,10 +1106,6 @@ export default function LokasiSaya() {
   >("idle");
 
   const [errorMessage, setErrorMessage] = useState("");
-
-  const [activePanel, setActivePanel] = useState<"risk" | "recommendation">(
-    "risk",
-  );
 
   const [mapZoom, setMapZoom] = useState(16);
 
@@ -1206,6 +1344,44 @@ export default function LokasiSaya() {
           }
         }
 
+        // Gabungkan data infrastruktur dari public.bendungan setiap kali
+        // GPS dianalisis, termasuk ketika endpoint proximity sudah memiliki
+        // lokasi kegiatan. Dedup berdasarkan ID atau koordinat, lalu urutkan
+        // berdasarkan jarak dari posisi pengguna.
+        try {
+          const bendunganMitigations = await fetchBendunganMitigations(lat, lng);
+          const existingMitigations = Array.isArray(nextProximity.mitigations)
+            ? nextProximity.mitigations
+            : [];
+          const combined = [...existingMitigations, ...bendunganMitigations];
+          const seen = new Set<string>();
+          const unique = combined
+            .filter((item) => {
+              const key = String(item.id ?? `${item.latitude},${item.longitude}`);
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            })
+            .sort((a, b) =>
+              Number(a.distanceMeters ?? Infinity) - Number(b.distanceMeters ?? Infinity),
+            )
+            .slice(0, 10);
+
+          nextProximity = {
+            ...nextProximity,
+            source: `${nextProximity.source || "SIMITI"} + public.bendungan`,
+            mitigations: unique,
+            summary: {
+              ...(nextProximity.summary || {}),
+              mitigationCount: unique.length,
+              nearestMitigationDistanceMeters: unique[0]?.distanceMeters ?? null,
+            },
+          };
+        } catch (bendunganError) {
+          // Jangan menggagalkan halaman bila endpoint layer bendungan belum tersedia.
+          console.warn("LokasiSaya: data public.bendungan gagal dimuat:", bendunganError);
+        }
+
         setProximity(nextProximity);
         setProximityState("ready");
       } catch {
@@ -1433,13 +1609,13 @@ export default function LokasiSaya() {
 
     const score = complete ? partialScore : null;
 
+    const availableScores = items.filter((item) => item.available).map((item) => Number(item.score));
+    const highestScore = availableScores.length ? Math.max(...availableScores) : null;
     let status: string | null = null;
-    if (score != null) {
-      if (score <= 7) status = "Aman";
-      else if (score <= 10) status = "Siaga";
-      else if (score <= 13) status = "Waspada";
-      else status = "Bahaya";
-    }
+    if (highestScore === 3) status = "Tidak Aman";
+    else if (!complete) status = "Data Belum Tersedia";
+    else if (highestScore === 2) status = "Waspada";
+    else if (complete && highestScore === 1) status = "Aman";
 
     return {
       complete,
@@ -1470,10 +1646,7 @@ export default function LokasiSaya() {
    */
   // Status akhir hanya ditentukan jika seluruh 5 parameter risiko tersedia.
   // API Risk Index tetap menjadi metrik terpisah dan tidak menentukan status ini.
-  const overall =
-    myLokasiRisk.complete
-      ? (myLokasiRisk.status || "")
-      : "";
+  const overall = myLokasiRisk.status || "Data Belum Tersedia";
 
   const meta = statusMeta(overall);
 
@@ -1757,7 +1930,7 @@ export default function LokasiSaya() {
                 <div className="text-sm font-semibold">Status Risiko</div>
 
                 <span className="rounded-full border border-slate-700 px-2 py-1 text-[10px] text-slate-400">
-                  {assessment?.risk?.scale || "API"}
+                  {"SIMITI PostGIS"}
                 </span>
               </div>
 
@@ -1788,73 +1961,31 @@ export default function LokasiSaya() {
 
             <div className="rounded-2xl border border-slate-800 bg-[#08172a] p-4 shadow-xl">
               <div className="mb-3 flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-semibold">
-                    Analisis Ancaman BNPB
-                  </div>
-                  <div className="mt-1 text-[10px] text-slate-500">
-                    Nilai dan klasifikasi dibaca langsung dari layer BNPB yang
-                    aktif.
-                  </div>
-                </div>
-                <span className="rounded-full border border-slate-700 px-2 py-1 text-[9px] text-slate-500">
-                  SUMBER BNPB
-                </span>
+                <div className="text-sm font-semibold">Status per Jenis Risiko</div>
+                <span className="rounded-full border border-slate-700 px-2 py-1 text-[9px] text-slate-400">SIMITI PostGIS</span>
               </div>
-
-              <div className="mt-3 space-y-1.5">
-                {myLokasiRisk.items.map((item) => (
-                  <div
-                    key={item.parameter}
-                    className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/20 px-2.5 py-2"
-                  >
-                    <span className="text-[10px] text-slate-400">
-                      {item.parameter}
-                    </span>
-                    <span className="text-[10px] font-bold text-slate-200">
-                      <span className="flex items-center gap-2">
-                        <span>{item.level || "Belum tersedia"}</span>
-                        <span className="rounded-md bg-slate-800 px-1.5 py-0.5 text-[9px] font-black text-cyan-200">
-                          {item.score != null ? item.score : "—"}
-                        </span>
+              <div className="space-y-1.5">
+                {myLokasiRisk.items.map((item) => {
+                  const itemStatus = item.available ? String(item.level || "") : "Data Belum Tersedia";
+                  const itemMeta = statusMeta(itemStatus);
+                  const displayLevel = item.available ? String(item.level || "") : "Belum tersedia";
+                  return (
+                    <div key={item.parameter} className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/20 px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-medium text-slate-200">{item.parameter}</div>
+                        <div className="mt-0.5 truncate text-[9px] text-slate-500">{item.factor?.source || "SIMITI PostgreSQL/PostGIS"}</div>
+                      </div>
+                      <span className={`shrink-0 rounded-md border px-2 py-1 text-[10px] font-bold ${itemMeta.border} ${itemMeta.bg} ${itemMeta.color}`}>
+                        {displayLevel}
                       </span>
-                    </span>
-                  </div>
-                ))}
-                {!myLokasiRisk.items.length && (
-                  <div className="rounded-lg border border-dashed border-slate-700 p-3 text-center text-[10px] text-slate-500">
-                    Menunggu data ancaman BNPB…
-                  </div>
-                )}
+                    </div>
+                  );
+                })}
               </div>
-
-              <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/30 p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-slate-500">
-                    Skor MY Lokasi
-                  </span>
-                  <span className="text-sm font-black text-slate-100">
-                    {myLokasiRisk.partialScore == null
-                      ? "Belum ada data"
-                      : `${myLokasiRisk.partialScore} / ${myLokasiRisk.maximum}`}
-                  </span>
-                </div>
-                {myLokasiRisk.status && (
-                  <div
-                    className={`mt-1 text-[10px] font-bold ${statusMeta(myLokasiRisk.status).color}`}
-                  >
-                    {myLokasiRisk.status}
-                  </div>
-                )}
+              <div className="mt-3 text-[10px] leading-4 text-slate-500">
+                Status dihitung dari poligon yang mencakup titik GPS. Jika layer atau kelas risiko tidak tersedia, sistem tidak akan menganggap lokasi aman.
               </div>
-
-              {myLokasiRisk.missing.length > 0 && (
-                <div className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2 text-[9px] leading-4 text-amber-200">
-                  Layer BNPB belum tersedia: {myLokasiRisk.missing.join(", ")}
-                </div>
-              )}
             </div>
-
           </aside>
         </section>
         <section className="grid grid-cols-1 gap-4">
@@ -2090,62 +2221,7 @@ export default function LokasiSaya() {
           </div>
         </section>
 
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1fr_0.9fr]">
-          <div className="rounded-2xl border border-slate-800 bg-[#08172a] p-4 shadow-xl">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-[.16em] text-red-300">
-                  Spatial threat proximity
-                </div>
-                <div className="mt-1 text-sm font-semibold">
-                  Ancaman di Sekitar Lokasi
-                </div>
-              </div>
-              <span className="text-[10px] text-slate-500">
-                {proximityState.toUpperCase()}
-              </span>
-            </div>
-            <div className="space-y-2">
-              {nearbyThreats.map((item) => {
-                const tm = statusMeta(item.status || "");
-                return (
-                  <div
-                    key={item.key}
-                    className="rounded-xl border border-slate-800 bg-slate-950/20 p-3"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-xs font-semibold">
-                          {item.label}
-                        </div>
-                        <div className="mt-1 text-[10px] text-slate-500">
-                          {item.source || "Risk layer PostGIS"}
-                        </div>
-                      </div>
-                      <span
-                        className={`rounded-md px-2 py-1 text-[10px] font-bold ${tm.bg} ${tm.color}`}
-                      >
-                        {item.status || "—"}
-                      </span>
-                    </div>
-                    <div className="mt-2 text-sm font-black text-slate-200">
-                      {item.inside
-                        ? "DI AREA RISIKO"
-                        : formatDistance(item.distanceMeters)}
-                    </div>
-                  </div>
-                );
-              })}
-              {!nearbyThreats.length && (
-                <div className="rounded-xl border border-dashed border-slate-700 p-5 text-center text-xs text-slate-500">
-                  {proximityState === "loading"
-                    ? "Menganalisis kedekatan ancaman…"
-                    : "Tidak ada data ancaman terdekat yang dapat dipetakan."}
-                </div>
-              )}
-            </div>
-          </div>
-
+        <section className="grid grid-cols-1 gap-4">
           <div className="overflow-hidden rounded-2xl border border-emerald-500/20 bg-[#08172a] shadow-xl shadow-emerald-950/10">
             <div className="border-b border-slate-800/80 px-4 py-3.5">
               <div className="flex items-start justify-between gap-3">
@@ -2354,113 +2430,56 @@ export default function LokasiSaya() {
         )}
 
         <section className="rounded-2xl border border-slate-800 bg-[#08172a] p-4 shadow-xl">
-          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="text-[10px] font-bold uppercase tracking-[.16em] text-cyan-300">
                 Enterprise decision support
               </div>
-
-              <div className="mt-1 text-sm font-semibold">
-                Risk & Recommendation
+              <div className="mt-1 text-sm font-semibold text-slate-100">
+                Rekomendasi Mitigasi
               </div>
+              <p className="mt-1 max-w-3xl text-[11px] leading-5 text-slate-400">
+                Rekomendasi berdasarkan lokasi dan hasil analisis yang tersedia dari sistem.
+              </p>
             </div>
-
-            <div className="flex rounded-lg border border-slate-800 bg-slate-950/30 p-1">
-              <button
-                onClick={() => setActivePanel("risk")}
-                className={`rounded-md px-3 py-1.5 text-[10px] font-semibold ${
-                  activePanel === "risk"
-                    ? "bg-cyan-400/10 text-cyan-200"
-                    : "text-slate-500"
-                }`}
-              >
-                Risk
-              </button>
-
-              <button
-                onClick={() => setActivePanel("recommendation")}
-                className={`rounded-md px-3 py-1.5 text-[10px] font-semibold ${
-                  activePanel === "recommendation"
-                    ? "bg-cyan-400/10 text-cyan-200"
-                    : "text-slate-500"
-                }`}
-              >
-                Recommendation
-              </button>
-            </div>
+            <span className="w-fit rounded-full border border-slate-700 px-2.5 py-1 text-[10px] text-slate-400">
+              {position ? "Lokasi terdeteksi" : "Menunggu GPS"}
+            </span>
           </div>
 
-          {activePanel === "risk" ? (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-              {factors.map((factor) => (
-                <div
-                  key={factor.key}
-                  className="rounded-xl border border-slate-800 bg-slate-950/20 p-3"
-                >
-                  <div className="text-[10px] text-slate-500">
-                    {factor.label || factor.key}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {recommendations.map((item, idx) => (
+              <div
+                key={`${item.title}-${idx}`}
+                className="min-w-0 rounded-xl border border-slate-800 bg-slate-950/20 p-4"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-400/10 text-emerald-300">
+                    ✓
                   </div>
-
-                  <div className="mt-2 text-sm font-bold">
-                    {factor.class || factor.status || "—"}
-                  </div>
-
-                  <div className="mt-2">
-                    <RiskBar value={getRiskPercent(factor.level)} />
-                  </div>
-
-                  {factor.source && (
-                    <div className="mt-2 text-[9px] text-slate-600">
-                      {factor.source}
-                    </div>
-                  )}
-                </div>
-              ))}
-
-              {!factors.length && (
-                <div className="rounded-xl border border-dashed border-slate-700 p-6 text-center text-xs text-slate-500 md:col-span-2 xl:col-span-4">
-                  Tidak ada detail risiko dari API.
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {recommendations.map((item, idx) => (
-                <div
-                  key={`${item.title}-${idx}`}
-                  className="rounded-xl border border-slate-800 bg-slate-950/20 p-4"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-400/10 text-emerald-300">
-                      ✓
-                    </div>
-
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="text-sm font-semibold">
-                          {item.title}
-                        </div>
-
-                        <span className="rounded-md bg-amber-400/10 px-2 py-1 text-[9px] font-bold text-amber-300">
-                          {item.priority || "—"}
-                        </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-sm font-semibold text-slate-100">
+                        {item.title}
                       </div>
-
-                      <p className="mt-1 text-xs leading-5 text-slate-400">
-                        {item.detail}
-                      </p>
+                      <span className="rounded-md bg-amber-400/10 px-2 py-1 text-[9px] font-bold text-amber-300">
+                        {item.priority || "—"}
+                      </span>
                     </div>
+                    <p className="mt-1 text-xs leading-5 text-slate-400">
+                      {item.detail}
+                    </p>
                   </div>
                 </div>
-              ))}
+              </div>
+            ))}
 
-              {!recommendations.length && (
-                <div className="rounded-xl border border-dashed border-slate-700 p-6 text-center text-xs text-slate-500 md:col-span-2">
-                  Tidak ada rekomendasi yang dikembalikan API untuk titik ini.
-                </div>
-              )}
-            </div>
-          )}
+            {!recommendations.length && (
+              <div className="rounded-xl border border-dashed border-slate-700 p-6 text-center text-xs text-slate-500 md:col-span-2">
+                Belum ada rekomendasi untuk lokasi ini. Pastikan GPS aktif dan layanan analisis tersedia.
+              </div>
+            )}
+          </div>
         </section>
 
         <footer className="flex flex-col gap-1 border-t border-slate-800/80 pt-3 text-[10px] text-slate-500 md:flex-row md:items-center md:justify-between">
