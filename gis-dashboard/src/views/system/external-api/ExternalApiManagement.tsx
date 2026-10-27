@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { API_URL } from "../../../api";
 
 const ROOT = String(API_URL).replace(/\/+$/, "");
@@ -31,6 +31,8 @@ type AppRow = {
   contact_name: string;
   email: string;
   purpose: string;
+  website?: string | null;
+  environment?: string;
   requested_scopes: string[];
   approved_scopes: string[];
   status: string;
@@ -291,7 +293,35 @@ export default function ExternalApiManagement() {
             <thead><tr>{["Mitra / Organisasi", "Kontak", "Scope diminta", "Status", "Tanggal", "Tindakan"].map(x => <th style={styles.th} key={x}>{x}</th>)}</tr></thead>
             <tbody>
               {applications.map(app => <tr key={app.id}>
-                <td style={styles.td}><strong>{app.application_name}</strong><div>{app.organization_name || "-"}</div><small>ID: {app.id}</small><div style={{ color: "#667085", marginTop: 5 }}>{app.purpose}</div></td>
+                <td style={styles.td}>
+                  <strong>{app.application_name}</strong>
+                  <div>{app.organization_name || "-"}</div>
+                  {app.website && (
+                    <div style={{ marginTop: 5, overflowWrap: "anywhere" }}>
+                      <a
+                        href={app.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: "#0f766e", textDecoration: "underline" }}
+                      >
+                        {app.website}
+                      </a>
+                    </div>
+                  )}
+                  <div style={{ marginTop: 5, color: "#667085" }}>
+                    Lingkungan: <strong style={{ color: "#344054" }}>
+                      {app.environment === "production"
+                        ? "Produksi"
+                        : app.environment === "staging"
+                          ? "Staging / UAT"
+                          : app.environment === "development"
+                            ? "Development"
+                            : app.environment || "Belum ditentukan"}
+                    </strong>
+                  </div>
+                  <small>ID: {app.id}</small>
+                  <div style={{ color: "#667085", marginTop: 5 }}>{app.purpose}</div>
+                </td>
                 <td style={styles.td}>{app.contact_name || "-"}<div>{app.email || "-"}</div></td>
                 <td style={styles.td}>{scopesText(app.requested_scopes)}</td>
                 <td style={styles.td}><strong>{app.status}</strong>{app.review_note && <div style={{ color: "#667085" }}>{app.review_note}</div>}</td>

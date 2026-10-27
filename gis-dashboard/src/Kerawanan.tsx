@@ -4501,6 +4501,49 @@ const Kerawanan = () => {
         ? `&dasFilter=${encodeURIComponent(JSON.stringify(dasFilter))}`
         : "";
 
+      // Filter administrasi mengikuti wilayah yang dipilih pengguna.
+      // Bounds tetap dipakai sebagai batas spasial tambahan.
+      let adminFilterParam = "";
+
+      if (selectedAreas.length > 0 && selectedDas.length === 0) {
+        const levelOrder: Record<string, number> = {
+          provinsi: 1,
+          kabupaten: 2,
+          kecamatan: 3,
+          kelurahan: 4,
+        };
+
+        const selectedLevel = selectedAreas.reduce((deepest, area) =>
+          (levelOrder[area.level] ?? 0) > (levelOrder[deepest.level] ?? 0)
+            ? area
+            : deepest,
+        ).level;
+
+        const adminNames = selectedAreas
+          .filter((area: any) => area.level === selectedLevel)
+          .map((area: any) => {
+            switch (area.level) {
+              case "provinsi":
+                return area.provinsi || area.label || "";
+              case "kabupaten":
+                return area.kab_kota || area.label || "";
+              case "kecamatan":
+                return area.kecamatan || area.label || "";
+              case "kelurahan":
+                return area.kel_desa || area.label || "";
+              default:
+                return area.label || "";
+            }
+          })
+          .filter(Boolean);
+
+        if (adminNames.length > 0) {
+          adminFilterParam =
+            `&adminFilter=${encodeURIComponent(JSON.stringify(adminNames))}` +
+            `&adminLevel=${encodeURIComponent(selectedLevel)}`;
+        }
+      }
+
       const allListings: any[] = [];
 
       for (const layerName of activeKejadianLayerNames) {
@@ -4517,7 +4560,7 @@ const Kerawanan = () => {
         );
 
         const response = await fetch(
-          `${API_URL}/api/kejadian/by-year/${metadata.year}?bounds=${boundsString}${dasFilterParam}${categoryParam}`,
+          `${API_URL}/api/kejadian/by-year/${metadata.year}?bounds=${boundsString}${dasFilterParam}${adminFilterParam}${categoryParam}`,
         );
 
         if (!response.ok) {
@@ -6981,7 +7024,7 @@ const Kerawanan = () => {
       setKejadianPhotos([]);
       setKejadianListings([]);
     }
-  }, [activeLayers, activeKejadianLayers, currentBounds, selectedDas]);
+  }, [activeLayers, activeKejadianLayers, currentBounds, selectedDas, selectedAreas]);
 
   const [activeTab, setActiveTab] = useState("administrasi");
   const [activeBottomTab, setActiveBottomTab] = useState("curahHujan");
@@ -12072,6 +12115,14 @@ const Kerawanan = () => {
       : [];
     const originalTitleDisplay = titleOverlay?.style.display || "";
     const originalControlDisplays = controls.map((el) => el.style.display);
+    // Simpan posisi peta agar PDF bisa memusatkan wilayah terpilih,
+    // lalu kembalikan tampilan peta seperti semula setelah export.
+    const originalMapCenter =
+      typeof (map as any).getCenter === "function"
+        ? (map as any).getCenter()
+        : null;
+    const originalMapZoom =
+      typeof (map as any).getZoom === "function" ? (map as any).getZoom() : null;
 
     try {
       const button = document.activeElement as HTMLButtonElement | null;
@@ -12082,10 +12133,54 @@ const Kerawanan = () => {
       // Export memakai viewport yang sedang terlihat. Jangan memanggil fitBounds,
       // panBy, invalidateSize, atau operasi animasi: ini memicu render ulang path
       // Leaflet dan dapat menjatuhkan renderer bila ada layer legacy yang korup.
+      // Pusatkan wilayah terpilih hanya jika Leaflet benar-benar menerima
+      // bounds tersebut. Jika bounds dari API/state tidak cocok dengan format
+      // Leaflet, jangan gagalkan proses PDF: gunakan viewport yang sedang tampil.
       const exportBounds = isValidMapBounds(currentBounds);
-      if (!exportBounds) {
+      if (
+        exportBounds &&
+        typeof (map as any).fitBounds === "function" &&
+        typeof (map as any).getBounds === "function"
+      ) {
+        try {
+          const L = (window as any).L;
+          const boundsForExport =
+            typeof L?.latLngBounds === "function"
+              ? L.latLngBounds(exportBounds)
+              : null;
+
+          if (
+            boundsForExport &&
+            typeof boundsForExport.isValid === "function" &&
+            boundsForExport.isValid()
+          ) {
+            (map as any).fitBounds(boundsForExport, {
+              padding: [36, 36],
+              animate: false,
+              duration: 0,
+              maxZoom: Math.max(
+                5,
+                Number.isFinite(Number(originalMapZoom))
+                  ? Number(originalMapZoom)
+                  : 7,
+              ),
+            });
+            await new Promise((resolve) => window.setTimeout(resolve, 250));
+          } else {
+            console.warn(
+              "SIMITI: bounds export tidak valid untuk Leaflet; memakai viewport saat ini.",
+            );
+          }
+        } catch (boundsError) {
+          // Bounds tidak valid tidak boleh membatalkan download PDF.
+          console.warn(
+            "SIMITI: gagal memusatkan bounds saat export; memakai viewport saat ini.",
+            boundsError,
+          );
+        }
+      } else {
         console.warn(
-          "SIMITI: bounds filter tidak valid; snapshot memakai viewport saat ini tanpa menggerakkan peta.",
+          "SIMITI: bounds filter tidak valid; snapshot memakai viewport saat ini.",
         );
       }
 
@@ -12291,6 +12386,21 @@ const Kerawanan = () => {
           "Gagal membuat PDF. Pastikan peta sudah selesai dimuat dan koneksi internet tersedia.",
       );
     } finally {
+      // Kembalikan viewport asli setelah snapshot agar posisi peta di halaman
+      // tidak berubah akibat proses download.
+      if (
+        originalMapCenter &&
+        originalMapZoom !== null &&
+        typeof (map as any).setView === "function"
+      ) {
+        try {
+          (map as any).setView(originalMapCenter, originalMapZoom, {
+            animate: false,
+          });
+        } catch (restoreMapError) {
+          console.warn("SIMITI: posisi peta awal tidak dapat dipulihkan:", restoreMapError);
+        }
+      }
       if (titleOverlay) titleOverlay.style.display = originalTitleDisplay;
       controls.forEach((el, index) => {
         el.style.display = originalControlDisplays[index] || "";
@@ -14096,6 +14206,63 @@ const Kerawanan = () => {
           }
         }
 
+
+        /* SIMITI layout fix — panel layer memanjang, analytics bawah diringkas.
+           Hanya mengatur tampilan; tidak menyentuh state, API, atau logika GIS. */
+        @media (min-width: 1280px) {
+          .kerawanan-workspace.bottom-summary-open {
+            grid-template-rows: minmax(0, 1fr) 120px !important;
+            row-gap: 6px !important;
+          }
+          .kerawanan-workspace.bottom-summary-open > .kerawanan-layer-panel {
+            position: absolute !important;
+            top: 12px !important;
+            right: 12px !important;
+            bottom: 12px !important;
+            width: 350px !important;
+            min-width: 350px !important;
+            max-width: 350px !important;
+            height: auto !important;
+            max-height: none !important;
+            z-index: 1300 !important;
+          }
+          .kerawanan-workspace.bottom-summary-open > .kerawanan-bottom-summary {
+            height: 120px !important;
+            min-height: 120px !important;
+            max-height: 120px !important;
+            grid-row: 2 !important;
+            overflow: hidden !important;
+          }
+          .kerawanan-bottom-summary > * {
+            min-height: 0 !important;
+            height: 100% !important;
+            max-height: none !important;
+          }
+          .kerawanan-bottom-summary > * > div {
+            padding-top: 8px !important;
+            padding-bottom: 6px !important;
+          }
+        }
+        @media (min-width: 768px) and (max-width: 1279px) {
+          .kerawanan-workspace.bottom-summary-open {
+            grid-template-rows: minmax(360px, 1fr) 140px !important;
+          }
+          .kerawanan-workspace.bottom-summary-open > .kerawanan-bottom-summary {
+            height: 140px !important;
+            min-height: 140px !important;
+            max-height: 140px !important;
+          }
+        }
+        @media (max-width: 767px) {
+          .kerawanan-workspace.bottom-summary-open {
+            grid-template-rows: minmax(320px, 58dvh) auto !important;
+          }
+          .kerawanan-workspace.bottom-summary-open > .kerawanan-bottom-summary {
+            max-height: 280px !important;
+            overflow-y: auto !important;
+          }
+        }
+
         `}</style>
 
       {/* =========================================================
@@ -14900,6 +15067,40 @@ const Kerawanan = () => {
                       </span>
                     </div>
                   </div>
+
+                  {(() => {
+                    const counts = kejadianListings.reduce((acc: Record<string, number>, item: any) => {
+                      const category = String(item.category || "Lainnya").trim() || "Lainnya";
+                      acc[category] = (acc[category] || 0) + 1;
+                      return acc;
+                    }, {});
+                    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+                    const colors = ["#0D9488", "#2563EB", "#F59E0B", "#DC2626", "#7C3AED", "#64748B", "#16A34A"];
+                    let cursor = 0;
+                    const total = kejadianListings.length;
+                    const gradient = entries.length ? entries.map(([label, value], index) => {
+                      const start = cursor;
+                      cursor += total ? (Number(value) / total) * 100 : 0;
+                      return `${colors[index % colors.length]} ${start}% ${cursor}%`;
+                    }).join(", ") : "#E2E8F0 0% 100%";
+                    return (
+                      <div className="my-2 flex items-center gap-3 rounded-lg border border-slate-100 bg-slate-50/80 p-2">
+                        <div className="h-14 w-14 shrink-0 rounded-full ring-1 ring-white shadow-sm" role="img" aria-label={`Grafik pie kategori kejadian, total ${total} data`} style={{ background: `conic-gradient(${gradient})` }} />
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-1 text-[8px] font-extrabold uppercase tracking-wide text-slate-600">Komposisi kejadian</div>
+                          {entries.length ? <div className="flex flex-wrap gap-x-2 gap-y-1">
+                            {entries.slice(0, 6).map(([label, value], index) => (
+                              <span key={label} className="inline-flex items-center gap-1 text-[8px] text-slate-600">
+                                <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: colors[index % colors.length] }} />
+                                <span className="max-w-[90px] truncate">{label}</span>
+                                <strong className="tabular-nums">{value}</strong>
+                              </span>
+                            ))}
+                          </div> : <div className="text-[8px] text-slate-400">Belum ada data untuk wilayah/filter aktif.</div>}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   <div className="min-h-0 flex-1 overflow-y-auto pr-1 dashboard-scroll">
                     {kejadianListings.length > 0 ? (

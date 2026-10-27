@@ -11,6 +11,10 @@ CREATE TABLE IF NOT EXISTS external_api_applications (
   contact_name VARCHAR(150) NOT NULL,
   email VARCHAR(254) NOT NULL,
   purpose TEXT NOT NULL,
+  website TEXT,
+  environment VARCHAR(20) NOT NULL DEFAULT 'development'
+    CONSTRAINT external_api_applications_environment_check
+    CHECK (environment IN ('development', 'staging', 'production')),
   callback_url TEXT,
   requested_scopes TEXT[] NOT NULL,
   approved_scopes TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],

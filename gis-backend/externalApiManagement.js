@@ -248,6 +248,8 @@ function createExternalApiManagementRouter({ pool, adminOnly }) {
       const contactName = cleanText(req.body?.contactName, 150);
       const email = cleanText(req.body?.email, 254).toLowerCase();
       const purpose = cleanText(req.body?.purpose, 2000);
+      const website = cleanText(req.body?.website, 1000);
+      const environment = cleanText(req.body?.environment, 30).toLowerCase() || "development";
       const callbackUrl = cleanText(req.body?.callbackUrl, 1000);
       const requestedScopes = normalizeScopes(req.body?.requestedScopes);
 
@@ -256,6 +258,16 @@ function createExternalApiManagementRouter({ pool, adminOnly }) {
       }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         return res.status(400).json({ success: false, message: "Alamat email tidak valid." });
+      }
+      if (website) {
+        let parsedWebsite;
+        try { parsedWebsite = new URL(website); } catch { parsedWebsite = null; }
+        if (!parsedWebsite || !["http:", "https:"].includes(parsedWebsite.protocol) || !parsedWebsite.hostname) {
+          return res.status(400).json({ success: false, message: "Website organisasi harus berupa URL HTTP atau HTTPS yang valid." });
+        }
+      }
+      if (!["development", "staging", "production"].includes(environment)) {
+        return res.status(400).json({ success: false, message: "Lingkungan integrasi tidak valid." });
       }
       if (!requestedScopes) {
         return res.status(400).json({ success: false, message: "Scope kosong atau tidak dikenal.", allowedScopes: [...ALLOWED_SCOPES] });
@@ -270,10 +282,10 @@ function createExternalApiManagementRouter({ pool, adminOnly }) {
 
       const result = await pool.query(
         `INSERT INTO external_api_applications
-          (application_name, organization_name, contact_name, email, purpose, callback_url, requested_scopes, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'pending')
-         RETURNING id, application_name, organization_name, status, requested_at`,
-        [applicationName, organizationName, contactName, email, purpose, callbackUrl || null, requestedScopes],
+          (application_name, organization_name, contact_name, email, purpose, website, environment, callback_url, requested_scopes, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending')
+         RETURNING id, application_name, organization_name, website, environment, status, requested_at`,
+        [applicationName, organizationName, contactName, email, purpose, website || null, environment, callbackUrl || null, requestedScopes],
       );
       const application = result.rows[0];
       await audit(req, "application.submitted", "application", application.id, { requestedScopes });
@@ -298,7 +310,7 @@ function createExternalApiManagementRouter({ pool, adminOnly }) {
         where = "WHERE status = $1";
       }
       const result = await pool.query(
-        `SELECT id, application_name, organization_name, contact_name, email, purpose, callback_url,
+        `SELECT id, application_name, organization_name, contact_name, email, purpose, website, environment, callback_url,
                 requested_scopes, approved_scopes, status, requested_at, reviewed_at, reviewed_by, review_note
            FROM external_api_applications ${where} ORDER BY requested_at DESC LIMIT 500`, params,
       );

@@ -26,6 +26,7 @@ import EnterpriseLayout from "./components/layouts/EnterpriseLayout";
 
 import Login from "./views/auth/Login";
 import AuthGuard from "./components/auth/AuthGuard";
+import IntegrityDisclaimer from "./components/IntegrityDisclaimer";
 
 // ======================================================
 // REKOMENDASI AI
@@ -33,6 +34,7 @@ import AuthGuard from "./components/auth/AuthGuard";
 
 import AIRecommendationEnterprise from "./views/rekomendasi/AIRecommendationEnterprise";
 import ExternalApiManagement from "./views/system/external-api/ExternalApiManagement";
+import ExternalApiRegistration from "./views/system/external-api/ExternalApiRegistration";
 
 // ======================================================
 // DASHBOARD
@@ -110,6 +112,7 @@ createRoot(rootElement).render(
   <React.StrictMode>
     <BrowserRouter>
       <AccessTracker />
+      <IntegrityDisclaimer />
       <Routes>
         {/* ==================================================
             PUBLIC ROUTES
@@ -133,6 +136,7 @@ createRoot(rootElement).render(
             PROTECTED ENTERPRISE APPLICATION
         ================================================== */}
 
+        <Route path="/daftar-mitra-api" element={<ExternalApiRegistration />} />
         <Route element={<AuthGuard />}>
           <Route element={<EnterpriseLayout />}>
             {/* ==================================================

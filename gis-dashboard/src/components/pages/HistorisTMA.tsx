@@ -9,7 +9,6 @@ import {
 const API_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 const HISTORY_API =
   import.meta.env.VITE_TMA_HISTORY_API_URL || `${API_BASE}/api/tma/history`;
-const TMA_API = import.meta.env.VITE_TMA_API_URL || `${API_BASE}/api/tma`;
 
 type Point = {
   timestamp?: string;
@@ -28,112 +27,37 @@ type Point = {
   penurunan_tanah?: number;
   status?: string;
 };
-type Station = {
-  id: string;
-  code?: string;
-  name?: string;
-  station_name?: string;
-};
-
-function normalizeStations(payload: any): Station[] {
-  if (Array.isArray(payload)) {
-    return payload.map((raw: any, index: number) => {
-      const id = String(raw?.sensor_id ?? raw?.sensorId ?? raw?.id ?? raw?.code ?? index);
-      return {
-        id,
-        code: String(raw?.code ?? id),
-        name: String(raw?.idname ?? raw?.name ?? raw?.station_name ?? id),
-        station_name: String(raw?.station_name ?? raw?.idname ?? raw?.name ?? id),
-      };
-    });
-  }
-
-  if (payload?.data && typeof payload.data === "object") {
-    if (Array.isArray(payload.data)) return normalizeStations(payload.data);
-    return Object.entries(payload.data).map(([id, raw]: [string, any]) => ({
-      id: String(raw?.sensor_id ?? raw?.sensorId ?? id),
-      code: id,
-      name: String(raw?.idname ?? raw?.name ?? id),
-      station_name: String(raw?.idname ?? raw?.station_name ?? raw?.name ?? id),
-    }));
-  }
-
-  if (Array.isArray(payload?.items)) return normalizeStations(payload.items);
-  return [];
-}
 function valueOf(p: Point) {
   return Number(p.value ?? p.tma ?? p.water_level ?? 0);
 }
 
 
 export default function HistorisTMA() {
-  const [stations, setStations] = useState<Station[]>([]);
-  const [selected, setSelected] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");  const [points, setPoints] = useState<Point[]>([]);
+  const [points, setPoints] = useState<Point[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  useEffect(() => {
-    let active = true;
-    fetch(TMA_API)
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json();
-      })
-      .then((payload) => {
-        if (active) setStations(normalizeStations(payload));
-      })
-      .catch(() => {
-        if (active) setStations([]);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
   const load = useCallback(async () => {
-    if (Boolean(from) !== Boolean(to)) {
-      setError("Isi tanggal Mulai dan Sampai sekaligus, atau kosongkan keduanya.");
-      return;
-    }
-    if (from && to && from > to) {
-      setError("Tanggal Mulai tidak boleh melewati tanggal Sampai.");
-      return;
-    }
-
     setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams();
-      if (selected) params.set("sensor_id", selected);
-
-      if (from && to) {
-        params.set("from", from);
-        params.set("to", to);
-      } else {
-        params.set("range", "180d");
-      }
-
-      const response = await fetch(`${HISTORY_API}?${params.toString()}`);
-      if (!response.ok) {
+      // Tanpa filter stasiun/tanggal. Endpoint backend mendukung range=180d,
+      // yaitu rentang maksimum yang saat ini diizinkan oleh /api/tma/history.
+      const r = await fetch(`${HISTORY_API}?range=180d`);
+      if (!r.ok) {
         let detail = "";
         try {
-          const body = await response.json();
+          const body = await r.json();
           detail = body?.message || body?.error || "";
         } catch {}
         throw new Error(
-          detail ? `HTTP ${response.status}: ${detail}` : `HTTP ${response.status}`,
+          detail ? `HTTP ${r.status}: ${detail}` : `HTTP ${r.status}`,
         );
       }
-
-      const payload = await response.json();
-      const rows = Array.isArray(payload)
-        ? payload
-        : (payload?.data ?? payload?.items ?? []);
-
+      const p = await r.json();
+      const rows = Array.isArray(p) ? p : (p?.data ?? p?.items ?? []);
       if (!Array.isArray(rows)) {
         throw new Error("Format respons histori TMA dari API tidak dikenali.");
       }
@@ -143,7 +67,7 @@ export default function HistorisTMA() {
     } finally {
       setLoading(false);
     }
-  }, [selected, from, to]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -220,52 +144,17 @@ export default function HistorisTMA() {
           </div>
         </header>
 
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <label htmlFor="tma-station" className="text-xs font-bold uppercase tracking-wide text-slate-500">Sensor / Stasiun</label>
-            <select id="tma-station" value={selected}
-              onChange={(event) => setSelected(event.target.value)}
-              className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-slate-400">
-              <option value="">Semua sensor</option>
-              {stations.map((station) => (
-                <option key={station.id} value={station.id}>
-                  {station.station_name || station.name || station.code || station.id}
-                </option>
-              ))}
-            </select>
-          </div>
-          <DateInput label="Mulai" value={from} onChange={setFrom} />
-          <DateInput label="Sampai" value={to} onChange={setTo} />
+        <section className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Total Observasi</div>
-            <div className="mt-2 text-3xl font-bold text-slate-900">{points.length.toLocaleString("id-ID")}</div>
-            <div className="mt-1 text-xs text-slate-500">{from && to ? `${from} – ${to}` : "Rentang 180 hari"}</div>
+            <div className="mt-1 text-3xl font-bold text-slate-900">{points.length.toLocaleString("id-ID")}</div>
+            <div className="mt-1 text-xs text-slate-500">Seluruh data histori yang tersedia dalam rentang API</div>
           </div>
-        </section>
-
-        <section className="grid gap-4 sm:grid-cols-3">
-          {(() => {
-            const values = points
-              .map((point) => Number(point.value ?? point.tma ?? point.water_level))
-              .filter(Number.isFinite);
-            const min = values.length ? Math.min(...values) : null;
-            const max = values.length ? Math.max(...values) : null;
-            const avg = values.length
-              ? values.reduce((sum, value) => sum + value, 0) / values.length
-              : null;
-            return [
-              { label: "Minimum TMA", value: min },
-              { label: "Maksimum TMA", value: max },
-              { label: "Rata-rata TMA", value: avg },
-            ].map((item) => (
-              <div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">{item.label}</div>
-                <div className="mt-2 text-2xl font-bold text-slate-900">
-                  {item.value == null ? "—" : `${item.value.toFixed(2)} cm`}
-                </div>
-              </div>
-            ));
-          })()}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Rentang Data</div>
+            <div className="mt-1 text-xl font-bold text-slate-900">180 hari terakhir</div>
+            <div className="mt-1 text-xs text-slate-500">Tanpa filter tanggal maupun stasiun</div>
+          </div>
         </section>
 
         {error && (
@@ -452,24 +341,3 @@ export default function HistorisTMA() {
   );
 }
 
-function DateInput({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <label className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</label>
-      <input
-        type="date"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-2 w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
-      />
-    </div>
-  );
-}

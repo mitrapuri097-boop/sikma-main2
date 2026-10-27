@@ -1999,7 +1999,7 @@ export default function LokasiSaya() {
                 </div>
 
                 {weatherItems.length ? (
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                     {weatherItems.map((item) => (
                       <div
                         key={item.key}
@@ -2082,70 +2082,7 @@ export default function LokasiSaya() {
         </section>
 
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_.8fr]">
-          <div className="rounded-2xl border border-slate-800 bg-[#08172a] p-4 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-[.16em] text-red-300">
-                  BNPB InaRISK • GPS Identify
-                </div>
-                <div className="mt-1 text-sm font-semibold">
-                  Bencana di Lokasi Saya
-                </div>
-              </div>
-              <span className="text-[10px] text-slate-500">
-                {bnpbState.toUpperCase()}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              {(bnpbLocation?.layers || []).map((layer) => {
-                const layerMeta = statusMeta(layer.class || "");
-                return (
-                  <div
-                    key={layer.key}
-                    className={`rounded-xl border ${layer.inside ? layerMeta.border : "border-slate-800"} ${
-                      layer.inside ? layerMeta.bg : "bg-slate-950/20"
-                    } p-3`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-xs font-semibold">
-                          {layer.label}
-                        </div>
-                        <div className="mt-1 text-[9px] text-slate-500">
-                          BNPB • {layer.category}
-                        </div>
-                      </div>
-                      <span
-                        className={`rounded-md px-2 py-1 text-[9px] font-bold ${
-                          layer.inside
-                            ? `${layerMeta.bg} ${layerMeta.color}`
-                            : "bg-emerald-400/10 text-emerald-300"
-                        }`}
-                      >
-                        {layer.inside
-                          ? layer.class || "TERPETAKAN"
-                          : "TIDAK TERPETAKAN"}
-                      </span>
-                    </div>
-                    {layer.error && (
-                      <div className="mt-2 text-[9px] text-amber-300">
-                        Layer tidak dapat di-query.
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-
-              {!bnpbLocation?.layers?.length && (
-                <div className="rounded-xl border border-dashed border-slate-700 p-5 text-center text-xs text-slate-500 md:col-span-2">
-                  {bnpbState === "loading"
-                    ? "Mengidentifikasi lokasi terhadap layer BNPB…"
-                    : "Belum ada hasil identifikasi BNPB."}
-                </div>
-              )}
-            </div>
-          </div>
+          
 
           <div className="rounded-2xl border border-cyan-500/20 bg-[#08172a] p-4 shadow-xl">
             <div className="text-[10px] font-bold uppercase tracking-[.16em] text-cyan-300">
