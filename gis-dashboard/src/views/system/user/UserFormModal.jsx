@@ -26,6 +26,16 @@ import {
 
 const API_URL =
   import.meta.env.VITE_API_URL || "https://demo.datasolusindo.com";
+const getAuthHeaders = () => {
+  const token =
+    localStorage.getItem("smiti_token") ||
+    sessionStorage.getItem("smiti_token");
+
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+};
 
 const initialForm = {
   username: "",
@@ -78,9 +88,7 @@ const UserFormModal = ({ show, onClose, onSuccess }) => {
         `${API_URL}/api/roles?status=active&limit=1000`,
         {
           method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: getAuthHeaders(),
         },
       );
 
@@ -240,9 +248,7 @@ const UserFormModal = ({ show, onClose, onSuccess }) => {
       const response = await fetch(`${API_URL}/api/users`, {
         method: "POST",
 
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: getAuthHeaders(),
 
         body: JSON.stringify({
           username: form.username.trim(),
