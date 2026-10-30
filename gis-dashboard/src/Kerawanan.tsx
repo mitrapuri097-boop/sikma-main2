@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+﻿import React, { useState, useEffect, useRef } from "react";
 import {
   area as turfArea,
   bbox as turfBbox,
@@ -413,6 +413,7 @@ const Kerawanan = () => {
     layer: any;
     originalColor?: string;
   } | null>(null);
+  const selectedSpatialFeatureClipListenersRef = useRef<any[]>([]);
 
   // Legenda layer: awalnya hanya nama layer yang tampil.
   // Klik nama layer untuk membuka/menutup kelas + warna legend.
@@ -1477,6 +1478,26 @@ const Kerawanan = () => {
   // bencana. Ini mencegah warna/geometri bencana bocor ke daerah
   // tetangga ketika area administrasi dipilih.
   // ======================================================
+  // Ambil hanya level administrasi terdalam yang dipilih.
+  // Contoh: Provinsi > Kabupaten > Kecamatan > Kelurahan, maka
+  // clip memakai polygon Kelurahan saja (bukan gabungan parent-child).
+  const getDeepestSelectedAdminAreas = (areas: Array<any> = selectedAreas) => {
+    const levelPriority: Record<string, number> = {
+      provinsi: 1,
+      kabupaten: 2,
+      kecamatan: 3,
+      kelurahan: 4,
+    };
+    const validAreas = (areas || []).filter((area: any) => area?.geom);
+    if (!validAreas.length) return [];
+    const deepest = Math.max(
+      ...validAreas.map((area: any) => levelPriority[String(area?.level)] || 0),
+    );
+    return validAreas.filter(
+      (area: any) => (levelPriority[String(area?.level)] || 0) === deepest,
+    );
+  };
+
   const buildBencanaClipD = (map: any, areas: Array<any>) => {
     const rings = areas.flatMap((area: any) =>
       areaGeomToLatLngRings(area?.geom),
@@ -1701,7 +1722,8 @@ const Kerawanan = () => {
   };
 
   // ============================================================
-  // SIMITI - CLIP BENCANA HANYA KE KHDTK TERPILIH
+  // SIMITI - CLIP BENCANA KE POLYGON YANG DIKLIK LANGSUNG
+  // Mendukung KHDTK maupun polygon non-risiko yang dipilih di peta.
   // ============================================================
   const applyBencanaClipToSelectedKhdtk = (tableName: string) => {
     if (!BENCANA_FOCUS_LAYERS.has(String(tableName))) return;
@@ -1710,54 +1732,70 @@ const Kerawanan = () => {
     const layerGroup = layerGroupsRef.current[tableName];
     const map = mapInstanceRef.current;
 
-    if (
-      selected?.layerType !== "khdtk" ||
-      !selected.feature?.geometry ||
-      !layerGroup ||
-      !map
-    ) {
-      return;
-    }
+    if (!selected?.feature?.geometry || !layerGroup || !map) return;
+
+    const geometryType = selected.feature.geometry.type;
+    if (geometryType !== "Polygon" && geometryType !== "MultiPolygon") return;
 
     try {
-      const d = buildBencanaClipD(map, [
-        {
-          geom: selected.feature.geometry,
-        },
-      ]);
-
+      const d = buildBencanaClipD(map, [{ geom: selected.feature.geometry }]);
       if (!d) return;
 
       layerGroup.eachLayer((layer: any) => {
         const path = layer?._path as SVGPathElement | undefined;
         const svg = path?.ownerSVGElement;
-
         if (!path || !svg) return;
 
         const safeId = String(
           layer?._leaflet_id ||
             `${tableName}_${Math.random().toString(36).slice(2, 8)}`,
         ).replace(/[^a-zA-Z0-9_-]/g, "_");
-
-        const clipId = `${selectedAreaBencanaClipIdRef.current}_khdtk_${safeId}`;
-
+        const clipId = `${selectedAreaBencanaClipIdRef.current}_selected_${safeId}`;
         const clipPath = getOrCreateClipForSvg(svg, clipId, d);
-
         if (!clipPath) return;
 
         path.setAttribute("clip-path", `url(#${clipId})`);
       });
 
-      console.log(
-        "SIMITI: Bencana hanya di-clip ke KHDTK terpilih:",
-        selected.feature?.properties?.namobj ||
+      console.log("SIMITI: risiko di-clip ke polygon peta terpilih:", {
+        layerType: selected.layerType,
+        tableName,
+        name:
+          selected.feature?.properties?.namobj ||
+          selected.feature?.properties?.kel_desa ||
           selected.feature?.properties?.nama ||
-          selected.feature?.properties?.name,
-      );
+          selected.feature?.properties?.name ||
+          "Polygon terpilih",
+      });
     } catch (error) {
-      console.warn("SIMITI: gagal clip bencana ke KHDTK:", error);
+      console.warn("SIMITI: gagal clip risiko ke polygon terpilih:", error);
     }
   };
+  const syncSelectedSpatialFeatureBencanaClip = () => {
+    const map = mapInstanceRef.current;
+    selectedSpatialFeatureClipListenersRef.current.forEach(({ event, handler }: any) => {
+      try { map?.off?.(event, handler); } catch {}
+    });
+    selectedSpatialFeatureClipListenersRef.current = [];
+
+    const selected = selectedSpatialFeatureRef.current;
+    if (!map || !selected?.feature?.geometry) return;
+
+    const update = () => {
+      Array.from(activeLayersRef.current).forEach((activeName) => {
+        if (BENCANA_FOCUS_LAYERS.has(String(activeName))) {
+          applyBencanaClipToSelectedKhdtk(String(activeName));
+        }
+      });
+    };
+
+    update();
+    ["zoom", "move", "resize", "zoomend", "moveend"].forEach((event) => {
+      map.on(event, update);
+      selectedSpatialFeatureClipListenersRef.current.push({ event, handler: update });
+    });
+  };
+
   const removeBencanaClipFromLayers = () => {
     BENCANA_FOCUS_LAYERS.forEach((tableName) => {
       const layerGroup = layerGroupsRef.current[tableName];
@@ -1812,29 +1850,34 @@ const Kerawanan = () => {
 
     if (!areas.length) return;
 
+    const effectiveAreas = getDeepestSelectedAdminAreas(areas);
+    if (!effectiveAreas.length) return;
+
     const activeBencanaNames = new Set([
       ...Array.from(activeLayersRef.current).map((name) => String(name)),
       ...forceLayerNames.map((name) => String(name)),
     ]);
+
+    const updateClip = () => {
+      BENCANA_FOCUS_LAYERS.forEach((tableName) => {
+        if (activeBencanaNames.has(String(tableName))) {
+          applyBencanaClipToLayer(tableName, effectiveAreas);
+        }
+      });
+    };
+
+    // Simpan target clip agar layer risiko yang selesai dimuat belakangan
+    // langsung dipotong dengan polygon administrasi yang sama.
+    selectedAreaBencanaClipPathRef.current = {
+      areas: effectiveAreas,
+      updateClip,
+    };
 
     const hasBencana = Array.from(activeBencanaNames).some((name) =>
       BENCANA_FOCUS_LAYERS.has(String(name)),
     );
 
     if (!hasBencana) return;
-
-    const updateClip = () => {
-      BENCANA_FOCUS_LAYERS.forEach((tableName) => {
-        if (activeBencanaNames.has(String(tableName))) {
-          applyBencanaClipToLayer(tableName, areas);
-        }
-      });
-    };
-
-    selectedAreaBencanaClipPathRef.current = {
-      areas,
-      updateClip,
-    };
 
     updateClip();
 
@@ -3539,6 +3582,25 @@ const Kerawanan = () => {
               }
 
               console.log("SIMITI selected KHDTK:", props.namobj || props);
+              requestAnimationFrame(() => syncSelectedSpatialFeatureBencanaClip());
+            } else if (
+              !BENCANA_FOCUS_LAYERS.has(String(tableName)) &&
+              ["Polygon", "MultiPolygon"].includes(String(feature?.geometry?.type))
+            ) {
+              // Klik polygon non-risiko di peta = target clip risiko.
+              // Jangan mengunci feature risiko itu sendiri sebagai batas clip.
+              selectedSpatialFeatureRef.current = {
+                layerType: "map-polygon",
+                feature,
+                layer,
+              };
+
+              console.log("SIMITI selected map polygon for risk clip:", {
+                sourceLayer: tableName,
+                properties: feature?.properties || {},
+              });
+
+              requestAnimationFrame(() => syncSelectedSpatialFeatureBencanaClip());
             }
 
             openEnterpriseIdentify(
@@ -3657,6 +3719,16 @@ const Kerawanan = () => {
         console.log(`SIMITI RISK COLOR: ${tableName} -> ${forcedBencanaColor}`);
       }
       layerGroupsRef.current[tableName] = layerGroup;
+      if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
+        const selectedAdminClipAreas =
+          selectedAreaBencanaClipPathRef.current?.areas ||
+          getDeepestSelectedAdminAreas(selectedAreas);
+        if (selectedAdminClipAreas.length && selectedDas.length === 0) {
+          requestAnimationFrame(() =>
+            applyBencanaClipToLayer(String(tableName), selectedAdminClipAreas),
+          );
+        }
+      }
   // SIMITI_HATCH_REFRESH_ON_LOAD
   if (BENCANA_FOCUS_LAYERS.has(String(tableName))) refreshRiskOverlapHatch();
 
@@ -5506,10 +5578,28 @@ const Kerawanan = () => {
                 color: selectedLegendColor || "#ef4444",
                 weight: 2.5,
                 opacity: 0.9,
-                fill: false,
-                fillOpacity: 0,
+                fill: true,
+                fillColor: selectedLegendColor || "#ef4444",
+                fillOpacity: 0.025,
                 dashArray: "8 5",
-                interactive: false,
+              },
+              onEachFeature: (selectedFeature: any, selectedLayer: any) => {
+                selectedLayer.on("click", (event: any) => {
+                  event?.originalEvent?.stopPropagation?.();
+                  selectedSpatialFeatureRef.current = {
+                    layerType: "map-polygon",
+                    feature: selectedFeature,
+                    layer: selectedLayer,
+                  };
+                  console.log("SIMITI selected administrative map polygon:", area.label);
+                  requestAnimationFrame(() => syncSelectedSpatialFeatureBencanaClip());
+                  openEnterpriseIdentify(
+                    selectedFeature,
+                    "admin_boundary",
+                    event?.latlng,
+                    "SIMITI GIS",
+                  );
+                });
               },
             },
           );
@@ -5537,9 +5627,14 @@ const Kerawanan = () => {
         );
       }
 
+      // Clip visual risiko ke polygon terdalam yang dipilih.
+      // API filter tetap berjalan seperti sebelumnya; clip ini mencegah
+      // geometri risiko yang melintasi batas ikut mewarnai wilayah tetangga.
+      syncSelectedAreaBencanaClip(
+        getDeepestSelectedAdminAreas(newSelectedAreas),
+        Array.from(activeLayers),
+      );
       updateMapBounds(newSelectedAreas);
-      // Focus bencana ke area administrasi yang baru dipilih.
-      // SVG selected-area clip disabled: API sudah memfilter selectedAreas.
     }
 
     setAreaSearchQuery("");
@@ -5562,8 +5657,11 @@ const Kerawanan = () => {
     }
 
     if (newSelectedAreas.length > 0) {
+      syncSelectedAreaBencanaClip(
+        getDeepestSelectedAdminAreas(newSelectedAreas),
+        Array.from(activeLayers),
+      );
       await updateMapBounds(newSelectedAreas);
-      // SVG selected-area clip disabled: API sudah memfilter selectedAreas.
     } else {
       clearSelectedAreaBencanaClip();
       setCurrentBounds(null);
@@ -6010,10 +6108,10 @@ const Kerawanan = () => {
         await loadLayerInBounds(tableName);
       }
 
-      // Jika KHDTK dipilih, polygon bencana/Rawan hanya ditampilkan
-      // di dalam KHDTK tersebut.
+      // Jika ada polygon yang diklik langsung di peta (KHDTK atau polygon
+      // wilayah lainnya), batasi layer risiko ke geometri polygon tersebut.
       if (
-        selectedSpatialFeatureRef.current?.layerType === "khdtk" &&
+        selectedSpatialFeatureRef.current?.feature?.geometry &&
         BENCANA_FOCUS_LAYERS.has(String(tableName))
       ) {
         requestAnimationFrame(() =>
@@ -6069,11 +6167,29 @@ const Kerawanan = () => {
         } catch (focusError) {
           console.warn("SIMITI: gagal focus ke area bencana:", focusError);
         }
-        // API/adminFilter tetap dipakai sebagai filter data.
-        // Setelah layer selesai dibuat, lakukan clip renderer-safe agar
-        // polygon bencana yang memotong batas administrasi tidak melebar
-        // ke wilayah tetangga.
-        // Selected-area SVG clip disabled: API filter sudah aktif.
+        // API/adminFilter tetap dipakai sebagai filter data, sedangkan
+        // renderer clip membatasi warna risiko tepat pada polygon terdalam.
+        syncSelectedAreaBencanaClip(
+          getDeepestSelectedAdminAreas(selectedAreas),
+          [String(tableName)],
+        );
+        requestAnimationFrame(() =>
+          applyBencanaClipToLayer(
+            String(tableName),
+            getDeepestSelectedAdminAreas(selectedAreas),
+          ),
+        );
+      }
+
+      // Jika polygon dipilih langsung dengan klik peta, geometri tersebut
+      // menjadi batas paling spesifik dan harus menang atas adminFilter.
+      if (
+        selectedSpatialFeatureRef.current?.feature?.geometry &&
+        BENCANA_FOCUS_LAYERS.has(String(tableName))
+      ) {
+        requestAnimationFrame(() =>
+          applyBencanaClipToSelectedKhdtk(String(tableName)),
+        );
       }
     } else {
       tableName = resolvedTableName;

@@ -520,7 +520,18 @@ export default function MonitoringKHDTK() {
 
       const payload = await response.json();
 
-      const normalized = extractRows(payload).map(normalizeStation);
+      const normalized = extractRows(payload)
+        .map((row, index) => normalizeStation(row, index))
+        .filter((station) => {
+          const name = station.name.trim();
+          const code = station.code.trim();
+
+          const isTitik1Sampai3 =
+            /\btitik\s*[-#]?\s*[1-3]\b/i.test(name) ||
+            /\btitik\s*[-#]?\s*[1-3]\b/i.test(code);
+
+          return !isTitik1Sampai3;
+        });
 
       setStations(normalized);
 
@@ -693,40 +704,7 @@ export default function MonitoringKHDTK() {
                   INFO CARD
               =========================================== */}
 
-              <div className="khdtk-info-card">
-                <div className="khdtk-info-icon">
-                  <Leaf />
-                </div>
-
-                <h3>
-                  Data Akurat.
-                  <br />
-                  Keputusan Tepat
-                  <br />
-                  untuk Kelestarian Hutan
-                </h3>
-
-                <div className="khdtk-info-box">
-                  <Wifi />
-
-                  <div>
-                    <strong>{stations.length} Lokasi KHDTK</strong>
-
-                    <p>
-                      Pemantauan lingkungan secara real-time untuk mendukung
-                      pengelolaan kawasan dan mitigasi bencana hidrometeorologi.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="khdtk-forest" aria-hidden="true">
-                  <span>▲</span>
-                  <span>▲</span>
-                  <span>▲</span>
-                  <span>▲</span>
-                  <span>▲</span>
-                </div>
-              </div>
+              
             </section>
           </>
         )}

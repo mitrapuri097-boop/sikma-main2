@@ -433,7 +433,7 @@ const handleCloseEditUser = () => {
             <CIcon icon={cilPlus} />
 
             <span>
-              Tambah User
+              Tambah User 
             </span>
           </CButton>
 

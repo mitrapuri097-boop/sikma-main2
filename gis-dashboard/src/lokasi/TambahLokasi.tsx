@@ -326,7 +326,7 @@ export default function TambahLokasi() {
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsError, setGpsError] = useState("");
   const [detectingLocation, setDetectingLocation] = useState(false);
-  const [activityGroupFilter, setActivityGroupFilter] = useState("Semua");
+  const [activityGroupFilter, setActivityGroupFilter] = useState("Mitigasi");
   const [locationDetectionMessage, setLocationDetectionMessage] = useState("");
   const [files, setFiles] = useState<DocumentationFile[]>([]);
   const [draggingCategory, setDraggingCategory] =
@@ -1107,10 +1107,10 @@ export default function TambahLokasi() {
     <div className="min-h-screen bg-[#F3F5F8] text-[#1E293B]">
       {/* HEADER */}
       <header className="border-b border-[#E2E8F0] bg-white">
-        <div className="mx-auto max-w-[1800px] px-4 py-4 sm:px-6 lg:px-8">
+        <div className="mx-auto w-full max-w-none px-3 py-4 sm:px-5 lg:px-8 xl:px-10">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
-              <div className="mb-2 flex gap-2 text-[9px] font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
+              <div className="mb-2 flex gap-2 text-xs font-bold uppercase tracking-[0.18em] text-[#94A3B8]">
                 <NavLink
                   to="/lokasi"
                   className="text-[#94A3B8] no-underline transition hover:text-blue-600"
@@ -1121,31 +1121,27 @@ export default function TambahLokasi() {
                 <span>/</span>
 
                 <span className="text-blue-600">
-                  Activity Registration Workspace
+                  Mitigasi dan Adaptasi
                 </span>
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
-                <h1 className="text-xl font-extrabold tracking-tight text-[#1E293B] sm:text-2xl">
-                  Input Data Lokasi Kegiatan
+                <h1 className="text-xl font-extrabold tracking-tight text-[#1E293B] sm:text-2xl lg:text-3xl">
+                  Mitigasi dan Adaptasi
                 </h1>
 
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-[#E2E8F0] bg-[#F8FAFC] px-2 py-1 text-[8px] font-extrabold uppercase text-[#64748B]">
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-[#E2E8F0] bg-[#F8FAFC] px-2 py-1 text-[11px] font-extrabold uppercase text-[#64748B]">
                   <Circle size={6} fill="currentColor" />
                   Draft
                 </span>
               </div>
 
-              <p className="mt-1 max-w-3xl text-[10px] leading-relaxed text-[#64748B]">
-                Workspace terintegrasi untuk registrasi atribut kegiatan,
-                koordinat spasial, administrasi, dokumentasi, dan validasi data
-                SIMITI.
-              </p>
+
             </div>
 
             <div className="flex items-center gap-3">
               <div className="hidden text-right sm:block">
-                <div className="text-[8px] font-bold uppercase tracking-[0.15em] text-[#94A3B8]">
+                <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#94A3B8]">
                   Data Completion
                 </div>
 
@@ -1163,7 +1159,7 @@ export default function TambahLokasi() {
                     }deg,#E8EDF3 0deg)`,
                   }}
                 >
-                  <div className="flex h-full items-center justify-center rounded-full bg-white text-[8px] font-extrabold text-blue-600">
+                  <div className="flex h-full items-center justify-center rounded-full bg-white text-[11px] font-extrabold text-blue-600">
                     {completion}
                   </div>
                 </div>
@@ -1183,10 +1179,10 @@ export default function TambahLokasi() {
         </div>
       )}
 
-      <main className="mx-auto max-w-[1800px] px-4 py-5 sm:px-6 lg:px-8">
-        <div className="grid gap-5 xl:grid-cols-[250px_minmax(0,1fr)]">
+      <main className="mx-auto w-full max-w-none px-3 py-4 sm:px-5 lg:px-8 xl:px-10">
+        <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[250px_minmax(0,1fr)]">
           {/* SIDEBAR */}
-          <aside className="h-fit xl:sticky xl:top-5">
+          <aside className="h-fit lg:sticky lg:top-5">
             <div className="overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-sm">
               <div className="border-b border-[#E2E8F0] p-4">
                 <div className="flex items-center gap-2">
@@ -1195,11 +1191,11 @@ export default function TambahLokasi() {
                   </div>
 
                   <div>
-                    <div className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#334155]">
+                    <div className="text-[13px] font-extrabold uppercase tracking-[0.12em] text-[#334155]">
                       Registration Flow
                     </div>
 
-                    <div className="mt-0.5 text-[8px] text-[#94A3B8]">
+                    <div className="mt-0.5 text-[11px] text-[#94A3B8]">
                       4 tahap registrasi
                     </div>
                   </div>
@@ -1241,16 +1237,16 @@ export default function TambahLokasi() {
 
                       <div className="pt-0.5">
                         <div className="flex gap-2">
-                          <span className="text-[8px] font-extrabold text-[#94A3B8]">
+                          <span className="text-[11px] font-extrabold text-[#94A3B8]">
                             {s.number}
                           </span>
 
-                          <span className="text-[10px] font-bold">
+                          <span className="text-[13px] font-bold">
                             {s.title}
                           </span>
                         </div>
 
-                        <div className="mt-1 text-[8px] text-[#94A3B8]">
+                        <div className="mt-1 text-[11px] text-[#94A3B8]">
                           {s.description}
                         </div>
                       </div>
@@ -1261,7 +1257,7 @@ export default function TambahLokasi() {
 
               <div className="border-t border-[#E2E8F0] p-3">
                 <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
-                  <div className="flex justify-between text-[8px] font-bold uppercase text-[#94A3B8]">
+                  <div className="flex justify-between text-[11px] font-bold uppercase text-[#94A3B8]">
                     <span>Completion</span>
                     <span className="text-blue-600">{completion}%</span>
                   </div>
@@ -1304,7 +1300,7 @@ export default function TambahLokasi() {
 
                   <Field label="Klasifikasi Kegiatan" required>
                     <div className="mb-2 flex flex-wrap gap-2">
-                      {["Semua", ...ACTIVITY_GROUPS].map((group) => (
+                      {ACTIVITY_GROUPS.map((group) => (
                         <button
                           key={group}
                           type="button"
@@ -1320,9 +1316,7 @@ export default function TambahLokasi() {
                       onChange={(v) => update("jenis_kegiatan", v)}
                       placeholder="Pilih jenis kegiatan"
                       options={
-                        activityGroupFilter === "Semua"
-                          ? ACTIVITY_TYPES
-                          : ACTIVITY_TYPES.filter(
+                        ACTIVITY_TYPES.filter(
                               (activity) =>
                                 getActivityGroup(activity) ===
                                 activityGroupFilter,
@@ -1330,8 +1324,7 @@ export default function TambahLokasi() {
                       }
                     />
                     <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                      Filter kelompok: <strong>{activityGroupFilter}</strong>.
-                      Daftar mengikuti klasifikasi kegiatan SIMITI.
+                      Jenis: <strong>{activityGroupFilter}</strong>.
                     </div>
                   </Field>
 
@@ -1371,7 +1364,7 @@ export default function TambahLokasi() {
                         className="pr-12"
                       />
 
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] text-[#94A3B8]">
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#94A3B8]">
                         ha
                       </span>
                     </div>
@@ -1394,7 +1387,7 @@ export default function TambahLokasi() {
                       value={form.keterangan}
                       onChange={(e) => update("keterangan", e.target.value)}
                       rows={5}
-                      className="w-full rounded-xl border border-[#D9E1EA] bg-[#F8FAFC] px-3 py-3 text-[10px] text-[#1E293B] outline-none placeholder:text-[#94A3B8] focus:border-blue-400/60 focus:bg-white"
+                      className="w-full rounded-xl border border-[#D9E1EA] bg-[#F8FAFC] px-3 py-3 text-sm text-[#1E293B] outline-none placeholder:text-[#94A3B8] focus:border-blue-400/60 focus:bg-white"
                       placeholder="Tambahkan informasi teknis atau catatan lain yang relevan..."
                     />
                   </Field>
@@ -1421,7 +1414,7 @@ export default function TambahLokasi() {
                 icon={MapPinned}
               >
                 <div className="overflow-hidden rounded-2xl border border-[#D9E1EA] bg-[#F8FAFC]">
-                  <div className="relative h-[430px]">
+                  <div className="relative h-[300px] sm:h-[380px] lg:h-[430px]">
                     <MapContainer
                       center={
                         lat != null && lng != null
@@ -1459,7 +1452,7 @@ export default function TambahLokasi() {
                       <div className="flex items-center gap-2">
                         <Map size={13} className="text-blue-600" />
 
-                        <span className="text-[9px] font-bold text-[#334155]">
+                        <span className="text-xs font-bold text-[#334155]">
                           Klik peta untuk menentukan titik
                         </span>
                       </div>
@@ -1501,7 +1494,7 @@ export default function TambahLokasi() {
                                 Number(form.longitude),
                               );
                           }}
-                          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 text-[9px] font-extrabold text-blue-600 transition hover:bg-blue-100 lg:w-auto"
+                          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 text-xs font-extrabold text-blue-600 transition hover:bg-blue-100 lg:w-auto"
                         >
                           <CheckCircle2 size={14} />
                           Validasi
@@ -1514,11 +1507,11 @@ export default function TambahLokasi() {
                         <Navigation size={13} className="mt-1 text-[#64748B]" />
 
                         <div>
-                          <div className="text-[9px] font-bold text-[#334155]">
+                          <div className="text-xs font-bold text-[#334155]">
                             Referensi Spasial
                           </div>
 
-                          <div className="text-[8px] text-[#94A3B8]">
+                          <div className="text-[11px] text-[#94A3B8]">
                             WGS84 / EPSG:4326{" "}
                             {coordinateSource && (
                               <>• Source: {coordinateSource}</>
@@ -1531,7 +1524,7 @@ export default function TambahLokasi() {
                         type="button"
                         onClick={useGps}
                         disabled={gpsLoading}
-                        className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[#D9E1EA] bg-white px-3 text-[9px] font-bold text-[#475569] shadow-sm transition hover:bg-[#F8FAFC] disabled:opacity-50"
+                        className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[#D9E1EA] bg-white px-3 text-xs font-bold text-[#475569] shadow-sm transition hover:bg-[#F8FAFC] disabled:opacity-50"
                       >
                         <Crosshair size={13} />
                         {gpsLoading
@@ -1541,7 +1534,7 @@ export default function TambahLokasi() {
                     </div>
 
                     {gpsError && (
-                      <div className="mt-3 flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-[9px] text-red-600">
+                      <div className="mt-3 flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-600">
                         <AlertCircle size={13} />
                         {gpsError}
                       </div>
@@ -1549,7 +1542,7 @@ export default function TambahLokasi() {
 
                     {locationDetectionMessage && (
                       <div
-                        className={`mt-3 flex gap-2 rounded-xl border p-3 text-[9px] ${
+                        className={`mt-3 flex gap-2 rounded-xl border p-3 text-xs ${
                           detectingLocation
                             ? "border-blue-200 bg-blue-50 text-blue-700"
                             : coordinateValidated
@@ -1584,12 +1577,12 @@ export default function TambahLokasi() {
                 description="Wilayah administrasi dan DAS diisi otomatis dari titik koordinat. Pilihan manual tetap tersedia sebagai koreksi."
                 icon={Layers3}
               >
-                <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-[9px] text-blue-700">
+                <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-700">
                   <div className="flex items-center gap-2 font-bold">
                     <Target size={13} />
                     Otomatis dari peta / koordinat
                   </div>
-                  <div className="mt-1 text-[8px] leading-relaxed">
+                  <div className="mt-1 text-[11px] leading-relaxed">
                     Jika koordinat tersedia, sistem melakukan point-in-polygon
                     dan mengisi wilayah administrasi serta DAS. Field di bawah
                     tetap dapat dikoreksi manual bila diperlukan.
@@ -1678,7 +1671,7 @@ export default function TambahLokasi() {
                           }
                         }}
                         placeholder="Cari nama DAS / kode DAS..."
-                        className="h-10 w-full rounded-xl border border-[#D9E1EA] bg-[#F8FAFC] px-3 pr-10 text-[10px] text-[#1E293B] outline-none placeholder:text-[#94A3B8] focus:border-blue-400/60 focus:bg-white"
+                        className="h-10 w-full rounded-xl border border-[#D9E1EA] bg-[#F8FAFC] px-3 pr-10 text-[13px] text-[#1E293B] outline-none placeholder:text-[#94A3B8] focus:border-blue-400/60 focus:bg-white"
                       />
 
                       <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#94A3B8]">
@@ -1689,7 +1682,7 @@ export default function TambahLokasi() {
                         (loadingMaster.das || master.das.length > 0) && (
                           <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-[1200] max-h-72 overflow-auto rounded-xl border border-[#D9E1EA] bg-white shadow-xl">
                             {loadingMaster.das && (
-                              <div className="px-3 py-3 text-[9px] text-[#64748B]">
+                              <div className="px-3 py-3 text-xs text-[#64748B]">
                                 Mencari DAS...
                               </div>
                             )}
@@ -1702,11 +1695,11 @@ export default function TambahLokasi() {
                                   onClick={() => selectDas(item)}
                                   className="block w-full border-b border-[#E2E8F0] px-3 py-2.5 text-left transition hover:bg-blue-50"
                                 >
-                                  <div className="text-[9px] font-bold text-[#334155]">
+                                  <div className="text-xs font-bold text-[#334155]">
                                     {item.name}
                                   </div>
 
-                                  <div className="mt-0.5 text-[7px] text-[#94A3B8]">
+                                  <div className="mt-0.5 text-[13px] text-[#94A3B8]">
                                     {item.code || "Tanpa kode"}
 
                                     {item.province ? ` • ${item.province}` : ""}
@@ -1717,7 +1710,7 @@ export default function TambahLokasi() {
                               ))}
 
                             {!loadingMaster.das && master.das.length === 0 && (
-                              <div className="px-3 py-3 text-[9px] text-[#64748B]">
+                              <div className="px-3 py-3 text-xs text-[#64748B]">
                                 DAS tidak ditemukan.
                               </div>
                             )}
@@ -1726,7 +1719,7 @@ export default function TambahLokasi() {
                     </div>
 
                     {form.das && (
-                      <div className="mt-1.5 text-[8px] text-blue-600">
+                      <div className="mt-1.5 text-[11px] text-blue-600">
                         Terpilih: {form.das}
                         {selectedDasCode ? ` • ${selectedDasCode}` : ""}
                       </div>
@@ -1734,7 +1727,7 @@ export default function TambahLokasi() {
                   </Field>
 
                   <Field label="Ringkasan Lokasi">
-                    <div className="flex min-h-10 items-center rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-[9px] text-[#64748B]">
+                    <div className="flex min-h-10 items-center rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3 text-xs text-[#64748B]">
                       <Navigation size={12} className="mr-2 text-blue-600" />
 
                       {[
@@ -1972,7 +1965,7 @@ export default function TambahLokasi() {
                     </div>
 
                     <div>
-                      <div className="text-[10px] font-bold text-[#334155]">
+                      <div className="text-[13px] font-bold text-[#334155]">
                         {errors.length
                           ? "Masih ada data yang perlu diperiksa"
                           : "Data siap diajukan"}
@@ -1981,7 +1974,7 @@ export default function TambahLokasi() {
                       {errors.length > 0 && (
                         <div className="mt-2 space-y-1">
                           {errors.map((x) => (
-                            <div key={x} className="text-[8px] text-amber-700">
+                            <div key={x} className="text-[11px] text-amber-700">
                               • {x}
                             </div>
                           ))}
@@ -1999,7 +1992,7 @@ export default function TambahLokasi() {
                 type="button"
                 disabled={idx <= 0}
                 onClick={() => go(STEPS[idx - 1].id)}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-[#D9E1EA] bg-white px-4 text-[10px] font-bold text-[#475569] transition hover:bg-[#F8FAFC] disabled:opacity-30"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-[#D9E1EA] bg-white px-4 text-[13px] font-bold text-[#475569] transition hover:bg-[#F8FAFC] disabled:opacity-30"
               >
                 <ArrowLeft size={14} />
                 Sebelumnya
@@ -2029,7 +2022,7 @@ export default function TambahLokasi() {
                     go(STEPS[idx + 1].id);
                   }
                 }}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-[10px] font-extrabold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-30"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-[13px] font-extrabold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-30"
               >
                 Lanjut
                 <ChevronDown size={14} className="-rotate-90" />
@@ -2045,7 +2038,7 @@ export default function TambahLokasi() {
           <button
             type="button"
             onClick={() => setShowCancelConfirm(true)}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#D9E1EA] bg-white px-3 text-[9px] font-bold text-[#64748B] transition hover:bg-[#F8FAFC]"
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#D9E1EA] bg-white px-3 text-xs font-bold text-[#64748B] transition hover:bg-[#F8FAFC]"
           >
             <X size={13} />
             Batal
@@ -2056,7 +2049,7 @@ export default function TambahLokasi() {
               type="button"
               onClick={() => save(false)}
               disabled={!!savingAction}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-[#D9E1EA] bg-white px-4 text-[10px] font-bold text-[#475569] shadow-sm transition hover:bg-[#F8FAFC] disabled:opacity-50"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-[#D9E1EA] bg-white px-4 text-[13px] font-bold text-[#475569] shadow-sm transition hover:bg-[#F8FAFC] disabled:opacity-50"
             >
               <Save size={14} />
 
@@ -2067,7 +2060,7 @@ export default function TambahLokasi() {
               type="button"
               onClick={() => save(true)}
               disabled={!!savingAction}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 text-[10px] font-extrabold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 text-[13px] font-extrabold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
             >
               <CloudUpload size={14} />
 
@@ -2091,7 +2084,7 @@ export default function TambahLokasi() {
                   Batalkan registrasi?
                 </div>
 
-                <div className="mt-1 text-[9px] text-[#64748B]">
+                <div className="mt-1 text-xs text-[#64748B]">
                   Perubahan yang belum disimpan akan hilang.
                 </div>
               </div>
@@ -2101,7 +2094,7 @@ export default function TambahLokasi() {
               <button
                 type="button"
                 onClick={() => setShowCancelConfirm(false)}
-                className="h-9 rounded-lg border border-[#D9E1EA] bg-white px-3 text-[9px] font-semibold text-[#475569] transition hover:bg-[#F8FAFC]"
+                className="h-9 rounded-lg border border-[#D9E1EA] bg-white px-3 text-xs font-semibold text-[#475569] transition hover:bg-[#F8FAFC]"
               >
                 Tetap di halaman
               </button>
@@ -2109,7 +2102,7 @@ export default function TambahLokasi() {
               <button
                 type="button"
                 onClick={() => navigate("/lokasi")}
-                className="h-9 rounded-lg bg-red-600 px-3 text-[9px] font-bold text-white transition hover:bg-red-700"
+                className="h-9 rounded-lg bg-red-600 px-3 text-xs font-bold text-white transition hover:bg-red-700"
               >
                 Ya, Batalkan
               </button>
@@ -2144,7 +2137,7 @@ function WorkspaceSection({
 
           <div>
             <div className="flex gap-2">
-              <span className="text-[8px] font-extrabold text-blue-600">
+              <span className="text-[11px] font-extrabold text-blue-600">
                 {number}
               </span>
 
@@ -2153,7 +2146,7 @@ function WorkspaceSection({
               </h2>
             </div>
 
-            <p className="mt-1 text-[9px] text-[#64748B]">{description}</p>
+            <p className="mt-1 text-xs text-[#64748B]">{description}</p>
           </div>
         </div>
       </div>
@@ -2178,7 +2171,7 @@ function Field({
 }) {
   return (
     <label className={`block ${className}`}>
-      <span className="mb-1.5 flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[0.1em] text-[#64748B]">
+      <span className="mb-1.5 flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.1em] text-[#64748B]">
         {label}
 
         {required && <b className="text-blue-600">*</b>}
@@ -2218,7 +2211,7 @@ function Input({
       step={step}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className={`h-10 w-full rounded-xl border border-[#D9E1EA] bg-[#F8FAFC] px-3 text-[10px] text-[#1E293B] outline-none placeholder:text-[#94A3B8] transition focus:border-blue-400/60 focus:bg-white ${className}`}
+      className={`h-10 w-full rounded-xl border border-[#D9E1EA] bg-[#F8FAFC] px-3 text-[13px] text-[#1E293B] outline-none placeholder:text-[#94A3B8] transition focus:border-blue-400/60 focus:bg-white ${className}`}
     />
   );
 }
@@ -2242,7 +2235,7 @@ function Select({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        className="h-10 w-full appearance-none rounded-xl border border-[#D9E1EA] bg-[#F8FAFC] px-3 pr-9 text-[10px] font-semibold text-[#475569] outline-none transition focus:border-blue-400/60 focus:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+        className="h-10 w-full appearance-none rounded-xl border border-[#D9E1EA] bg-[#F8FAFC] px-3 pr-9 text-[13px] font-semibold text-[#475569] outline-none transition focus:border-blue-400/60 focus:bg-white disabled:cursor-not-allowed disabled:opacity-50"
       >
         <option value="">{placeholder}</option>
 
@@ -2278,9 +2271,9 @@ function SectionInfo({
         </div>
 
         <div>
-          <div className="text-[9px] font-bold text-[#334155]">{title}</div>
+          <div className="text-xs font-bold text-[#334155]">{title}</div>
 
-          <div className="mt-1 text-[8px] leading-relaxed text-[#64748B]">
+          <div className="mt-1 text-[11px] leading-relaxed text-[#64748B]">
             {text}
           </div>
         </div>
@@ -2334,13 +2327,13 @@ function DocumentationUploader({
           </div>
 
           <div>
-            <div className="text-[10px] font-bold text-[#334155]">{title}</div>
+            <div className="text-[13px] font-bold text-[#334155]">{title}</div>
 
-            <div className="mt-1 text-[8px] text-[#94A3B8]">{description}</div>
+            <div className="mt-1 text-[11px] text-[#94A3B8]">{description}</div>
           </div>
         </div>
 
-        <span className="rounded-md border border-[#E2E8F0] bg-[#F8FAFC] px-2 py-1 text-[8px] text-[#64748B]">
+        <span className="rounded-md border border-[#E2E8F0] bg-[#F8FAFC] px-2 py-1 text-[11px] text-[#64748B]">
           {count}
         </span>
       </div>
@@ -2370,11 +2363,11 @@ function DocumentationUploader({
             <Upload size={16} />
           </div>
 
-          <div className="mt-2 text-[9px] font-bold text-[#475569]">
+          <div className="mt-2 text-xs font-bold text-[#475569]">
             Upload atau drag & drop
           </div>
 
-          <div className="mt-1 text-[8px] text-[#94A3B8]">
+          <div className="mt-1 text-[11px] text-[#94A3B8]">
             {category === "supporting_document"
               ? "Format PDF"
               : "Format JPG / JPEG"}
@@ -2401,11 +2394,11 @@ function DocumentationUploader({
                 )}
 
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[9px] font-bold text-[#334155]">
+                  <div className="truncate text-xs font-bold text-[#334155]">
                     {x.file.name}
                   </div>
 
-                  <div className="text-[7px] text-[#94A3B8]">
+                  <div className="text-[13px] text-[#94A3B8]">
                     {catLabel(x.category)} • {formatBytes(x.file.size)}
                   </div>
                 </div>
@@ -2445,11 +2438,11 @@ function ReviewCard({
             <Icon size={14} />
           </div>
 
-          <span className="text-[10px] font-bold text-[#334155]">{title}</span>
+          <span className="text-[13px] font-bold text-[#334155]">{title}</span>
         </div>
 
         <span
-          className={`rounded-md px-2 py-1 text-[7px] font-extrabold ${
+          className={`rounded-md px-2 py-1 text-[13px] font-extrabold ${
             complete ? "bg-blue-50 text-blue-600" : "bg-amber-50 text-amber-600"
           }`}
         >
@@ -2471,11 +2464,11 @@ function ReviewRow({
 }) {
   return (
     <div className="flex justify-between gap-4 border-b border-[#E2E8F0] px-3 py-2.5 last:border-0">
-      <span className="text-[8px] font-bold uppercase text-[#94A3B8]">
+      <span className="text-[11px] font-bold uppercase text-[#94A3B8]">
         {label}
       </span>
 
-      <span className="max-w-[65%] text-right text-[9px] font-semibold text-[#475569]">
+      <span className="max-w-[65%] text-right text-xs font-semibold text-[#475569]">
         {value}
       </span>
     </div>
@@ -2506,7 +2499,7 @@ function Notification({
     >
       <Icon size={14} />
 
-      <div className="flex-1 text-[9px] font-semibold">{message}</div>
+      <div className="flex-1 text-xs font-semibold">{message}</div>
 
       <button type="button" onClick={onClose}>
         <X size={13} />

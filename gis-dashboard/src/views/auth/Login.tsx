@@ -249,9 +249,7 @@ export default function Login() {
       /*
        * Dashboard
        */
-      const requestedPath = (
-        location.state as { from?: unknown } | null
-      )?.from;
+      const requestedPath = (location.state as { from?: unknown } | null)?.from;
 
       const destination =
         typeof requestedPath === "string" &&
@@ -321,23 +319,19 @@ export default function Login() {
 
       {/* CONTENT */}
 
-      <div className="relative z-10 grid min-h-screen lg:grid-cols-[1.1fr_.9fr]">
+      <div className="relative z-10 mx-auto grid min-h-screen w-full max-w-[1600px] lg:grid-cols-[1.08fr_.92fr]">
         {/* LEFT BRANDING */}
 
-        <section className="hidden flex-col justify-between p-10 lg:flex xl:p-16">
+        <section className="hidden flex-col justify-between p-10 lg:flex xl:p-20">
           <div>
             <div className="flex items-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500 text-2xl font-bold text-white shadow-lg shadow-emerald-500/20">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-emerald-300/30 bg-gradient-to-br from-emerald-400 to-teal-600 text-2xl font-extrabold text-white shadow-xl shadow-emerald-950/30">
                 S
               </div>
 
               <div>
                 <div className="text-2xl font-bold tracking-tight text-white">
                   SIMITI
-                </div>
-
-                <div className="text-[11px] font-medium uppercase tracking-[0.25em] text-emerald-400">
-                  Sistem Informasi Mitigasi dan Adaptasi
                 </div>
               </div>
             </div>
@@ -349,10 +343,14 @@ export default function Login() {
               Secure Access
             </div>
 
-            <h1 className="text-4xl font-bold leading-tight text-white xl:text-6xl">
+            <p className="mb-4 text-xs font-bold uppercase tracking-[0.28em] text-emerald-300">
+              Enterprise Geospatial Intelligence
+            </p>
+            <h1 className="text-4xl font-bold leading-[1.12] tracking-tight text-white xl:text-5xl 2xl:text-6xl">
               Sistem Informasi
-              <br />
-              <span className="text-emerald-400">Kebencanaan</span>
+              <span className="mt-2 block text-emerald-400">
+                Mitigasi dan Adaptasi Bencana Hidrometeorologi Kehutanan
+              </span>
             </h1>
 
             <p className="mt-6 max-w-lg text-base leading-7 text-slate-400">
@@ -393,7 +391,7 @@ export default function Login() {
 
         {/* LOGIN */}
 
-        <section className="flex items-center justify-center p-5 sm:p-8 lg:p-10">
+        <section className="flex items-center justify-center px-5 py-10 sm:px-8 lg:px-12 lg:py-12">
           <div className="w-full max-w-md">
             {/* MOBILE BRAND */}
 
@@ -403,7 +401,7 @@ export default function Login() {
               </div>
 
               <div>
-                <div className="text-xl font-bold text-white">SIMITI</div>
+                <div className="text-xl font-bold tracking-tight text-white">SIMITI</div>
 
                 <div className="text-[10px] uppercase tracking-[0.2em] text-emerald-400">
                   Enterprise GIS
@@ -411,18 +409,21 @@ export default function Login() {
               </div>
             </div>
 
-            <div className="rounded-3xl border border-white/10 bg-white p-6 shadow-2xl shadow-black/30 sm:p-8">
+            <div className="rounded-[28px] border border-white/70 bg-white p-6 shadow-[0_28px_90px_-28px_rgba(0,0,0,0.55)] sm:p-9">
               <div className="mb-8">
-                <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-50 to-teal-100 text-emerald-700 ring-1 ring-emerald-100">
                   <LockKeyhole size={21} />
                 </div>
 
-                <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-700">
+                  Secure workspace
+                </p>
+                <h2 className="text-[26px] font-bold tracking-tight text-slate-950">
                   Selamat Datang
                 </h2>
 
                 <p className="mt-2 text-sm leading-6 text-slate-500">
-                  Masuk ke SIMITI Enterprise GIS untuk mengakses sistem.
+                  Masuk menggunakan akun Anda untuk melanjutkan ke SIMITI Enterprise GIS.
                 </p>
               </div>
 
@@ -462,7 +463,7 @@ export default function Login() {
                         rounded-xl
                         border
                         border-slate-200
-                        bg-slate-50
+                        bg-slate-50/80
                         pl-11
                         pr-4
                         text-sm
@@ -507,7 +508,7 @@ export default function Login() {
                         rounded-xl
                         border
                         border-slate-200
-                        bg-slate-50
+                        bg-slate-50/80
                         pl-11
                         pr-12
                         text-sm
@@ -537,8 +538,7 @@ export default function Login() {
                   </div>
                 </div>
                 {/* GOOGLE reCAPTCHA V2 */}
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
                     <div className="flex items-center gap-3">
                       <div className="overflow-hidden rounded-lg border border-slate-300 bg-white">
                         <canvas
@@ -552,8 +552,9 @@ export default function Login() {
                       <button
                         type="button"
                         onClick={generateCaptcha}
-                        className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-lg font-semibold text-slate-600 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
                         title="Buat angka CAPTCHA baru"
+                        aria-label="Buat angka CAPTCHA baru"
                       >
                         ↻
                       </button>
@@ -580,8 +581,7 @@ export default function Login() {
                         {captchaError}
                       </p>
                     )}
-                  </div>
-                </div>{" "}
+                </div>
                 {/* OPTIONS */}
                 <div className="flex items-center justify-between gap-3">
                   <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
@@ -614,14 +614,17 @@ export default function Login() {
                     items-center
                     justify-center
                     rounded-xl
-                    bg-emerald-600
+                    bg-gradient-to-r
+                    from-emerald-600
+                    to-teal-600
                     text-sm
                     font-bold
                     text-white
                     shadow-lg
                     shadow-emerald-600/20
                     transition
-                    hover:bg-emerald-700
+                    hover:from-emerald-700
+                    hover:to-teal-700
                     hover:shadow-emerald-600/30
                     disabled:cursor-not-allowed
                     disabled:opacity-60
