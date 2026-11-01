@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   area as turfArea,
   bbox as turfBbox,
@@ -561,6 +561,9 @@ const Kerawanan = () => {
     dailyRain: null,
     updatedAt: null,
   });
+  // Posisi panel Informasi Titik Peta dapat digeser tanpa mengubah proses identify.
+  const [mapInfoOffset, setMapInfoOffset] = useState({ x: 0, y: 0 });
+  const mapInfoDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -1690,37 +1693,101 @@ const Kerawanan = () => {
     tableName: string,
     areas: Array<any> = selectedAreas,
   ) => {
-    if (!BENCANA_FOCUS_LAYERS.has(String(tableName))) return;
     const layerGroup = layerGroupsRef.current[tableName];
     const map = mapInstanceRef.current;
-    if (!layerGroup || !map || !areas.length) return;
+
+    if (!layerGroup || !map || !areas?.length) return;
 
     const d = buildBencanaClipD(map, areas);
     if (!d) return;
 
     try {
-      layerGroup.eachLayer((layer: any) => {
+      // IMAGE OVERLAY / RASTER
+      const imageElement = layerGroup.getElement?.() as
+        | HTMLImageElement
+        | undefined;
+
+      if (imageElement) {
+        const bounds = layerGroup.getBounds?.();
+
+        if (bounds) {
+          const northWest = bounds.getNorthWest();
+          const origin = map.latLngToLayerPoint(northWest);
+
+          const imagePath = areas
+            .flatMap((area: any) =>
+              areaGeomToLatLngRings(area?.geom),
+            )
+            .map((ring: number[][]) => {
+              const points = ring
+                .map(([lat, lng]) => {
+                  const point = map.latLngToLayerPoint([lat, lng]);
+
+                  return {
+                    x: point.x - origin.x,
+                    y: point.y - origin.y,
+                  };
+                })
+                .filter(
+                  (point: any) =>
+                    Number.isFinite(point.x) &&
+                    Number.isFinite(point.y),
+                );
+
+              if (points.length < 3) return "";
+
+              return (
+                `M ${points[0].x} ${points[0].y} ` +
+                points
+                  .slice(1)
+                  .map((point: any) => `L ${point.x} ${point.y}`)
+                  .join(" ") +
+                " Z"
+              );
+            })
+            .filter(Boolean)
+            .join(" ");
+
+          if (imagePath) {
+            const cssClip = `path("${imagePath}")`;
+
+            imageElement.style.setProperty("clip-path", cssClip);
+            imageElement.style.setProperty("-webkit-clip-path", cssClip);
+            imageElement.dataset.simitiAdminClip =
+              selectedAreaBencanaClipIdRef.current;
+          }
+        }
+      }
+
+      // VECTOR / GEOJSON
+      layerGroup.eachLayer?.((layer: any) => {
         const path = layer?._path as SVGPathElement | undefined;
         const svg = path?.ownerSVGElement;
+
         if (!path || !svg) return;
 
-        // ID unik per SVG renderer + layer, sehingga clip tidak pernah
-        // menunjuk ke <svg> milik layer lain.
         const safeId = String(
           layer?._leaflet_id ||
             `${tableName}_${Math.random().toString(36).slice(2, 8)}`,
         ).replace(/[^a-zA-Z0-9_-]/g, "_");
-        const clipId = `${selectedAreaBencanaClipIdRef.current}_${safeId}`;
+
+        const clipId =
+          `${selectedAreaBencanaClipIdRef.current}_${safeId}`;
+
         const clipPath = getOrCreateClipForSvg(svg, clipId, d);
+
         if (!clipPath) return;
 
         path.setAttribute("clip-path", `url(#${clipId})`);
       });
     } catch (error) {
-      console.warn("SIMITI: gagal memasang clip bencana:", error);
+      console.warn(
+        "SIMITI: gagal memasang clipping administrasi:",
+        tableName,
+        error,
+      );
     }
   };
-
   // ============================================================
   // SIMITI - CLIP BENCANA KE POLYGON YANG DIKLIK LANGSUNG
   // Mendukung KHDTK maupun polygon non-risiko yang dipilih di peta.
@@ -1797,19 +1864,50 @@ const Kerawanan = () => {
   };
 
   const removeBencanaClipFromLayers = () => {
-    BENCANA_FOCUS_LAYERS.forEach((tableName) => {
-      const layerGroup = layerGroupsRef.current[tableName];
-      if (!layerGroup) return;
-      try {
-        layerGroup.eachLayer((layer: any) => {
-          if (layer?._path?.removeAttribute) {
-            layer._path.removeAttribute("clip-path");
-          }
-        });
-      } catch {}
-    });
-  };
+    const clipPrefix = selectedAreaBencanaClipIdRef.current;
 
+    Object.entries(layerGroupsRef.current).forEach(
+      ([tableName, layerGroup]: [string, any]) => {
+        if (!layerGroup) return;
+
+        try {
+          // Bersihkan raster yang diberi clipping administrasi SIMITI.
+          const imageElement = layerGroup.getElement?.() as
+            | HTMLImageElement
+            | undefined;
+
+          if (
+            imageElement?.dataset?.simitiAdminClip === clipPrefix
+          ) {
+            imageElement.style.removeProperty("clip-path");
+            imageElement.style.removeProperty("-webkit-clip-path");
+            delete imageElement.dataset.simitiAdminClip;
+          }
+
+          // Bersihkan vector hanya jika clip berasal dari administrasi.
+          layerGroup.eachLayer?.((layer: any) => {
+            const path = layer?._path as
+              | SVGPathElement
+              | undefined;
+
+            if (!path) return;
+
+            const currentClip = path.getAttribute("clip-path") || "";
+
+            if (currentClip.includes(`url(#${clipPrefix}_`)) {
+              path.removeAttribute("clip-path");
+            }
+          });
+        } catch (error) {
+          console.warn(
+            "SIMITI: gagal membersihkan clipping:",
+            tableName,
+            error,
+          );
+        }
+      },
+    );
+  };
   const clearSelectedAreaBencanaClip = () => {
     const map = mapInstanceRef.current;
 
@@ -1853,47 +1951,44 @@ const Kerawanan = () => {
     const effectiveAreas = getDeepestSelectedAdminAreas(areas);
     if (!effectiveAreas.length) return;
 
-    const activeBencanaNames = new Set([
+    const activeLayerNames = new Set([
       ...Array.from(activeLayersRef.current).map((name) => String(name)),
       ...forceLayerNames.map((name) => String(name)),
     ]);
 
     const updateClip = () => {
-      BENCANA_FOCUS_LAYERS.forEach((tableName) => {
-        if (activeBencanaNames.has(String(tableName))) {
+      activeLayerNames.forEach((tableName) => {
+        if (layerGroupsRef.current[tableName]) {
           applyBencanaClipToLayer(tableName, effectiveAreas);
         }
       });
     };
 
-    // Simpan target clip agar layer risiko yang selesai dimuat belakangan
-    // langsung dipotong dengan polygon administrasi yang sama.
     selectedAreaBencanaClipPathRef.current = {
       areas: effectiveAreas,
       updateClip,
     };
 
-    const hasBencana = Array.from(activeBencanaNames).some((name) =>
-      BENCANA_FOCUS_LAYERS.has(String(name)),
-    );
-
-    if (!hasBencana) return;
-
+    // Terapkan clipping langsung pada semua layer yang sudah aktif.
     updateClip();
 
-    ["zoom", "move", "resize", "zoomend", "moveend"].forEach((event) => {
-      map.on(event, updateClip);
-      selectedAreaBencanaClipListenersRef.current.push({
-        event,
-        handler: updateClip,
-      });
-    });
+    // Hitung ulang koordinat setelah peta berubah.
+    ["zoom", "move", "resize", "zoomend", "moveend"].forEach(
+      (event) => {
+        map.on(event, updateClip);
 
-    console.log("🎯 SIMITI bencana clip renderer-safe aktif:", {
-      areas: areas.map((area: any) => area?.label),
+        selectedAreaBencanaClipListenersRef.current.push({
+          event,
+          handler: updateClip,
+        });
+      },
+    );
+
+    console.log("SIMITI: clipping administrasi seluruh layer aktif", {
+      layers: Array.from(activeLayerNames),
+      areas: effectiveAreas.map((area: any) => area?.label),
     });
   };
-
   // ======================================================
   // SIGAP Kementerian Kehutanan - Kawasan Hutan
   // ======================================================
@@ -1999,6 +2094,30 @@ const Kerawanan = () => {
       setLoadingLayerNames((prev) => new Set([...prev, tableName]));
       setLayerError("");
 
+      // Tunggu layout browser stabil sebelum menghitung extent SIGAP.
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      });
+
+      // Batalkan jika ada permintaan baru atau instance map berubah.
+      if (
+        layerRequestSeqRef.current[tableName] !== requestId ||
+        mapInstanceRef.current !== mapAtRequest ||
+        !isLeafletMapUsable(mapAtRequest)
+      ) {
+        return;
+      }
+
+      // Sinkronkan ukuran Leaflet sebelum membaca bounds dan size.
+      safeInvalidateMapSize();
+
+      const mapSize = mapAtRequest.getSize();
+      if (mapSize.x <= 0 || mapSize.y <= 0) {
+        throw new Error("Ukuran container peta belum siap");
+      }
+
       const viewport = mapAtRequest.getBounds();
       const viewportBounds: [[number, number], [number, number]] = [
         [viewport.getSouth(), viewport.getWest()],
@@ -2065,12 +2184,66 @@ const Kerawanan = () => {
         zIndex: 430,
       });
 
+      // Refresh dan clipping ulang setelah gambar SIGAP benar-benar siap.
+      overlay.once("load", () => {
+        if (
+          layerRequestSeqRef.current[tableName] !== requestId ||
+          mapInstanceRef.current !== mapAtRequest ||
+          !isLeafletMapUsable(mapAtRequest)
+        ) {
+          return;
+        }
+
+        requestAnimationFrame(() => {
+          safeInvalidateMapSize();
+
+          requestAnimationFrame(() => {
+            if (
+              layerRequestSeqRef.current[tableName] !== requestId ||
+              mapInstanceRef.current !== mapAtRequest
+            ) {
+              return;
+            }
+
+            const currentClipAreas =
+              selectedAreaBencanaClipPathRef.current?.areas ||
+              getDeepestSelectedAdminAreas(selectedAreas);
+
+            if (currentClipAreas.length && selectedDas.length === 0) {
+              applyBencanaClipToLayer(tableName, currentClipAreas);
+            }
+          });
+        });
+      });
+
       if (!safeAddMapLayer(mapAtRequest, overlay)) {
         throw new Error("Leaflet gagal menambahkan layer SIGAP Kawasan Hutan");
       }
 
       layerGroupsRef.current[tableName] = overlay;
       layerCacheRef.current.set(tableName, overlay);
+
+      const selectedAdminClipAreas =
+        selectedAreaBencanaClipPathRef.current?.areas ||
+        getDeepestSelectedAdminAreas(selectedAreas);
+
+      if (selectedAdminClipAreas.length && selectedDas.length === 0) {
+        requestAnimationFrame(() =>
+          applyBencanaClipToLayer(tableName, selectedAdminClipAreas),
+        );
+      }
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (
+            layerRequestSeqRef.current[tableName] === requestId &&
+            mapInstanceRef.current === mapAtRequest
+          ) {
+            safeInvalidateMapSize();
+          }
+        });
+      });
+
       void loadSigapKawasanHutanLegend();
       console.log("SIGAP Kawasan Hutan aktif", {
         bbox,
@@ -2172,6 +2345,7 @@ const Kerawanan = () => {
   const loadLayerInBounds = async (
     tableName: string,
     customBounds?: [[number, number], [number, number]],
+    targetTab?: string,
   ) => {
     if (!mapInstanceRef.current || !window.L) {
       console.log("Map not ready");
@@ -2215,17 +2389,29 @@ const Kerawanan = () => {
         [viewport.getSouth(), viewport.getWest()],
         [viewport.getNorth(), viewport.getEast()],
       ];
-      const boundsToUse = customBounds || currentBounds || viewportBounds;
+
+      // Semua layer, termasuk kerawanan pada tampilan nasional, dibatasi
+      // pada viewport aktif agar backend tidak memindai seluruh Indonesia.
+      // Flag nasional tetap dipakai untuk pagination agar fitur di viewport
+      // tidak terpotong ketika jumlahnya melebihi FEATURE_LIMIT.
+      const isNationalRiskView =
+        BENCANA_FOCUS_LAYERS.has(apiLayerName) &&
+        selectedAreas.length === 0 &&
+        selectedDas.length === 0;
+      const boundsToUse = isNationalRiskView
+        ? viewportBounds
+        : customBounds || currentBounds || viewportBounds;
 
       if (boundsToUse) {
         const [[minLat, minLng], [maxLat, maxLng]] = boundsToUse;
         boundsString = `${minLat},${minLng},${maxLat},${maxLng}`;
-      } else {
-        boundsString = "-11,95,6,141";
       }
 
-      // Build URL dengan filter administrasi/DAS
-      let url = `${API_URL}/api/layers/${apiLayerName}/geojson?bounds=${encodeURIComponent(boundsString)}&zoom=${zoom}`;
+      // Build URL dengan filter viewport, administrasi, dan/atau DAS.
+      // Pagination nasional hanya mengambil halaman fitur yang berpotongan
+      // dengan viewport, bukan seluruh geometri Indonesia.
+      let url = `${API_URL}/api/layers/${apiLayerName}/geojson?zoom=${zoom}`;
+      if (boundsString) url += `&bounds=${encodeURIComponent(boundsString)}`;
 
       // Prioritas: DAS > Administrasi
       if (selectedDas.length > 0) {
@@ -2274,41 +2460,112 @@ const Kerawanan = () => {
       };
       if (authToken) requestHeaders.Authorization = `Bearer ${authToken}`;
 
-      const response = await fetch(url, {
-        method: "GET",
-        headers: requestHeaders,
-        credentials: "same-origin",
-      });
+      // Mode nasional tetap mengambil seluruh fitur pada viewport, tetapi
+      // halaman berikutnya diambil paralel (2 request) agar tidak menunggu
+      // rangkaian request serial yang panjang. View lokal tetap satu request.
+      const allNationalFeatures: any[] = [];
+      let pageOffset = 0;
+      let geojsonData: any = null;
+      let continueNationalPaging = true;
+      const nationalPageSize = 2000;
 
-      const responseText = await response.text();
-      let geojsonData: any;
-      try {
-        geojsonData = responseText ? JSON.parse(responseText) : null;
-      } catch {
-        throw new Error(
-          `Respons API layer bukan JSON yang valid (HTTP ${response.status}).`,
+      const fetchGeoJsonPage = async (offset: number) => {
+        const pageUrl = isNationalRiskView
+          ? `${url}&offset=${offset}`
+          : url;
+        const response = await fetch(pageUrl, {
+          method: "GET",
+          headers: requestHeaders,
+          credentials: "same-origin",
+        });
+
+        const responseText = await response.text();
+        let pageData: any;
+        try {
+          pageData = responseText ? JSON.parse(responseText) : null;
+        } catch {
+          throw new Error(
+            `Respons API layer bukan JSON yang valid (HTTP ${response.status}).`,
+          );
+        }
+
+        if (!response.ok) {
+          const detail =
+            pageData?.message ||
+            pageData?.error ||
+            response.statusText ||
+            "Permintaan GeoJSON gagal";
+          throw new Error(`HTTP ${response.status}: ${detail}`);
+        }
+
+        const pageGeoJson =
+          pageData?.type === "FeatureCollection"
+            ? pageData
+            : pageData?.geojson?.type === "FeatureCollection"
+              ? pageData.geojson
+              : pageData?.data?.type === "FeatureCollection"
+                ? pageData.data
+                : pageData;
+
+        if (!pageGeoJson || !Array.isArray(pageGeoJson.features)) {
+          throw new Error(
+            `Format GeoJSON untuk "${tableName}" tidak sesuai. Periksa respons endpoint ${apiLayerName}/geojson.`,
+          );
+        }
+
+        return { pageData, pageGeoJson };
+      };
+
+      // Halaman pertama wajib selesai lebih dulu untuk mengetahui apakah
+      // pagination diperlukan. Sesudah itu maksimal dua halaman diproses
+      // bersamaan untuk menjaga beban PostgreSQL tetap terkendali.
+      const firstPage = await fetchGeoJsonPage(0);
+
+      if (!isNationalRiskView) {
+        geojsonData = firstPage.pageGeoJson;
+        continueNationalPaging = false;
+      } else {
+        allNationalFeatures.push(...firstPage.pageGeoJson.features);
+        const firstPageSize =
+          Number(firstPage.pageData?.featureLimit) || nationalPageSize;
+        pageOffset = firstPageSize;
+        continueNationalPaging = Boolean(firstPage.pageData?.hasMore);
+
+        while (continueNationalPaging) {
+          const offsets = [pageOffset, pageOffset + firstPageSize];
+          const pages = await Promise.all(
+            offsets.map((offset) => fetchGeoJsonPage(offset)),
+          );
+
+          for (const page of pages) {
+            allNationalFeatures.push(...page.pageGeoJson.features);
+            pageOffset += firstPageSize;
+            continueNationalPaging = Boolean(page.pageData?.hasMore);
+
+            if (page.pageGeoJson.features.length === 0) {
+              continueNationalPaging = false;
+            }
+            if (!continueNationalPaging) break;
+          }
+
+          if (
+            layerRequestSeqRef.current[tableName] !== requestId ||
+            mapInstanceRef.current !== mapAtRequest ||
+            !isLeafletMapUsable(mapAtRequest)
+          ) {
+            console.log(`⏭️ Hentikan pagination stale untuk ${tableName}`);
+            return;
+          }
+        }
+
+        geojsonData = {
+          type: "FeatureCollection",
+          features: allNationalFeatures,
+        };
+        console.log(
+          `🇮🇩 Data nasional ${tableName}: ${allNationalFeatures.length} features dimuat`,
         );
       }
-
-      if (!response.ok) {
-        const detail =
-          geojsonData?.message ||
-          geojsonData?.error ||
-          response.statusText ||
-          "Permintaan GeoJSON gagal";
-        throw new Error(`HTTP ${response.status}: ${detail}`);
-      }
-
-      // Backend bisa mengembalikan FeatureCollection langsung atau membungkusnya
-      // dalam properti data/geojson. Normalisasi sebelum diproses Leaflet.
-      geojsonData =
-        geojsonData?.type === "FeatureCollection"
-          ? geojsonData
-          : geojsonData?.geojson?.type === "FeatureCollection"
-            ? geojsonData.geojson
-            : geojsonData?.data?.type === "FeatureCollection"
-              ? geojsonData.data
-              : geojsonData;
 
       if (!geojsonData || !Array.isArray(geojsonData.features)) {
         throw new Error(
@@ -3634,52 +3891,63 @@ const Kerawanan = () => {
         return;
       }
 
-      if (!safeAddMapLayer(mapAtRequest, layerGroup)) {
-        throw new Error(`Leaflet gagal menambahkan layer ${tableName}`);
-      }
+      // Cache layer terlebih dahulu. Layer hanya dipasang jika tab-nya aktif.
+      const hasBottomTab = layersWithBottomTabs.includes(tableName);
 
-      // Bencana sudah difilter oleh API berdasarkan selectedAreas/adminFilter.
-      // Jangan pasang SVG clip-path lagi karena dapat membuat polygon/marker hilang.
+      const tabMapping: Record<string, string> = {
+        tutupan_lahan: "tutupanLahan",
+        penutupan_lahan_2024: "penutupanLahan2024",
+        pl2024: "pl2024",
+        jenis_tanah: "jenisTanah",
+        geologi: "geologi",
+        lahan_kritis: "lahan_kritis",
+        rawan_erosi: "rawan_erosi",
+        rawan_banjir: "rawan_banjir",
+        rawan_longsor: "rawan_longsor",
+        rawan_limpasan: "rawan_limpasan",
+        rawan_karhutla: "rawan_karhutla",
+        bahaya_kekeringan: "bahaya_kekeringan",
+        bahaya_abrasi_dan_gelombang_ekstrim: "bahaya_abrasi",
+        bahaya_banjir: "bahaya_banjir",
+        bahaya_banjir_bandang: "bahaya_banjir_bandang",
+        dta_danau: "dta_danau",
+        rehabilitasi_das: "rehabilitasi_das",
+        rehabilitasi_hutan: "rehabilitasi_hutan",
+        restorasi_gambut: "restorasi_gambut",
+        penerapan_teknik_kta: "penerapan_teknik_kta",
+        karhutla_2021: "kebakaran_2021",
+        karhutla_2022: "kebakaran_2022",
+        karhutla_2023: "kebakaran_2023",
+        karhutla_2024: "kebakaran_2024",
+        karhutla_2025: "kebakaran_2025",
+        kawasan_hutan: "kawasan_hutan",
+        risiko_banjir: "risiko_banjir",
+        risiko_banjir_bandang: "risiko_banjir_bandang",
+        risiko_kekeringan: "risiko_kekeringan",
+        risiko_abrasi: "risiko_abrasi",
+        risiko_longsor: "risiko_longsor",
+        risiko_karhutla: "risiko_karhutla",
+        khdtk: "khdtk",
+      };
+
+      const isInfrastructureLayer = INFRA_IDS.includes(tableName as any);
+      const correspondingTab = isInfrastructureLayer
+        ? "mitigasi_adaptasi"
+        : tabMapping[tableName];
+
+      const shouldDisplayOnMap =
+        !hasBottomTab || correspondingTab === (targetTab || activeBottomTab);
 
       layerCacheRef.current.set(tableName, layerGroup);
 
-      // Cek apakah layer ini punya bottom tab
-      const hasBottomTab = layersWithBottomTabs.includes(tableName);
-
-      // Jika layer punya bottom tab, hanya tampilkan jika sesuai dengan activeBottomTab
-      if (hasBottomTab) {
-        // Mapping dari tableName ke tab id
-        const tabMapping: Record<string, string> = {
-          tutupan_lahan: "tutupanLahan",
-          penutupan_lahan_2024: "penutupanLahan2024",
-          pl2024: "pl2024",
-          jenis_tanah: "jenisTanah",
-          geologi: "geologi",
-          lahan_kritis: "lahan_kritis",
-          rawan_erosi: "rawan_erosi",
-          rawan_longsor: "rawan_longsor",
-          rawan_limpasan: "rawan_limpasan",
-          rawan_karhutla: "rawan_karhutla",
-        };
-
-        const correspondingTab = tabMapping[tableName];
-
-        // Hanya add ke map jika tab nya sedang aktif
-        if (correspondingTab === activeBottomTab) {
-          console.log(
-            `✅ Layer "${tableName}" ditampilkan (sesuai active tab)`,
-          );
-        } else {
-          console.log(
-            `💾 Layer "${tableName}" disimpan di cache (tab tidak aktif)`,
-          );
+      if (shouldDisplayOnMap) {
+        if (!safeAddMapLayer(mapAtRequest, layerGroup)) {
+          throw new Error(`Leaflet gagal menambahkan layer ${tableName}`);
         }
+        console.log(`SIMITI: layer ${tableName} dipasang pada tab ${activeBottomTab}`);
       } else {
-        // Layer tanpa bottom tab langsung ditampilkan
-        layerGroup.addTo(mapInstanceRef.current);
-        console.log(`✅ Layer "${tableName}" ditampilkan (no bottom tab)`);
+        console.log(`SIMITI: layer ${tableName} disimpan di cache; tab ${correspondingTab} belum aktif`);
       }
-
       // Pastikan request masih yang terbaru sebelum menyimpan reference layer.
       if (layerRequestSeqRef.current[tableName] !== requestId) {
         safeRemoveMapLayer(layerGroup);
@@ -6072,6 +6340,24 @@ const Kerawanan = () => {
 
     if (isChecked) {
       tableName = resolvedTableName;
+
+      const riskTabLayers = [
+        "risiko_banjir",
+        "risiko_banjir_bandang",
+        "risiko_kekeringan",
+        "risiko_abrasi",
+        "risiko_longsor",
+        "risiko_karhutla",
+      ];
+
+      const targetBottomTab = riskTabLayers.includes(tableName)
+        ? tableName
+        : undefined;
+
+      if (targetBottomTab) {
+        setActiveBottomTab(targetBottomTab);
+        setIsBottomSummaryOpen(true);
+      }
       // Tambahkan layer ke active layers
       setActiveLayers((prev) => new Set([...prev, tableName]));
 
@@ -6098,14 +6384,14 @@ const Kerawanan = () => {
         await loadKejadianLayer(tableName, year, category);
       } else if (isShapefile) {
         // Layer manual shapefile
-        await loadLayerInBounds(tableName);
+        await loadLayerInBounds(tableName, undefined, targetBottomTab);
       } else if (tableName.startsWith("kejadian_")) {
         // Fallback untuk format lama (hanya year)
         const yearFromName = parseInt(tableName.replace("kejadian_", ""));
         await loadKejadianLayer(tableName, yearFromName);
       } else {
         // Load layer biasa
-        await loadLayerInBounds(tableName);
+        await loadLayerInBounds(tableName, undefined, targetBottomTab);
       }
 
       // Jika ada polygon yang diklik langsung di peta (KHDTK atau polygon
@@ -6193,7 +6479,21 @@ const Kerawanan = () => {
       }
     } else {
       tableName = resolvedTableName;
-      // Hapus layer dari active layers DULU
+            // SIMITI_REQUEST_INVALIDATE_ON_UNCHECK
+      // Key harus sama dengan nama tabel yang dipakai loader API.
+      const apiTableName = normalizeLayerApiName(
+        resolveUiLayerName(tableName),
+      );
+      layerRequestSeqRef.current[apiTableName] =
+        (layerRequestSeqRef.current[apiTableName] || 0) + 1;
+
+      // Bersihkan cache alias UI dan API.
+      for (const cacheKey of new Set([tableName, apiTableName])) {
+        const cachedLayer = layerCacheRef.current.get(cacheKey);
+        if (cachedLayer) safeRemoveMapLayer(cachedLayer);
+        layerCacheRef.current.delete(cacheKey);
+      }
+// Hapus layer dari active layers DULU
       setActiveLayers((prev) => {
         const newSet = new Set(prev);
         newSet.delete(tableName);
@@ -12585,8 +12885,14 @@ const Kerawanan = () => {
   };
 
   return (
-    <div className="kerawanan-root flex h-screen w-full overflow-hidden bg-[#f4f7f6] text-slate-800">
+    <div className={`kerawanan-root flex h-screen w-full overflow-hidden bg-[#f4f7f6] text-slate-800 ${isLoadingLayer || loadingLayerNames.size > 0 ? "simiti-data-loading" : ""}`}>
       <style>{`
+        /* SIMITI: GLOBAL DATA LOADING CURSOR */
+        .kerawanan-root.simiti-data-loading,
+        .kerawanan-root.simiti-data-loading * {
+          cursor: progress !important;
+        }
+
         @media print {
           @page {
             size: A4 landscape;
@@ -14660,11 +14966,52 @@ const Kerawanan = () => {
             </section>
 
             {/* TITIK KLIK PETA — floating card terpisah dari panel kerawanan */}
-                      {mapWeatherPopup.latitude !== null &&
+                      {mapWeatherPopup.open &&
+                        mapWeatherPopup.latitude !== null &&
                         mapWeatherPopup.longitude !== null && (
-                          <div className="map-click-coordinate-card rounded-xl border border-sky-200 bg-sky-50/95 p-3">
-                            <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-sky-800">
-                              <span>📍</span> Informasi Titik Peta
+                          <div
+                            className="map-click-coordinate-card rounded-xl border border-sky-200 bg-sky-50/95 p-3"
+                            style={{ transform: `translate(${mapInfoOffset.x}px, ${mapInfoOffset.y}px)` }}
+                          >
+                            <div
+                              className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wider text-sky-800"
+                              style={{ cursor: "grab", touchAction: "none", userSelect: "none" }}
+                              onPointerDown={(event) => {
+                                if ((event.target as HTMLElement).closest("button")) return;
+                                mapInfoDragRef.current = {
+                                  pointerId: event.pointerId,
+                                  startX: event.clientX,
+                                  startY: event.clientY,
+                                  originX: mapInfoOffset.x,
+                                  originY: mapInfoOffset.y,
+                                };
+                                event.currentTarget.setPointerCapture(event.pointerId);
+                              }}
+                              onPointerMove={(event) => {
+                                const drag = mapInfoDragRef.current;
+                                if (!drag || drag.pointerId !== event.pointerId) return;
+                                setMapInfoOffset({
+                                  x: drag.originX + event.clientX - drag.startX,
+                                  y: drag.originY + event.clientY - drag.startY,
+                                });
+                              }}
+                              onPointerUp={(event) => {
+                                if (mapInfoDragRef.current?.pointerId === event.pointerId) mapInfoDragRef.current = null;
+                              }}
+                              onPointerCancel={() => { mapInfoDragRef.current = null; }}
+                            >
+                              <span className="flex items-center gap-2"><span>📍</span> Informasi Titik Peta <span className="text-[9px] font-normal normal-case text-sky-600">· </span></span>
+                              <button
+                                type="button"
+                                aria-label="Tutup Informasi Titik Peta"
+                                title="Tutup"
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onClick={closeMapWeatherPopup}
+                                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-sky-700 transition hover:bg-sky-200 hover:text-sky-950"
+                                style={{ cursor: "pointer" }}
+                              >
+                                <span aria-hidden="true" className="text-base leading-none">×</span>
+                              </button>
                             </div>
                             <div className="space-y-2">
                               <div>

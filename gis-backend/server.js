@@ -14496,6 +14496,7 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       tableName,
       bounds: bounds || null,
       zoom,
+      offset: req.query.offset ?? 0,
       adminLevel: adminLevel || null,
       hasDasFilter: Boolean(dasFilter),
       hasAdminFilter: Boolean(adminFilter),
@@ -14843,42 +14844,39 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       `;
 
       // ------------------------------------------------------------
-      // Spatial candidate filter.
-      //
-      // Ini menjaga performa: hanya geometry yang berpotongan
-      // dengan boundary yang diproses lebih lanjut.
+      // Spatial candidate filter + CLIPPING BERLAPIS.
+      // Jika DAS sudah dipilih, geometrySql di sini sudah merupakan
+      // hasil ST_Intersection dengan batas DAS. Karena itu boundary
+      // administrasi harus memotong hasil tersebut, bukan kembali
+      // memakai geometry asli l.geom/l.geom_valid.
       // ------------------------------------------------------------
+      const geometryBeforeAdminClip = `
+        CASE
+          WHEN ST_SRID((${geometrySql})) = 0
+            THEN ST_SetSRID(ST_Force2D((${geometrySql})), 4326)
+          ELSE ST_Force2D((${geometrySql}))
+        END
+      `;
+
       conditions.push(`
         admin_clip.clip_geom IS NOT NULL
         AND NOT ST_IsEmpty(admin_clip.clip_geom)
         AND ST_Intersects(
-          l.${geometryColumn},
+          ${geometryBeforeAdminClip},
           admin_clip.clip_geom
         )
       `);
 
       // ------------------------------------------------------------
-      // TRUE GEOMETRY CLIPPING
-      //
-      // Polygon risiko yang keluar boundary akan dipotong.
-      //
-      // ST_CollectionExtract(..., 3)
-      // mengambil geometry Polygon/MultiPolygon.
+      // TRUE GEOMETRY CLIPPING (DAS + ADMINISTRASI).
+      // Geometry hasil clipping DAS dipotong lagi dengan boundary
+      // administrasi. ST_Intersection mempertahankan tipe geometri
+      // hasil irisan dan tidak membuang feature non-polygon.
       // ------------------------------------------------------------
       geometrySql = `
-        ST_CollectionExtract(
-          ST_Intersection(
-            CASE
-              WHEN ST_SRID(l.${geometryColumn}) = 0
-                THEN ST_SetSRID(
-                  ST_Force2D(l.${geometryColumn}),
-                  4326
-                )
-              ELSE ST_Force2D(l.${geometryColumn})
-            END,
-            admin_clip.clip_geom
-          ),
-          3
+        ST_Intersection(
+          ${geometryBeforeAdminClip},
+          admin_clip.clip_geom
         )
       `;
 
@@ -14923,19 +14921,34 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       zoom <= 9 ? 7000 :
       zoom <= 11 ? 12000 :
       zoom <= 13 ? 18000 : 25000;
+
+    // Offset hanya dipakai untuk pagination nasional. Validasi ketat agar
+    // parameter tidak dapat menyisipkan SQL; urutan ctid stabil untuk halaman
+    // berurutan pada tabel yang tidak memiliki primary key seragam.
+    const requestedOffset = Number.parseInt(String(req.query.offset ?? "0"), 10);
+    const offset = Number.isFinite(requestedOffset)
+      ? Math.max(0, Math.min(100000000, requestedOffset))
+      : 0;
     const query = `
       SELECT
         ST_AsGeoJSON(ST_SimplifyPreserveTopology(${geometrySql}, ${simplifyTolerance}), 5) AS geometry,
         ${propertiesSql} AS properties
       ${fromSql}
       WHERE ${conditions.join(" AND ")}
-      LIMIT ${FEATURE_LIMIT}
+      ORDER BY l.ctid
+      LIMIT ${FEATURE_LIMIT + 1}
+      OFFSET ${offset}
     `;
 
+    const queryStartedAt = Date.now();
     const result = await client.query(query, params);
+    const queryDurationMs = Date.now() - queryStartedAt;
+    const hasMore = result.rows.length > FEATURE_LIMIT;
+    const pageRows = hasMore ? result.rows.slice(0, FEATURE_LIMIT) : result.rows;
+    const serializationStartedAt = Date.now();
     const features = [];
 
-    for (const row of result.rows) {
+    for (const row of pageRows) {
       if (!row.geometry) continue;
       try {
         features.push({
@@ -14954,9 +14967,19 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       }
     }
 
-    console.log(
-      `ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ [GEOJSON] ${tableName}: ${features.length} features (${Date.now() - startedAt}ms)`,
-    );
+    const serializationDurationMs = Date.now() - serializationStartedAt;
+    console.log("[GEOJSON] performance", {
+      tableName,
+      zoom,
+      bounds: bounds || null,
+      offset,
+      dbQueryMs: queryDurationMs,
+      geojsonBuildMs: serializationDurationMs,
+      totalBeforeResponseMs: Date.now() - startedAt,
+      rowsRead: result.rows.length,
+      featuresReturned: features.length,
+      hasMore,
+    });
 
     res.set("Cache-Control", "private, max-age=20");
     return res.json({
@@ -14964,7 +14987,9 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       features,
       featureLimit: FEATURE_LIMIT,
       zoom,
-      limitReached: result.rows.length === FEATURE_LIMIT,
+      hasMore,
+      nextOffset: hasMore ? offset + FEATURE_LIMIT : null,
+      limitReached: hasMore,
       success: true,
       layer: tableName,
     });
