@@ -1,435 +1,22 @@
 import React, { useState, useEffect, useRef } from "react";
-import {
-  area as turfArea,
-  bbox as turfBbox,
-  featureCollection as turfFeatureCollection,
-  intersect as turfIntersect,
-} from "@turf/turf";
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "./api";
-import Header from "./header";
-import Sidebar from "./components/layouts/Sidebar";
-
-type GpsLocationState = {
-  loading: boolean;
-  error: string;
-  latitude: number | null;
-  longitude: number | null;
-  accuracy: number | null;
-  locationName: string;
-  village: string;
-  district: string;
-  city: string;
-  province: string;
-  displayName: string;
-  updatedAt: string | null;
-};
-
-type GpsThreatItem = {
-  key: string;
-  label: string;
-  status: string | null;
-  score: number | null;
-  distanceMeters: number | null;
-  inside: boolean;
-  source: string;
-};
-
-type GpsThreatState = {
-  loading: boolean;
-  error: string;
-  threats: GpsThreatItem[];
-  riskStatus: string | null;
-  riskScore: number | null;
-  updatedAt: string | null;
-};
 
 const Kerawanan = () => {
-  // ============================================================
-  // ENTERPRISE SIDEBAR — UI ONLY
-  // Tidak mengubah logic GIS, API, layer, legend, atau data.
-  // ============================================================
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-
-  // ============================================================
-  // SIMITI Leaflet safety:
-  // Bersihkan CircleMarker legacy/stale dari layer bencana.
-  // CircleMarker tidak digunakan untuk layer bencana polygon.
-  // ============================================================
-  const cleanupLegacyBencanaCircleMarkers = () => {
-    try {
-      const map: any = mapInstanceRef.current;
-
-      if (!map || typeof map.eachLayer !== "function") return;
-
-      const remove: any[] = [];
-
-      map.eachLayer((layer: any) => {
-        if (!layer) return;
-
-        // CircleMarker / Circle memiliki _latlng dan _radius.
-        const isCircleMarker =
-          layer instanceof window.L.CircleMarker ||
-          (layer._latlng &&
-            typeof layer._radius === "number" &&
-            typeof layer.setRadius === "function");
-
-        if (!isCircleMarker) return;
-
-        const feature = layer.feature;
-        const tableName =
-          feature?.properties?.table_name ||
-          feature?.properties?.layer_name ||
-          feature?.properties?.layer ||
-          feature?.properties?.source_layer ||
-          layer?.options?.__simitibencanaTable;
-
-        if (tableName && BENCANA_FOCUS_LAYERS.has(String(tableName))) {
-          remove.push(layer);
-        }
-      });
-
-      remove.forEach((layer) => {
-        try {
-          map.removeLayer(layer);
-        } catch (error) {
-          console.warn(
-            "SIMITI: gagal remove legacy bencana CircleMarker:",
-            error,
-          );
-        }
-      });
-
-      if (remove.length > 0) {
-        console.warn(
-          `SIMITI: removed ${remove.length} legacy bencana CircleMarker`,
-        );
-      }
-    } catch (error) {
-      console.warn("SIMITI: cleanup legacy bencana CircleMarker gagal:", error);
-    }
-  };
-  // ============================================================
-  // SIMITI Leaflet resize safety
-  //
-  // L.circle() untuk GPS accuracy adalah subclass CircleMarker
-  // secara internal. Saat invalidateSize(), Leaflet dapat mencoba
-  // me-render ulang circle tersebut ketika renderer/path belum siap.
-  //
-  // GPS position + radius TIDAK diubah.
-  // Circle hanya dilepas sementara selama invalidateSize().
-  // ============================================================
-  const safeInvalidateMapSize = () => {
-    const map: any = mapInstanceRef.current;
-
-    if (
-      !map ||
-      typeof map.invalidateSize !== "function" ||
-      typeof map.getContainer !== "function" ||
-      !map.getContainer() ||
-      !map._loaded
-    ) {
-      return;
-    }
-
-    const gpsCircle: any = gpsAccuracyCircleRef.current;
-    const gpsCircleIsOnMap =
-      !!gpsCircle &&
-      typeof map.hasLayer === "function" &&
-      map.hasLayer(gpsCircle);
-
-    try {
-      // GPS circle tidak diubah; hanya dikeluarkan sementara
-      // dari renderer saat resize.
-      if (gpsCircleIsOnMap) {
-        map.removeLayer(gpsCircle);
-      }
-
-      map.invalidateSize({
-        pan: false,
-        animate: false,
-      });
-    } catch (error) {
-      console.warn("SIMITI: invalidateSize ResizeObserver dilewati:", error);
-    } finally {
-      // Pasang kembali circle GPS yang sama.
-      if (
-        gpsCircleIsOnMap &&
-        gpsCircle &&
-        map &&
-        map._loaded &&
-        typeof map.addLayer === "function"
-      ) {
-        try {
-          map.addLayer(gpsCircle);
-        } catch (restoreError) {
-          console.warn(
-            "SIMITI: gagal restore GPS accuracy circle setelah resize:",
-            restoreError,
-          );
-        }
-      }
-    }
-  };
-
-  // UI-only state; declared before every hook/render reference.
-  const [isBottomSummaryOpen, setIsBottomSummaryOpen] = useState(false);
-
-  // Leaflet needs a size recalculation after the bottom grid row collapses/expands.
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      safeInvalidateMapSize();
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [isBottomSummaryOpen]);
-
-  const [isRightLayerPanelOpen, setIsRightLayerPanelOpen] = useState(true);
-
   const mapRef = useRef(null);
-  const [baseMapType, setBaseMapType] = useState<"road" | "satellite">("road");
-  const roadBaseLayerRef = useRef<any>(null);
-  const satelliteBaseLayerRef = useRef<any>(null);
   const mapInstanceRef = useRef(null);
-  const mapInitializingRef = useRef(false);
-  const mapWeatherMarkerRef = useRef<any>(null);
-  const selectedVillagePolygonRef = useRef<any>(null);
-  const gpsMarkerRef = useRef<any>(null);
-  const gpsAccuracyCircleRef = useRef<any>(null);
-  const gpsRequestSeqRef = useRef(0);
-  const gpsRenderFrameRef = useRef<number | null>(null);
-  const locationSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  const locationSearchRequestRef = useRef(0);
   const layerGroupsRef = useRef({});
-
-  const [enterpriseIdentify, setEnterpriseIdentify] = useState<{
-    open: boolean;
-    loading: boolean;
-    layerName: string;
-    layerLabel: string;
-    objectLabel: string;
-    latitude: number | null;
-    longitude: number | null;
-    areaHa: number | null;
-    properties: Record<string, any>;
-    geometry?: any;
-    source?: string;
-  }>({
-    open: false,
-    loading: false,
-    layerName: "",
-    layerLabel: "",
-    objectLabel: "Objek GIS",
-    latitude: null,
-    longitude: null,
-    areaHa: null,
-    properties: {},
-    geometry: null,
-    source: "SIMITI GIS",
-  });
-  const enterpriseIdentifyHighlightRef = useRef<any>(null);
-
   const navigate = useNavigate();
-  const [showMenuDropdown, setShowMenuDropdown] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [activeLayers, setActiveLayers] = useState<Set<string>>(new Set());
-  const [sigapKawasanHutanLegend, setSigapKawasanHutanLegend] = useState<
-    Array<{
-      label: string;
-      imageData?: string;
-      contentType?: string;
-      color?: string;
-      values?: string[];
-    }>
-  >([]);
-  const [sigapKawasanHutanLegendLoading, setSigapKawasanHutanLegendLoading] =
-    useState(false);
-  const [sigapKawasanHutanSearch, setSigapKawasanHutanSearch] = useState("");
-  const [selectedSigapKawasanHutanClass, setSelectedSigapKawasanHutanClass] =
-    useState<string | null>(null);
-  const selectedSigapKawasanHutanClassRef = useRef<string | null>(null);
-  // UI-only: synchronize Leaflet with the map container after panel resize.
-  useEffect(() => {
-    const el = mapRef.current;
-    if (!el) return;
-
-    const refresh = () => {
-      try {
-        cleanupLegacyBencanaCircleMarkers();
-
-        const map = mapInstanceRef.current as any;
-
-        if (
-          !map ||
-          typeof map.invalidateSize !== "function" ||
-          typeof map.getContainer !== "function" ||
-          !map.getContainer() ||
-          !map._loaded
-        ) {
-          return;
-        }
-
-        requestAnimationFrame(() => {
-          try {
-            safeInvalidateMapSize();
-          } catch (error) {
-            console.warn("SIMITI: safeInvalidateMapSize dilewati:", error);
-          }
-        });
-      } catch (error) {
-        console.warn("SIMITI: refresh ukuran map dilewati:", error);
-      }
-    };
-
-    const observer = new ResizeObserver(() => {
-      requestAnimationFrame(refresh);
-    });
-
-    observer.observe(el);
-
-    const timers = [50, 350, 700].map((ms) => window.setTimeout(refresh, ms));
-
-    window.addEventListener("resize", refresh);
-
-    return () => {
-      observer.disconnect();
-      timers.forEach((timer) => window.clearTimeout(timer));
-      window.removeEventListener("resize", refresh);
-    };
-  }, [isRightLayerPanelOpen]);
-
-  useEffect(() => {
-    selectedSigapKawasanHutanClassRef.current = selectedSigapKawasanHutanClass;
-  }, [selectedSigapKawasanHutanClass]);
-  const activeLayersRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    activeLayersRef.current = activeLayers;
-  }, [activeLayers]);
   const [isLoadingLayer, setIsLoadingLayer] = useState(false);
   const [loadingLayerNames, setLoadingLayerNames] = useState<Set<string>>(
     new Set(),
   );
   const [layerError, setLayerError] = useState<string>("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-
-  // ======================================================
-  // ENTERPRISE USER LAYER AUTHORIZATION
-  // can_view menjadi sumber kebenaran untuk layer lokal.
-  // null = belum ada token/authorization belum diterapkan.
-  // Set kosong = user terautentikasi tetapi tidak punya akses layer.
-  // ======================================================
-  const [authorizedLayerNames, setAuthorizedLayerNames] =
-    useState<Set<string> | null>(null);
-  const [authorizationLoaded, setAuthorizationLoaded] = useState(false);
-  const [authorizationError, setAuthorizationError] = useState("");
-
-  const getAuthToken = () => {
-    return (
-      localStorage.getItem("smiti_token") ||
-      sessionStorage.getItem("smiti_token") ||
-      localStorage.getItem("adminToken") ||
-      sessionStorage.getItem("adminToken") ||
-      localStorage.getItem("token") ||
-      localStorage.getItem("access_token") ||
-      localStorage.getItem("authToken") ||
-      ""
-    );
-  };
-
-  const normalizeAuthorizationLayerName = (name: string) => {
-    const aliases: Record<string, string> = {
-      "97": "kawasan_hutan",
-      "103": "khdtk",
-    };
-    const normalized = String(name || "")
-      .trim()
-      .toLowerCase();
-    return aliases[normalized] || normalized;
-  };
-
-  // Halaman Kerawanan adalah WebGIS publik untuk masyarakat umum.
-  // Layer publik tidak mensyaratkan login/token authorization.
-  const isLayerAuthorized = (_name: string) => true;
-
-  const filterAuthorizedLayerList = (items: any[] = []) =>
-    items.filter((item) => isLayerAuthorized(item?.name ?? item?.id));
-
-  const filterAuthorizedLayerData = (data: any) => {
-    if (!data || authorizedLayerNames === null) return data;
-    return {
-      ...data,
-      kerawanan: filterAuthorizedLayerList(data.kerawanan || []),
-      mitigasiAdaptasi: filterAuthorizedLayerList(data.mitigasiAdaptasi || []),
-      lainnya: filterAuthorizedLayerList(data.lainnya || []),
-      // Auto kejadian tetap tersedia; layer manual tetap melewati authorization.
-      kejadian: (data.kejadian || []).filter(
-        (item: any) =>
-          item?.isAutoGenerated || isLayerAuthorized(item?.name ?? item?.id),
-      ),
-    };
-  };
-
-  // Tidak memanggil /api/my-layer-authorizations pada halaman publik.
-  // Authorization khusus pengguna tetap dapat diterapkan pada halaman admin terpisah.
-  const loadMyLayerAuthorizations = async () => {
-    setAuthorizationError("");
-    setAuthorizedLayerNames(null);
-    setAuthorizationLoaded(true);
-  };
-
-  const layerCacheRef = useRef<Map<string, any>>(new Map());
-  const [hoveredLayerKey, setHoveredLayerKey] = useState<string | null>(null);
-  const [hoveredLayerType, setHoveredLayerType] = useState<string | null>(null);
-  const [hoveredLayerColor, setHoveredLayerColor] = useState<string | null>(
-    null,
-  );
-
-  // Legend yang dipilih dengan CLICK harus tetap aktif setelah mouse keluar.
-  // Hover tetap bersifat sementara; click menjadi highlight/pilihan permanen.
-  const [selectedLegendKey, setSelectedLegendKey] = useState<string | null>(
-    null,
-  );
-  const [selectedLegendType, setSelectedLegendType] = useState<string | null>(
-    null,
-  );
-  const [selectedLegendColor, setSelectedLegendColor] = useState<string | null>(
-    null,
-  );
-
-  // ============================================================
-  // SIMITI - SELECTED SPATIAL FEATURE
-  // Menyimpan polygon/layer yang benar-benar diklik user.
-  // Digunakan agar klik legenda kerawanan hanya diterapkan
-  // ke feature yang sedang dipilih, bukan melebar ke seluruh
-  // wilayah/layer.
-  // ============================================================
-  const selectedSpatialFeatureRef = useRef<{
-    layerType: string;
-    feature: any;
-    layer: any;
-    originalColor?: string;
-  } | null>(null);
-  const selectedSpatialFeatureClipListenersRef = useRef<any[]>([]);
-
-  // Legenda layer: awalnya hanya nama layer yang tampil.
-  // Klik nama layer untuk membuka/menutup kelas + warna legend.
-  const [expandedRiskLegendLayers, setExpandedRiskLegendLayers] = useState<
-    Set<string>
-  >(new Set());
-
-  const toggleRiskLegendLayer = (name: string) => {
-    setExpandedRiskLegendLayers((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-  };
-
   const [selectedAreas, setSelectedAreas] = useState<
     Array<{
       label: string;
@@ -438,12 +25,6 @@ const Kerawanan = () => {
       kab_kota?: string;
       kecamatan?: string;
       kel_desa?: string;
-      geom?: any;
-      latitude?: number | null;
-      longitude?: number | null;
-      lat?: number | string | null;
-      lon?: number | string | null;
-      lng?: number | string | null;
     }>
   >([]);
   const [adminLevel, setAdminLevel] = useState<
@@ -452,7 +33,6 @@ const Kerawanan = () => {
   const [areaSearchQuery, setAreaSearchQuery] = useState("");
   const [areaSearchResults, setAreaSearchResults] = useState<Array<any>>([]);
   const [showAreaSearchDropdown, setShowAreaSearchDropdown] = useState(false);
-  const [locationSearchLoading, setLocationSearchLoading] = useState(false);
   const [selectedDas, setSelectedDas] = useState<
     Array<{
       label: string;
@@ -491,80 +71,6 @@ const Kerawanan = () => {
     lainnya: [],
     kejadian: [],
   });
-  // =========================
-  // Open-Meteo integration
-  // =========================
-  type OpenMeteoCurrent = {
-    time?: string;
-    temperature_2m?: number;
-    relative_humidity_2m?: number;
-    apparent_temperature?: number;
-    precipitation?: number;
-    rain?: number;
-    weather_code?: number;
-    cloud_cover?: number;
-    wind_speed_10m?: number;
-    wind_direction_10m?: number;
-    wind_gusts_10m?: number;
-    surface_pressure?: number;
-  };
-
-  type OpenMeteoWeatherState = {
-    loading: boolean;
-    error: string;
-    latitude: number | null;
-    longitude: number | null;
-    current: OpenMeteoCurrent | null;
-    daily?: {
-      time?: string[];
-      precipitation_sum?: number[];
-      rain_sum?: number[];
-    } | null;
-    updatedAt: string | null;
-  };
-
-  type MapWeatherPopupState = {
-    open: boolean;
-    loading: boolean;
-    error: string;
-    latitude: number | null;
-    longitude: number | null;
-    locationName: string;
-    district: string;
-    province: string;
-    current: OpenMeteoCurrent | null;
-    dailyRain: number | null;
-    updatedAt: string | null;
-  };
-
-  const [openMeteoWeather, setOpenMeteoWeather] =
-    useState<OpenMeteoWeatherState>({
-      loading: false,
-      error: "",
-      latitude: null,
-      longitude: null,
-      current: null,
-      daily: null,
-      updatedAt: null,
-    });
-
-  const [mapWeatherPopup, setMapWeatherPopup] = useState<MapWeatherPopupState>({
-    open: false,
-    loading: false,
-    error: "",
-    latitude: null,
-    longitude: null,
-    locationName: "Lokasi dipilih",
-    district: "",
-    province: "",
-    current: null,
-    dailyRain: null,
-    updatedAt: null,
-  });
-  // Posisi panel Informasi Titik Peta dapat digeser tanpa mengubah proses identify.
-  const [mapInfoOffset, setMapInfoOffset] = useState({ x: 0, y: 0 });
-  const mapInfoDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null);
-
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [currentSection, setCurrentSection] = useState<
@@ -586,24 +92,6 @@ const Kerawanan = () => {
       .join(" ");
   };
   const [tutupanLahanData, setTutupanLahanData] = useState<
-    Array<{
-      pl2024_id: number;
-      deskripsi_domain: string;
-      luas_total: number;
-      color?: string;
-    }>
-  >([]);
-
-  const [penutupanLahan2024Data, setPenutupanLahan2024Data] = useState<
-    Array<{
-      pl2024_id: number;
-      deskripsi_domain: string;
-      luas_total: number;
-      color?: string;
-    }>
-  >([]);
-
-  const [pl2024Data, setPL2024Data] = useState<
     Array<{
       pl2024_id: number;
       deskripsi_domain: string;
@@ -664,218 +152,8 @@ const Kerawanan = () => {
     }>
   >([]);
 
-  const [risikoData, setRisikoData] = useState<{
-    risiko_banjir: Array<{ kelas: string; luas: number; color?: string }>;
-    risiko_banjir_bandang: Array<{
-      kelas: string;
-      luas: number;
-      color?: string;
-    }>;
-    risiko_kekeringan: Array<{ kelas: string; luas: number; color?: string }>;
-    risiko_abrasi: Array<{ kelas: string; luas: number; color?: string }>;
-    risiko_longsor: Array<{ kelas: string; luas: number; color?: string }>;
-    risiko_karhutla: Array<{ kelas: string; luas: number; color?: string }>;
-  }>({
-    risiko_banjir: [],
-    risiko_banjir_bandang: [],
-    risiko_kekeringan: [],
-    risiko_abrasi: [],
-    risiko_longsor: [],
-    risiko_karhutla: [],
-  });
-
-  const [khdtkData, setKhdtkData] = useState<
-    Array<{
-      namobj: string;
-      lsktap: number;
-      jnskhdtk: string;
-      color?: string;
-    }>
-  >([]);
-
-  const INFRA_LAYERS = [
-    {
-      id: "bendung",
-      label: "Bendung",
-      color: "#E24B4A",
-      cols: [
-        { h: "Nama", k: "nama_infra" },
-        { h: "Kondisi", k: "kondisi_ba" },
-        { h: "Kondisi Teknis", k: "teknis_kon" },
-        { h: "Kelurahan", k: "kelurahan" },
-        { h: "Kecamatan", k: "kecamatan" },
-        { h: "Kabupaten/Kota", k: "kabkot_nam" },
-        { h: "Provinsi", k: "prov_name" },
-        { h: "Daerah Aliran", k: "daerah_ali" },
-      ],
-    },
-    {
-      id: "bendungan",
-      label: "Bendungan",
-      color: "#EF9F27",
-      cols: [
-        { h: "Nama", k: "nama_infra" },
-        { h: "Kondisi", k: "kondisi_ba" },
-        { h: "Kelurahan", k: "kelurahan" },
-        { h: "Kecamatan", k: "kecamatan" },
-        { h: "Kabupaten/Kota", k: "kabkot_nam" },
-        { h: "Provinsi", k: "prov_name" },
-        { h: "Daerah Aliran", k: "daerah_ali" },
-      ],
-    },
-    {
-      id: "danau",
-      label: "Danau",
-      color: "#1D9E75",
-      cols: [
-        { h: "Nama", k: "nama_aset" },
-        { h: "Kelurahan", k: "kelurahan" },
-        { h: "Kecamatan", k: "kecamatan" },
-        { h: "Kabupaten/Kota", k: "kabkot_nam" },
-        { h: "Provinsi", k: "prov_name" },
-        { h: "Daerah Aliran", k: "daerah_ali" },
-      ],
-    },
-    {
-      id: "embung",
-      label: "Embung",
-      color: "#378ADD",
-      cols: [
-        { h: "Nama", k: "nama_infra" },
-        { h: "Kondisi", k: "kondisi_ba" },
-        { h: "Sumber Air", k: "teknis_sum" },
-        { h: "Kelurahan", k: "kelurahan" },
-        { h: "Kecamatan", k: "kecamatan" },
-        { h: "Kabupaten/Kota", k: "kabkot_nam" },
-        { h: "Provinsi", k: "prov_name" },
-        { h: "Daerah Aliran", k: "daerah_ali" },
-      ],
-    },
-    {
-      id: "situ",
-      label: "Situ",
-      color: "#7F77DD",
-      cols: [
-        { h: "Nama", k: "nama_aset" },
-        { h: "Kelurahan", k: "kelurahan" },
-        { h: "Kecamatan", k: "kecamatan" },
-        { h: "Kabupaten/Kota", k: "kabkot_nam" },
-        { h: "Provinsi", k: "prov_name" },
-        { h: "Daerah Aliran", k: "daerah_ali" },
-      ],
-    },
-    {
-      id: "pengaman_pantai",
-      label: "Pengaman Pantai",
-      color: "#2C2C2A",
-      cols: [
-        { h: "Nama", k: "nama_infra" },
-        { h: "Kondisi", k: "kondisi_ba" },
-        { h: "Kondisi Teknis", k: "teknis_kon" },
-        { h: "Kelurahan", k: "kelurahan" },
-        { h: "Kecamatan", k: "kecamatan" },
-        { h: "Kabupaten/Kota", k: "kabkot_nam" },
-        { h: "Provinsi", k: "provinsi" },
-        { h: "Daerah Aliran", k: "daerah_ali" },
-      ],
-    },
-    {
-      id: "pengendali_sedimen",
-      label: "Pengendali Sedimen",
-      color: "#D4537E",
-      cols: [
-        { h: "Nama", k: "nama_infra" },
-        { h: "Kondisi", k: "kondisi_ba" },
-        { h: "Kondisi Teknis", k: "teknis_kon" },
-        { h: "Kelurahan", k: "kelurahan" },
-        { h: "Kecamatan", k: "kecamatan" },
-        { h: "Kabupaten/Kota", k: "kabkot_nam" },
-        { h: "Provinsi", k: "prov_name" },
-        { h: "Daerah Aliran", k: "daerah_ali" },
-      ],
-    },
-    {
-      id: "pompa_air",
-      label: "Pompa Air",
-      color: "#888780",
-      cols: [
-        { h: "Nama", k: "nama_infra" },
-        { h: "Kondisi", k: "kondisi_ba" },
-        { h: "Kondisi Teknis", k: "teknis_kon" },
-        { h: "Kelurahan", k: "kelurahan" },
-        { h: "Kecamatan", k: "kecamatan" },
-        { h: "Kabupaten/Kota", k: "kabkot_nam" },
-        { h: "Provinsi", k: "prov_name" },
-        { h: "Daerah Aliran", k: "daerah_ali" },
-      ],
-    },
-  ] as const;
-
-  const INFRA_IDS = INFRA_LAYERS.map((l) => l.id);
-
-  const [infraData, setInfraData] = useState<
-    Record<string, Array<Record<string, any>>>
-  >({
-    bendung: [],
-    bendungan: [],
-    danau: [],
-    embung: [],
-    situ: [],
-    pengaman_pantai: [],
-    pengendali_sedimen: [],
-    pompa_air: [],
-  });
-
-  const [bahayaKekeringanData, setBahayaKekeringanData] = useState<
-    Array<{ kelas: string; luas: number; color?: string }>
-  >([]);
-  const [bahayaAbrasiData, setBahayaAbrasiData] = useState<
-    Array<{ kelas: string; luas: number; color?: string }>
-  >([]);
-  const [bahayaBanjirData, setBahayaBanjirData] = useState<
-    Array<{ kelas: string; luas: number; color?: string }>
-  >([]);
-  const [bahayaBanjirBandangData, setBahayaBanjirBandangData] = useState<
-    Array<{ kelas: string; luas: number; color?: string }>
-  >([]);
-  const [dtaDanauData, setDtaDanauData] = useState<
-    Array<{ tipe_danau: string; luas: number; color?: string }>
-  >([]);
-  const [rehabilitasiDasData, setRehabilitasiDasData] = useState<
-    Array<{ bpdas: string; luas: number; color?: string }>
-  >([]);
-  const [rehabilitasiHutanData, setRehabilitasiHutanData] = useState<
-    Array<{ jenis_tana: string; luas: number; color?: string }>
-  >([]);
-  const [restorasiGambutData, setRestorasiGambutData] = useState<
-    Array<{ jenis: string; bahan: string }>
-  >([]);
-  const [penerapanTeknikKtaData, setPenerapanTeknikKtaData] = useState<
-    Array<{ das: string; subdas: string }>
-  >([]);
-  const [kebakaran2021Data, setKebakaran2021Data] = useState<
-    Array<{ periode: string; color?: string }>
-  >([]);
-  const [kebakaran2022Data, setKebakaran2022Data] = useState<
-    Array<{ periode: string; luas: number; color?: string }>
-  >([]);
-  const [kebakaran2023Data, setKebakaran2023Data] = useState<
-    Array<{ periode: string; color?: string }>
-  >([]);
-  const [kebakaran2024Data, setKebakaran2024Data] = useState<
-    Array<{ periode: string; luas: number; color?: string }>
-  >([]);
-  const [kebakaran2025Data, setKebakaran2025Data] = useState<
-    Array<{ periode: string; luas: number; color?: string }>
-  >([]);
-  const [kawasanHutanData, setKawasanHutanData] = useState<
-    Array<{ fungsikws: string; deskripsi_domain: string; color?: string }>
-  >([]);
-
   const colorMappingRef = useRef<{
     tutupanLahan: Map<string, string>;
-    penutupanLahan2024: Map<string, string>;
-    pl2024: Map<string, string>;
     geologi: Map<string, string>;
     jenisTanah: Map<string, string>;
     lahanKritis: Map<string, string>;
@@ -883,30 +161,8 @@ const Kerawanan = () => {
     rawanLongsor: Map<string, string>;
     rawanLimpasan: Map<string, string>;
     rawanKarhutla: Map<string, string>;
-    bahayaKekeringan: Map<string, string>;
-    bahayaAbrasi: Map<string, string>;
-    bahayaBanjir: Map<string, string>;
-    bahayaBanjirBandang: Map<string, string>;
-    dtaDanau: Map<string, string>;
-    rehabilitasiDas: Map<string, string>;
-    rehabilitasiHutan: Map<string, string>;
-    kebakaran2021: Map<string, string>;
-    kebakaran2022: Map<string, string>;
-    kebakaran2023: Map<string, string>;
-    kebakaran2024: Map<string, string>;
-    kebakaran2025: Map<string, string>;
-    kawasanHutan: Map<string, string>;
-    risikoBanjir: Map<string, string>;
-    risikoBanjirBandang: Map<string, string>;
-    risikoKekeringan: Map<string, string>;
-    risikoAbrasi: Map<string, string>;
-    risikoLongsor: Map<string, string>;
-    risikoKarhutla: Map<string, string>;
-    khdtk: Map<string, string>;
   }>({
     tutupanLahan: new Map(),
-    penutupanLahan2024: new Map(),
-    pl2024: new Map(),
     geologi: new Map(),
     jenisTanah: new Map(),
     lahanKritis: new Map(),
@@ -914,60 +170,27 @@ const Kerawanan = () => {
     rawanLongsor: new Map(),
     rawanLimpasan: new Map(),
     rawanKarhutla: new Map(),
-    bahayaKekeringan: new Map(),
-    bahayaAbrasi: new Map(),
-    bahayaBanjir: new Map(),
-    bahayaBanjirBandang: new Map(),
-    dtaDanau: new Map(),
-    rehabilitasiDas: new Map(),
-    rehabilitasiHutan: new Map(),
-    kebakaran2021: new Map(),
-    kebakaran2022: new Map(),
-    kebakaran2023: new Map(),
-    kebakaran2024: new Map(),
-    kebakaran2025: new Map(),
-    kawasanHutan: new Map(),
-    risikoBanjir: new Map(),
-    risikoBanjirBandang: new Map(),
-    risikoKekeringan: new Map(),
-    risikoAbrasi: new Map(),
-    risikoLongsor: new Map(),
-    risikoKarhutla: new Map(),
-    khdtk: new Map(),
   });
 
-  const lastHighlightedRef = useRef<{
-    layerId: string;
-    resetFn: () => void;
-  } | null>(null);
+  const tutupanLahanColors = [
+    "#10B981",
+    "#3B82F6",
+    "#F59E0B",
+    "#EF4444",
+    "#8B5CF6",
+    "#EC4899",
+    "#14B8A6",
+    "#F97316",
+    "#6366F1",
+    "#84CC16",
+    "#06B6D4",
+    "#A855F7",
+    "#EAB308",
+    "#22C55E",
+    "#0EA5E9",
+  ];
 
-  const tutupanLahanColors = {
-    "Hutan Lahan Kering Primer": "#00B050",
-    "Hutan Lahan Kering Sekunder": "#92D050",
-    "Hutan Rawa Primer": "#00B050",
-    "Hutan Rawa Sekunder": "#92D050",
-    "Hutan Mangrove Primer": "#70AD47",
-    "Hutan Mangrove Sekunder": "#A9D08E",
-    Savana: "#FFFF00",
-    "Hutan Tanaman": "#C6E0B4",
-    Perkebunan: "#E2EFDA",
-    "Pertanian Lahan Kering": "#FFFF00",
-    "Pertanian Lahan Kering Campur": "#FFFF00",
-    "Permukiman Transmigrasi": "#548235",
-    Sawah: "#00FFFF",
-    Tambak: "#00B0F0",
-    "Tanah Terbuka": "#FFC000",
-    "Lahan Terbuka": "#FFC000", // Tambahkan alias untuk Lahan Terbuka
-    Pertambangan: "#C00000",
-    Permukiman: "#7F7F7F",
-    "Bandara/ Pelabuhan": "#FF00FF",
-    Rawa: "#BF8F00",
-    Awan: "#D9D9D9",
-    "Semak Belukar": "#FFC000",
-    "Semak Belukar Rawa": "#FFC000",
-    "Tubuh Air": "#0070C0",
-  };
-
+  // Perbesar geologiColors menjadi 30+ warna
   const geologiColors = [
     "#FF0000", // Red
     "#00FF00", // Lime
@@ -1072,11 +295,11 @@ const Kerawanan = () => {
 
   // Warna untuk rawan erosi (berdasarkan tingkat)
   const rawanErosiColors = {
-    "<= 15 Ton/Ha/Tahun": "#90EE90", // Sangat Rendah - Light Green
-    "> 15 - 60 Ton/Ha/Tahun": "#FFFF00", // Rendah - Yellow
-    "> 60 - 180 Ton/Ha/Tahun": "#FFA500", // Sedang - Orange
-    "> 180 - 480 Ton/Ha/Tahun": "#FF0000", // Tinggi - Red
-    "> 480 Ton/Ha/Tahun": "#8B0000", // Sangat Tinggi - Dark Red
+    "Sangat Tinggi": "#8B0000",
+    Tinggi: "#FF0000",
+    Sedang: "#FFA500",
+    Rendah: "#FFFF00",
+    "Sangat Rendah": "#90EE90",
   };
 
   // Warna untuk rawan longsor
@@ -1108,65 +331,6 @@ const Kerawanan = () => {
     Rendah: "#FFFF00",
   };
 
-  const bahayaKelasColors: Record<string, string> = {
-    Tinggi: "#FF0000",
-    Sedang: "#FFA500",
-    Rendah: "#FFFF00",
-  };
-
-  const dtaDanauColors: Record<string, string> = {
-    TEKTONIK: "#1E90FF",
-    BUATAN: "#4682B4",
-    VULKANIK: "#FF4500",
-    "TEKTO-VULKANIK": "#FF6347",
-    "PAPARAN BANJIR": "#00BFFF",
-    "SUNGAI TERBENDUNG": "#87CEEB",
-  };
-
-  const randomColorPalette = [
-    "#FF6B6B",
-    "#4ECDC4",
-    "#45B7D1",
-    "#FFA07A",
-    "#98D8C8",
-    "#F7DC6F",
-    "#BB8FCE",
-    "#85C1E2",
-    "#F8B739",
-    "#52BE80",
-    "#EC7063",
-    "#5DADE2",
-    "#F1948A",
-    "#73C6B6",
-    "#F39C12",
-    "#AED6F1",
-    "#F8C471",
-    "#82E0AA",
-    "#E59866",
-    "#D7BDE2",
-    "#FF9FF3",
-    "#54A0FF",
-    "#5F27CD",
-    "#00D2D3",
-    "#01ABC2",
-    "#FF6348",
-    "#2ED573",
-    "#1E90FF",
-    "#FFA502",
-    "#ECCC68",
-  ];
-
-  const getRandomColor = (
-    key: string,
-    colorMapRef: Map<string, string>,
-  ): string => {
-    if (colorMapRef.has(key)) return colorMapRef.get(key)!;
-    const idx = colorMapRef.size % randomColorPalette.length;
-    const color = randomColorPalette[idx];
-    colorMapRef.set(key, color);
-    return color;
-  };
-
   const [kejadianPhotos, setKejadianPhotos] = useState<
     Array<{
       id: number;
@@ -1183,1246 +347,269 @@ const Kerawanan = () => {
   >(new Map());
   const [kejadianListings, setKejadianListings] = useState<Array<any>>([]);
 
-  // Guard untuk mencegah race condition ketika beberapa request GeoJSON
-  // selesai bersamaan (mis. toggle + pan/zoom). Hanya request terbaru
-  // yang boleh mengganti layer di peta.
-  const layerRequestSeqRef = useRef<Record<string, number>>({});
-
-  const isLeafletMapUsable = (map: any) => {
-    return !!(
-      map &&
-      map._loaded &&
-      map._container &&
-      map._container._leaflet_id
-    );
-  };
-
-  const safeRemoveMapLayer = (layer: any) => {
-    const map = mapInstanceRef.current;
-    if (!isLeafletMapUsable(map) || !layer) return;
-    try {
-      if (map.hasLayer(layer)) map.removeLayer(layer);
-    } catch (error) {
-      console.warn("⚠️ Leaflet gagal remove layer, dilewati:", error);
-    }
-  };
-
-  const safeAddMapLayer = (map: any, layer: any) => {
-    if (!isLeafletMapUsable(map) || !layer) return false;
-    try {
-      layer.addTo(map);
-      return true;
-    } catch (error) {
-      console.warn("⚠️ Leaflet gagal add layer, dilewati:", error);
-      return false;
-    }
-  };
-
-  // ======================================================
-  // SELECTED AREA BENCANA CLIP
-  // Hanya geometry layer bencana yang dipotong mengikuti
-  // area terpilih. Layer/daerah lain tetap tampil normal.
-  // ======================================================
-  const selectedAreaBencanaClipIdRef = useRef<string>(
-    `simitibencanaClip_${Math.random().toString(36).slice(2, 10)}`,
-  );
-  const selectedAreaBencanaClipPathRef = useRef<any>(null);
-  const selectedAreaBencanaClipListenersRef = useRef<any[]>([]);
-
-  const BENCANA_FOCUS_LAYERS = new Set([
-    "bahaya_kekeringan",
-    "bahaya_abrasi_dan_gelombang_ekstrim",
-    "bahaya_banjir",
-    "bahaya_banjir_bandang",
-    "risiko_banjir",
-    "risiko_banjir_bandang",
-    "risiko_kekeringan",
-    "risiko_abrasi",
-    "risiko_longsor",
-    "risiko_karhutla",
-    "rawan_banjir",
-    "rawan_longsor",
-    "rawan_karhutla",
-    "rawan_erosi",
-    "rawan_limpasan",
-  ]);
-  // SIMITI_OVERLAP_HATCH_V2
-  const riskOverlapHatchLayerRef = useRef<any>(null);
-
-  const refreshRiskOverlapHatch = () => {
-    const map = mapInstanceRef.current;
-    const L = (window as any).L;
-    if (!map || !L) return;
-
-    try {
-      const oldOverlay = riskOverlapHatchLayerRef.current;
-      if (oldOverlay && map.hasLayer(oldOverlay)) map.removeLayer(oldOverlay);
-      riskOverlapHatchLayerRef.current = null;
-
-      const items: Array<{ name: string; feature: any; bounds: number[] }> = [];
-      for (const [name, group] of layerCacheRef.current.entries()) {
-        if (!BENCANA_FOCUS_LAYERS.has(String(name))) continue;
-        if (!group || !map.hasLayer(group)) continue;
-
-        group.eachLayer((child: any) => {
-          const feature = child?.feature;
-          if (!["Polygon", "MultiPolygon"].includes(feature?.geometry?.type)) return;
-          try {
-            const bounds = turfBbox(feature);
-            if (bounds.length === 4 && bounds.every(Number.isFinite)) {
-              items.push({ name: String(name), feature, bounds });
-            }
-          } catch {
-            // Abaikan geometri yang tidak valid.
-          }
-        });
-      }
-
-      const overlaps: any[] = [];
-      let checked = 0;
-      for (let i = 0; i < items.length && checked < 12000; i++) {
-        for (let j = i + 1; j < items.length && checked < 12000; j++) {
-          if (items[i].name === items[j].name) continue;
-          checked++;
-
-          const a = items[i].bounds;
-          const b = items[j].bounds;
-          if (a[0] > b[2] || b[0] > a[2] || a[1] > b[3] || b[1] > a[3]) continue;
-
-          try {
-            const result = turfIntersect(
-              turfFeatureCollection([items[i].feature, items[j].feature]) as any
-            );
-            if (
-              result?.geometry &&
-              ["Polygon", "MultiPolygon"].includes(result.geometry.type) &&
-              turfArea(result) >= 10
-            ) {
-              overlaps.push(result);
-              if (overlaps.length >= 120) break;
-            }
-          } catch {
-            // Abaikan pasangan yang gagal dihitung.
-          }
-        }
-        if (overlaps.length >= 120) break;
-      }
-
-      if (!overlaps.length) return;
-
-      const overlay = L.geoJSON(
-        { type: "FeatureCollection", features: overlaps },
-        {
-          pane: "overlayPane",
-          interactive: false,
-          style: {
-            color: "#111827",
-            weight: 1,
-            opacity: 0.85,
-            fillColor: "#111827",
-            fillOpacity: 0,
-          },
-        }
-      );
-
-      overlay.addTo(map);
-      overlay.eachLayer((child: any) => {
-        const svg = child?._path?.ownerSVGElement;
-        if (!svg) return;
-
-        const ns = "http://www.w3.org/2000/svg";
-        let defs = svg.querySelector('defs[data-simiti-hatch="v2"]');
-        if (!defs) {
-          defs = document.createElementNS(ns, "defs");
-          defs.setAttribute("data-simiti-hatch", "v2");
-
-          const pattern = document.createElementNS(ns, "pattern");
-          pattern.setAttribute("id", "simiti-risk-hatch-v2");
-          pattern.setAttribute("patternUnits", "userSpaceOnUse");
-          pattern.setAttribute("width", "8");
-          pattern.setAttribute("height", "8");
-
-          const line = document.createElementNS(ns, "path");
-          line.setAttribute("d", "M-2,2 L2,-2 M0,8 L8,0 M6,10 L10,6");
-          line.setAttribute("fill", "none");
-          line.setAttribute("stroke", "#111827");
-          line.setAttribute("stroke-width", "1.4");
-          pattern.appendChild(line);
-          defs.appendChild(pattern);
-          svg.insertBefore(defs, svg.firstChild);
-        }
-
-        child.setStyle({
-          color: "#111827",
-          weight: 1,
-          opacity: 0.85,
-          fillColor: "url(#simiti-risk-hatch-v2)",
-          fillOpacity: 1,
-        });
-      });
-
-      riskOverlapHatchLayerRef.current = overlay;
-      console.log("SIMITI OVERLAP HATCH:", overlaps.length, "irisan");
-    } catch (error) {
-      console.warn("SIMITI: gagal memperbarui arsiran:", error);
-    }
-  };
-
-  // Warna enterprise per JENIS BENCANA.
-  // Warna ini dipakai ketika layer bencana ditampilkan pada area terpilih,
-  // sehingga pengguna langsung dapat membedakan jenis ancamannya.
-  const BENCANA_LAYER_COLORS: Record<string, string> = {
-    // Karhutla = merah
-    rawan_karhutla: "#DC2626",
-    risiko_karhutla: "#DC2626",
-
-    // Banjir = hijau
-    bahaya_banjir: "#16A34A",
-    risiko_banjir: "#16A34A",
-
-    // Banjir bandang = hijau kebiruan
-    bahaya_banjir_bandang: "#0F766E",
-    risiko_banjir_bandang: "#0F766E",
-
-    // Longsor = oranye
-    rawan_longsor: "#EA580C",
-    risiko_longsor: "#EA580C",
-
-    // Kekeringan = kuning/amber
-    bahaya_kekeringan: "#D97706",
-    risiko_kekeringan: "#D97706",
-
-    // Abrasi/gelombang = biru
-    bahaya_abrasi_dan_gelombang_ekstrim: "#2563EB",
-    risiko_abrasi: "#2563EB",
-
-    // Erosi = cokelat
-    rawan_erosi: "#92400E",
-
-    // Limpasan = ungu
-    rawan_limpasan: "#7C3AED",
-  };
-
-  const getBencanaLayerColor = (tableName: string): string =>
-    BENCANA_LAYER_COLORS[String(tableName)] || "#64748B";
-
-  // Kelas kerawanan memakai warna konsisten pada peta dan legenda.
-  // Jika sumber memakai label lain, warna dasar jenis bencana tetap digunakan.
-  const getRiskClassColor = (value: unknown, fallback: string): string => {
-    const kelas = String(value ?? "").trim().toLowerCase();
-    if (!kelas) return fallback;
-    if (/\b(sangat\s*tinggi|very\s*high)\b/.test(kelas)) return "#991B1B";
-    if (/\b(rendah|low|aman|minim)\b/.test(kelas)) return "#22C55E";
-    if (/\b(sedang|medium|moderate)\b/.test(kelas)) return "#F59E0B";
-    if (/\b(tinggi|high|berat)\b/.test(kelas)) return "#EF4444";
-    return fallback;
-  };
-
-  const getBencanaFeatureClass = (feature: any): string => {
-    const props = feature?.properties || {};
-    const candidates = [
-      props.kelas,
-      props.tingkat_risiko,
-      props.tingkat_bahaya,
-      props.kelas_risiko,
-      props.kelas_bahaya,
-      props.risk_level,
-      props.hazard_level,
-      props.keterangan,
-      props.unsur,
-      props.limpasan,
-    ];
-    return String(candidates.find((value) => value != null && String(value).trim()) ?? "");
-  };
-
-  const areaGeomToLatLngRings = (geom: any): number[][][] => {
-    if (!geom) return [];
-
-    const normalizeRing = (ring: any[]) =>
-      Array.isArray(ring)
-        ? (ring
-            .map((point: any) => {
-              const lng = Number(point?.[0]);
-              const lat = Number(point?.[1]);
-              return Number.isFinite(lat) && Number.isFinite(lng)
-                ? [lat, lng]
-                : null;
-            })
-            .filter(Boolean) as number[][])
-        : [];
-
-    if (geom.type === "Feature") {
-      return areaGeomToLatLngRings(geom.geometry);
-    }
-
-    if (geom.type === "Polygon") {
-      const ring = normalizeRing(geom.coordinates?.[0]);
-      return ring.length >= 3 ? [ring] : [];
-    }
-
-    if (geom.type === "MultiPolygon") {
-      return (geom.coordinates || [])
-        .map((polygon: any) => normalizeRing(polygon?.[0]))
-        .filter((ring: number[][]) => ring.length >= 3);
-    }
-
-    if (geom.type === "GeometryCollection") {
-      return (geom.geometries || []).flatMap((item: any) =>
-        areaGeomToLatLngRings(item),
-      );
-    }
-
-    return [];
-  };
-
-  // ======================================================
-  // BENCANA CLIP — renderer-safe per SVG
-  // Clip dibuat di SVG renderer yang benar-benar memiliki path
-  // bencana. Ini mencegah warna/geometri bencana bocor ke daerah
-  // tetangga ketika area administrasi dipilih.
-  // ======================================================
-  // Ambil hanya level administrasi terdalam yang dipilih.
-  // Contoh: Provinsi > Kabupaten > Kecamatan > Kelurahan, maka
-  // clip memakai polygon Kelurahan saja (bukan gabungan parent-child).
-  const getDeepestSelectedAdminAreas = (areas: Array<any> = selectedAreas) => {
-    const levelPriority: Record<string, number> = {
-      provinsi: 1,
-      kabupaten: 2,
-      kecamatan: 3,
-      kelurahan: 4,
-    };
-    const validAreas = (areas || []).filter((area: any) => area?.geom);
-    if (!validAreas.length) return [];
-    const deepest = Math.max(
-      ...validAreas.map((area: any) => levelPriority[String(area?.level)] || 0),
-    );
-    return validAreas.filter(
-      (area: any) => (levelPriority[String(area?.level)] || 0) === deepest,
-    );
-  };
-
-  const buildBencanaClipD = (map: any, areas: Array<any>) => {
-    const rings = areas.flatMap((area: any) =>
-      areaGeomToLatLngRings(area?.geom),
-    );
-
-    return rings
-      .map((ring: number[][]) => {
-        const points = ring
-          .map(([lat, lng]) => map.latLngToLayerPoint([lat, lng]))
-          .filter(
-            (point: any) =>
-              Number.isFinite(point?.x) && Number.isFinite(point?.y),
-          );
-
-        if (points.length < 3) return "";
-
-        return (
-          `M ${points[0].x} ${points[0].y} ` +
-          points
-            .slice(1)
-            .map((point: any) => `L ${point.x} ${point.y}`)
-            .join(" ") +
-          " Z"
-        );
-      })
-      .filter(Boolean)
-      .join(" ");
-  };
-
-  const getOrCreateClipForSvg = (
-    svg: SVGSVGElement,
-    clipId: string,
-    d: string,
-  ) => {
-    if (!svg || !d) return null;
-
-    let defs = svg.querySelector("defs") as SVGDefsElement | null;
-    if (!defs) {
-      defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-      svg.insertBefore(defs, svg.firstChild);
-    }
-
-    let clipPath = defs.querySelector(
-      `#${clipId}`,
-    ) as SVGClipPathElement | null;
-    if (!clipPath) {
-      clipPath = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "clipPath",
-      );
-      clipPath.setAttribute("id", clipId);
-      clipPath.setAttribute("clipPathUnits", "userSpaceOnUse");
-      defs.appendChild(clipPath);
-    }
-
-    clipPath.setAttribute("clip-rule", "evenodd");
-    clipPath.style.clipRule = "evenodd";
-
-    while (clipPath.firstChild) clipPath.removeChild(clipPath.firstChild);
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", d);
-    path.setAttribute("fill-rule", "evenodd");
-    path.setAttribute("clip-rule", "evenodd");
-    clipPath.appendChild(path);
-
-    return clipPath;
-  };
-
-  // ======================================================
-  // DAS CLIP — renderer-safe per SVG
-  // API dasFilter membatasi feature yang dikirim backend, tetapi
-  // satu polygon kerawanan bisa memotong batas DAS. Karena itu
-  // geometry yang dirender juga dipotong mengikuti geometry DAS.
-  // ======================================================
-  const selectedDasClipIdRef = useRef<string>(
-    `simitidasClip_${Math.random().toString(36).slice(2, 10)}`,
-  );
-  const selectedDasClipListenersRef = useRef<any[]>([]);
-
-  const isDasClipLayer = (tableName: string) =>
-    BENCANA_FOCUS_LAYERS.has(String(tableName));
-
-  const applyDasClipToLayer = (
-    tableName: string,
-    dasList: Array<any> = selectedDas,
-  ) => {
-    if (!isDasClipLayer(String(tableName))) return;
-    const layerGroup = layerGroupsRef.current[tableName];
-    const map = mapInstanceRef.current;
-    if (!layerGroup || !map || !dasList.length) return;
-
-    const d = buildBencanaClipD(map, dasList);
-    if (!d) return;
-
-    try {
-      layerGroup.eachLayer((layer: any) => {
-        const path = layer?._path as SVGPathElement | undefined;
-        const svg = path?.ownerSVGElement;
-        if (!path || !svg) return;
-
-        const safeId = String(
-          layer?._leaflet_id ||
-            `${tableName}_${Math.random().toString(36).slice(2, 8)}`,
-        ).replace(/[^a-zA-Z0-9_-]/g, "_");
-        const clipId = `${selectedDasClipIdRef.current}_${safeId}`;
-        const clipPath = getOrCreateClipForSvg(svg, clipId, d);
-        if (!clipPath) return;
-
-        path.setAttribute("clip-path", `url(#${clipId})`);
-      });
-    } catch (error) {
-      console.warn("SIMITI: gagal memasang clip DAS:", error);
-    }
-  };
-
-  const clearSelectedDasClip = () => {
-    const map = mapInstanceRef.current;
-
-    selectedDasClipListenersRef.current.forEach(({ event, handler }: any) => {
-      try {
-        map?.off?.(event, handler);
-      } catch {}
-    });
-    selectedDasClipListenersRef.current = [];
-
-    BENCANA_FOCUS_LAYERS.forEach((tableName) => {
-      const layerGroup = layerGroupsRef.current[tableName];
-      if (!layerGroup) return;
-      try {
-        layerGroup.eachLayer((layer: any) => {
-          if (layer?._path?.removeAttribute) {
-            layer._path.removeAttribute("clip-path");
-          }
-        });
-      } catch {}
-    });
-
-    try {
-      const overlayPane = map?.getPanes?.()?.overlayPane;
-      overlayPane?.querySelectorAll?.("svg defs").forEach((defs: any) => {
-        defs
-          .querySelectorAll?.(
-            `clipPath[id^="${selectedDasClipIdRef.current}_"]`,
-          )
-          .forEach((node: any) => node.remove());
-      });
-    } catch {}
-  };
-
-  const syncSelectedDasClip = (
-    dasList: Array<any>,
-    forceLayerNames: string[] = [],
-  ) => {
-    const map = mapInstanceRef.current;
-    if (!map || !window.L) return;
-
-    clearSelectedDasClip();
-    if (!dasList.length) return;
-
-    const activeNames = new Set([
-      ...Array.from(activeLayersRef.current).map((name) => String(name)),
-      ...forceLayerNames.map((name) => String(name)),
-    ]);
-
-    const activeKerawanan = Array.from(activeNames).filter((name) =>
-      isDasClipLayer(name),
-    );
-    if (!activeKerawanan.length) return;
-
-    const updateClip = () => {
-      activeKerawanan.forEach((tableName) =>
-        applyDasClipToLayer(tableName, dasList),
-      );
-    };
-
-    updateClip();
-
-    ["zoom", "move", "resize", "zoomend", "moveend"].forEach((event) => {
-      map.on(event, updateClip);
-      selectedDasClipListenersRef.current.push({ event, handler: updateClip });
-    });
-
-    console.log("🎯 SIMITI DAS clip aktif:", {
-      das: dasList.map((das: any) => das?.nama_das || das?.label),
-      layers: activeKerawanan,
-    });
-  };
-
-  const applyBencanaClipToLayer = (
-    tableName: string,
-    areas: Array<any> = selectedAreas,
-  ) => {
-    const layerGroup = layerGroupsRef.current[tableName];
-    const map = mapInstanceRef.current;
-
-    if (!layerGroup || !map || !areas?.length) return;
-
-    const d = buildBencanaClipD(map, areas);
-    if (!d) return;
-
-    try {
-      // IMAGE OVERLAY / RASTER
-      const imageElement = layerGroup.getElement?.() as
-        | HTMLImageElement
-        | undefined;
-
-      if (imageElement) {
-        const bounds = layerGroup.getBounds?.();
-
-        if (bounds) {
-          const northWest = bounds.getNorthWest();
-          const origin = map.latLngToLayerPoint(northWest);
-
-          const imagePath = areas
-            .flatMap((area: any) =>
-              areaGeomToLatLngRings(area?.geom),
-            )
-            .map((ring: number[][]) => {
-              const points = ring
-                .map(([lat, lng]) => {
-                  const point = map.latLngToLayerPoint([lat, lng]);
-
-                  return {
-                    x: point.x - origin.x,
-                    y: point.y - origin.y,
-                  };
-                })
-                .filter(
-                  (point: any) =>
-                    Number.isFinite(point.x) &&
-                    Number.isFinite(point.y),
-                );
-
-              if (points.length < 3) return "";
-
-              return (
-                `M ${points[0].x} ${points[0].y} ` +
-                points
-                  .slice(1)
-                  .map((point: any) => `L ${point.x} ${point.y}`)
-                  .join(" ") +
-                " Z"
-              );
-            })
-            .filter(Boolean)
-            .join(" ");
-
-          if (imagePath) {
-            const cssClip = `path("${imagePath}")`;
-
-            imageElement.style.setProperty("clip-path", cssClip);
-            imageElement.style.setProperty("-webkit-clip-path", cssClip);
-            imageElement.dataset.simitiAdminClip =
-              selectedAreaBencanaClipIdRef.current;
-          }
-        }
-      }
-
-      // VECTOR / GEOJSON
-      layerGroup.eachLayer?.((layer: any) => {
-        const path = layer?._path as SVGPathElement | undefined;
-        const svg = path?.ownerSVGElement;
-
-        if (!path || !svg) return;
-
-        const safeId = String(
-          layer?._leaflet_id ||
-            `${tableName}_${Math.random().toString(36).slice(2, 8)}`,
-        ).replace(/[^a-zA-Z0-9_-]/g, "_");
-
-        const clipId =
-          `${selectedAreaBencanaClipIdRef.current}_${safeId}`;
-
-        const clipPath = getOrCreateClipForSvg(svg, clipId, d);
-
-        if (!clipPath) return;
-
-        path.setAttribute("clip-path", `url(#${clipId})`);
-      });
-    } catch (error) {
-      console.warn(
-        "SIMITI: gagal memasang clipping administrasi:",
-        tableName,
-        error,
-      );
-    }
-  };
-  // ============================================================
-  // SIMITI - CLIP BENCANA KE POLYGON YANG DIKLIK LANGSUNG
-  // Mendukung KHDTK maupun polygon non-risiko yang dipilih di peta.
-  // ============================================================
-  const applyBencanaClipToSelectedKhdtk = (tableName: string) => {
-    if (!BENCANA_FOCUS_LAYERS.has(String(tableName))) return;
-
-    const selected = selectedSpatialFeatureRef.current;
-    const layerGroup = layerGroupsRef.current[tableName];
-    const map = mapInstanceRef.current;
-
-    if (!selected?.feature?.geometry || !layerGroup || !map) return;
-
-    const geometryType = selected.feature.geometry.type;
-    if (geometryType !== "Polygon" && geometryType !== "MultiPolygon") return;
-
-    try {
-      const d = buildBencanaClipD(map, [{ geom: selected.feature.geometry }]);
-      if (!d) return;
-
-      layerGroup.eachLayer((layer: any) => {
-        const path = layer?._path as SVGPathElement | undefined;
-        const svg = path?.ownerSVGElement;
-        if (!path || !svg) return;
-
-        const safeId = String(
-          layer?._leaflet_id ||
-            `${tableName}_${Math.random().toString(36).slice(2, 8)}`,
-        ).replace(/[^a-zA-Z0-9_-]/g, "_");
-        const clipId = `${selectedAreaBencanaClipIdRef.current}_selected_${safeId}`;
-        const clipPath = getOrCreateClipForSvg(svg, clipId, d);
-        if (!clipPath) return;
-
-        path.setAttribute("clip-path", `url(#${clipId})`);
-      });
-
-      console.log("SIMITI: risiko di-clip ke polygon peta terpilih:", {
-        layerType: selected.layerType,
-        tableName,
-        name:
-          selected.feature?.properties?.namobj ||
-          selected.feature?.properties?.kel_desa ||
-          selected.feature?.properties?.nama ||
-          selected.feature?.properties?.name ||
-          "Polygon terpilih",
-      });
-    } catch (error) {
-      console.warn("SIMITI: gagal clip risiko ke polygon terpilih:", error);
-    }
-  };
-  const syncSelectedSpatialFeatureBencanaClip = () => {
-    const map = mapInstanceRef.current;
-    selectedSpatialFeatureClipListenersRef.current.forEach(({ event, handler }: any) => {
-      try { map?.off?.(event, handler); } catch {}
-    });
-    selectedSpatialFeatureClipListenersRef.current = [];
-
-    const selected = selectedSpatialFeatureRef.current;
-    if (!map || !selected?.feature?.geometry) return;
-
-    const update = () => {
-      Array.from(activeLayersRef.current).forEach((activeName) => {
-        if (BENCANA_FOCUS_LAYERS.has(String(activeName))) {
-          applyBencanaClipToSelectedKhdtk(String(activeName));
-        }
-      });
-    };
-
-    update();
-    ["zoom", "move", "resize", "zoomend", "moveend"].forEach((event) => {
-      map.on(event, update);
-      selectedSpatialFeatureClipListenersRef.current.push({ event, handler: update });
-    });
-  };
-
-  const removeBencanaClipFromLayers = () => {
-    const clipPrefix = selectedAreaBencanaClipIdRef.current;
-
-    Object.entries(layerGroupsRef.current).forEach(
-      ([tableName, layerGroup]: [string, any]) => {
-        if (!layerGroup) return;
-
-        try {
-          // Bersihkan raster yang diberi clipping administrasi SIMITI.
-          const imageElement = layerGroup.getElement?.() as
-            | HTMLImageElement
-            | undefined;
-
-          if (
-            imageElement?.dataset?.simitiAdminClip === clipPrefix
-          ) {
-            imageElement.style.removeProperty("clip-path");
-            imageElement.style.removeProperty("-webkit-clip-path");
-            delete imageElement.dataset.simitiAdminClip;
-          }
-
-          // Bersihkan vector hanya jika clip berasal dari administrasi.
-          layerGroup.eachLayer?.((layer: any) => {
-            const path = layer?._path as
-              | SVGPathElement
-              | undefined;
-
-            if (!path) return;
-
-            const currentClip = path.getAttribute("clip-path") || "";
-
-            if (currentClip.includes(`url(#${clipPrefix}_`)) {
-              path.removeAttribute("clip-path");
-            }
-          });
-        } catch (error) {
-          console.warn(
-            "SIMITI: gagal membersihkan clipping:",
-            tableName,
-            error,
-          );
-        }
-      },
-    );
-  };
-  const clearSelectedAreaBencanaClip = () => {
-    const map = mapInstanceRef.current;
-
-    selectedAreaBencanaClipListenersRef.current.forEach(
-      ({ event, handler }: any) => {
-        try {
-          map?.off?.(event, handler);
-        } catch {}
-      },
-    );
-    selectedAreaBencanaClipListenersRef.current = [];
-
-    removeBencanaClipFromLayers();
-
-    // Hapus clipPath SIMITI dari semua SVG renderer yang digunakan map.
-    try {
-      const overlayPane = map?.getPanes?.()?.overlayPane;
-      overlayPane?.querySelectorAll?.("svg defs").forEach((defs: any) => {
-        defs
-          .querySelectorAll?.(
-            `clipPath[id^="${selectedAreaBencanaClipIdRef.current}_"]`,
-          )
-          .forEach((node: any) => node.remove());
-      });
-    } catch {}
-
-    selectedAreaBencanaClipPathRef.current = null;
-  };
-
-  const syncSelectedAreaBencanaClip = (
-    areas: Array<any>,
-    forceLayerNames: string[] = [],
-  ) => {
-    const map = mapInstanceRef.current;
-    if (!map || !window.L) return;
-
-    clearSelectedAreaBencanaClip();
-
-    if (!areas.length) return;
-
-    const effectiveAreas = getDeepestSelectedAdminAreas(areas);
-    if (!effectiveAreas.length) return;
-
-    const activeLayerNames = new Set([
-      ...Array.from(activeLayersRef.current).map((name) => String(name)),
-      ...forceLayerNames.map((name) => String(name)),
-    ]);
-
-    const updateClip = () => {
-      activeLayerNames.forEach((tableName) => {
-        if (layerGroupsRef.current[tableName]) {
-          applyBencanaClipToLayer(tableName, effectiveAreas);
-        }
-      });
-    };
-
-    selectedAreaBencanaClipPathRef.current = {
-      areas: effectiveAreas,
-      updateClip,
-    };
-
-    // Terapkan clipping langsung pada semua layer yang sudah aktif.
-    updateClip();
-
-    // Hitung ulang koordinat setelah peta berubah.
-    ["zoom", "move", "resize", "zoomend", "moveend"].forEach(
-      (event) => {
-        map.on(event, updateClip);
-
-        selectedAreaBencanaClipListenersRef.current.push({
-          event,
-          handler: updateClip,
-        });
-      },
-    );
-
-    console.log("SIMITI: clipping administrasi seluruh layer aktif", {
-      layers: Array.from(activeLayerNames),
-      areas: effectiveAreas.map((area: any) => area?.label),
-    });
-  };
-  // ======================================================
-  // SIGAP Kementerian Kehutanan - Kawasan Hutan
-  // ======================================================
-  const SIGAP_KAWASAN_HUTAN_MAPSERVER =
-    "https://geoportal.planologi.kehutanan.go.id/server/rest/services/Peta_Interaktif_2026/KWSHUTAN_AR_250K/MapServer";
-
-  const wgs84ToWebMercator = (latitude: number, longitude: number) => {
-    const R = 6378137;
-    const maxLat = 85.0511287798;
-    const lat = Math.max(-maxLat, Math.min(maxLat, latitude));
-    const lon = Math.max(-180, Math.min(180, longitude));
-    const x = R * ((lon * Math.PI) / 180);
-    const y = R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 180 / 2));
-    return { x, y };
-  };
-
-  const isSigapKawasanHutanLayer = (layerName: string) =>
-    layerName === "kawasan_hutan" || layerName === "97";
-
-  const loadSigapKawasanHutanLegend = async () => {
-    setSigapKawasanHutanLegendLoading(true);
-    try {
-      const response = await fetch(
-        `${SIGAP_KAWASAN_HUTAN_MAPSERVER}/legend?f=json`,
-        { headers: { Accept: "application/json" } },
-      );
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      const layer = Array.isArray(data?.layers)
-        ? data.layers.find(
-            (item: any) => String(item.layerId ?? item.id) === "0",
-          ) || data.layers[0]
-        : null;
-
-      const legend = Array.isArray(layer?.legend) ? layer.legend : [];
-      const normalized = legend
-        .map((item: any) => {
-          let color: string | undefined;
-          if (Array.isArray(item?.color)) {
-            const [r, g, b, a = 255] = item.color.map((v: any) => Number(v));
-            const alpha = Math.max(0, Math.min(1, a / 255));
-            color = `rgba(${r}, ${g}, ${b}, ${alpha})`;
-          } else if (item?.color) {
-            color = String(item.color);
-          }
-
-          const values = Array.isArray(item?.values)
-            ? item.values
-                .map((value: any) => String(value).trim())
-                .filter(Boolean)
-            : item?.value != null
-              ? [String(item.value).trim()]
-              : [];
-
-          return {
-            label: String(item?.label ?? values[0] ?? "Tidak berlabel").trim(),
-            imageData: item?.imageData ? String(item.imageData) : undefined,
-            contentType: item?.contentType
-              ? String(item.contentType)
-              : undefined,
-            color,
-            values,
-          };
-        })
-        .filter((item: any) => item.label);
-
-      setSigapKawasanHutanLegend(normalized);
-      console.log("SIGAP Kawasan Hutan legend loaded", {
-        count: normalized.length,
-        labels: normalized.map((item) => item.label),
-      });
-    } catch (error) {
-      console.warn(
-        "SIGAP legend tidak dapat dimuat; legend peta tetap aktif:",
-        error,
-      );
-      setSigapKawasanHutanLegend([]);
-    } finally {
-      setSigapKawasanHutanLegendLoading(false);
-    }
-  };
-
-  const loadSigapKawasanHutan = async (
-    customBounds?: [[number, number], [number, number]],
-    layerName = "kawasan_hutan",
-    filterValue?: string | null,
-  ) => {
-    if (!mapInstanceRef.current || !window.L) {
-      console.log("SIGAP: map belum siap");
-      return;
-    }
-
-    const tableName = layerName;
-    const mapAtRequest = mapInstanceRef.current;
-    const requestId = (layerRequestSeqRef.current[tableName] || 0) + 1;
-    layerRequestSeqRef.current[tableName] = requestId;
-
-    try {
-      setIsLoadingLayer(true);
-      setLoadingLayerNames((prev) => new Set([...prev, tableName]));
-      setLayerError("");
-
-      // Tunggu layout browser stabil sebelum menghitung extent SIGAP.
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => resolve());
-        });
-      });
-
-      // Batalkan jika ada permintaan baru atau instance map berubah.
-      if (
-        layerRequestSeqRef.current[tableName] !== requestId ||
-        mapInstanceRef.current !== mapAtRequest ||
-        !isLeafletMapUsable(mapAtRequest)
-      ) {
-        return;
-      }
-
-      // Sinkronkan ukuran Leaflet sebelum membaca bounds dan size.
-      safeInvalidateMapSize();
-
-      const mapSize = mapAtRequest.getSize();
-      if (mapSize.x <= 0 || mapSize.y <= 0) {
-        throw new Error("Ukuran container peta belum siap");
-      }
-
-      const viewport = mapAtRequest.getBounds();
-      const viewportBounds: [[number, number], [number, number]] = [
-        [viewport.getSouth(), viewport.getWest()],
-        [viewport.getNorth(), viewport.getEast()],
-      ];
-      const boundsToUse = customBounds || viewportBounds;
-      const [[south, west], [north, east]] = boundsToUse;
-
-      const sw = wgs84ToWebMercator(south, west);
-      const ne = wgs84ToWebMercator(north, east);
-      const bbox = [
-        Math.min(sw.x, ne.x),
-        Math.min(sw.y, ne.y),
-        Math.max(sw.x, ne.x),
-        Math.max(sw.y, ne.y),
-      ]
-        .map((value) => value.toFixed(3))
-        .join(",");
-
-      const size = mapAtRequest.getSize();
-      const width = Math.min(Math.max(Math.round(size.x), 800), 1800);
-      const height = Math.min(Math.max(Math.round(size.y), 600), 1400);
-
-      const params = new URLSearchParams({
-        bbox,
-        bboxSR: "102100",
-        imageSR: "102100",
-        size: `${width},${height}`,
-        dpi: "96",
-        format: "png32",
-        transparent: "true",
-        layers: "show:0",
-        f: "image",
-      });
-
-      if (filterValue) {
-        const safeValue = String(filterValue).replace(/'/g, "''");
-        params.set("layerDefs", `0:FUNGSIKWS='${safeValue}'`);
-      }
-
-      const imageUrl = `${SIGAP_KAWASAN_HUTAN_MAPSERVER}/export?${params.toString()}`;
-      const imageBounds: [[number, number], [number, number]] = [
-        [south, west],
-        [north, east],
-      ];
-
-      if (layerGroupsRef.current[tableName]) {
-        safeRemoveMapLayer(layerGroupsRef.current[tableName]);
-        delete layerGroupsRef.current[tableName];
-      }
-
-      if (
-        layerRequestSeqRef.current[tableName] !== requestId ||
-        mapInstanceRef.current !== mapAtRequest ||
-        !isLeafletMapUsable(mapAtRequest)
-      ) {
-        return;
-      }
-
-      const overlay = window.L.imageOverlay(imageUrl, imageBounds, {
-        opacity: 0.72,
-        interactive: false,
-        className: "sigap-kawasan-hutan-overlay",
-        zIndex: 430,
-      });
-
-      // Refresh dan clipping ulang setelah gambar SIGAP benar-benar siap.
-      overlay.once("load", () => {
-        if (
-          layerRequestSeqRef.current[tableName] !== requestId ||
-          mapInstanceRef.current !== mapAtRequest ||
-          !isLeafletMapUsable(mapAtRequest)
-        ) {
-          return;
-        }
-
-        requestAnimationFrame(() => {
-          safeInvalidateMapSize();
-
-          requestAnimationFrame(() => {
-            if (
-              layerRequestSeqRef.current[tableName] !== requestId ||
-              mapInstanceRef.current !== mapAtRequest
-            ) {
-              return;
-            }
-
-            const currentClipAreas =
-              selectedAreaBencanaClipPathRef.current?.areas ||
-              getDeepestSelectedAdminAreas(selectedAreas);
-
-            if (currentClipAreas.length && selectedDas.length === 0) {
-              applyBencanaClipToLayer(tableName, currentClipAreas);
-            }
-          });
-        });
-      });
-
-      if (!safeAddMapLayer(mapAtRequest, overlay)) {
-        throw new Error("Leaflet gagal menambahkan layer SIGAP Kawasan Hutan");
-      }
-
-      layerGroupsRef.current[tableName] = overlay;
-      layerCacheRef.current.set(tableName, overlay);
-
-      const selectedAdminClipAreas =
-        selectedAreaBencanaClipPathRef.current?.areas ||
-        getDeepestSelectedAdminAreas(selectedAreas);
-
-      if (selectedAdminClipAreas.length && selectedDas.length === 0) {
-        requestAnimationFrame(() =>
-          applyBencanaClipToLayer(tableName, selectedAdminClipAreas),
-        );
-      }
-
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (
-            layerRequestSeqRef.current[tableName] === requestId &&
-            mapInstanceRef.current === mapAtRequest
-          ) {
-            safeInvalidateMapSize();
-          }
-        });
-      });
-
-      void loadSigapKawasanHutanLegend();
-      console.log("SIGAP Kawasan Hutan aktif", {
-        bbox,
-        imageSize: `${width}x${height}`,
-      });
-    } catch (error: any) {
-      console.error("Error loading SIGAP Kawasan Hutan:", error);
-      setLayerError(
-        `Gagal memuat Kawasan Hutan SIGAP: ${error?.message || "unknown error"}`,
-      );
-      setTimeout(() => setLayerError(""), 6000);
-    } finally {
-      setLoadingLayerNames((prev) => {
-        const next = new Set(prev);
-        next.delete(tableName);
-        return next;
-      });
-      setIsLoadingLayer(false);
-    }
-  };
-
-  const handleSigapKawasanHutanClassClick = async (item: {
-    label: string;
-    values?: string[];
-  }) => {
-    const value = item.values?.[0] || null;
-    const activeSigapLayer = Array.from(activeLayersRef.current).find(
-      (layerName) => isSigapKawasanHutanLayer(layerName),
-    );
-    if (!activeSigapLayer) return;
-
-    if (selectedSigapKawasanHutanClassRef.current === value && value) {
-      setSelectedSigapKawasanHutanClass(null);
-      selectedSigapKawasanHutanClassRef.current = null;
-      await loadSigapKawasanHutan(undefined, activeSigapLayer, null);
-      return;
-    }
-
-    setSelectedSigapKawasanHutanClass(value);
-    selectedSigapKawasanHutanClassRef.current = value;
-    await loadSigapKawasanHutan(undefined, activeSigapLayer, value);
-  };
-
-  const clearSigapKawasanHutanClassFilter = async () => {
-    setSelectedSigapKawasanHutanClass(null);
-    selectedSigapKawasanHutanClassRef.current = null;
-    const activeSigapLayer = Array.from(activeLayersRef.current).find(
-      (layerName) => isSigapKawasanHutanLayer(layerName),
-    );
-    if (activeSigapLayer) {
-      await loadSigapKawasanHutan(undefined, activeSigapLayer, null);
-    }
-  };
-
-  const refreshActiveSigapLayers = async () => {
-    const activeSigapLayer = Array.from(activeLayersRef.current).find(
-      (layerName) => isSigapKawasanHutanLayer(layerName),
-    );
-    if (activeSigapLayer) {
-      await loadSigapKawasanHutan(
-        undefined,
-        activeSigapLayer,
-        selectedSigapKawasanHutanClassRef.current,
-      );
-    }
-  };
-
-  // Normalisasi ID layer UI -> nama layer backend.
-  // KHDTK di menu menggunakan ID 103, sedangkan endpoint backend menggunakan "khdtk".
-  const normalizeLayerApiName = (tableName: string): string => {
-    const aliases: Record<string, string> = {
-      "103": "khdtk",
-    };
-    return aliases[tableName] || tableName;
-  };
-
-  const resolveUiLayerName = (tableName: string): string => {
-    const key = String(tableName);
-    const sources: any[][] = [
-      availableLayers.kerawanan || [],
-      availableLayers.mitigasiAdaptasi || [],
-      availableLayers.lainnya || [],
-      availableLayers.kejadian || [],
-      layerData.kerawanan || [],
-      layerData.mitigasiAdaptasi || [],
-      layerData.lainnya || [],
-      layerData.kejadian || [],
-    ];
-    for (const items of sources) {
-      const found = items.find(
-        (item: any) =>
-          String(item?.id ?? "") === key || String(item?.name ?? "") === key,
-      );
-      if (found?.name) return String(found.name);
-    }
-    return key;
-  };
+  //   const loadLayerInBounds = async (tableName: string, customBounds?: [[number, number], [number, number]]) => {
+  //   if (!mapInstanceRef.current || !window.L) {
+  //     console.log('Map not ready');
+  //     return;
+  //   }
+
+  //   try {
+  //     const zoom = mapInstanceRef.current.getZoom();
+  //     let boundsString = '';
+
+  //     const boundsToUse = customBounds || currentBounds;
+
+  //     if (boundsToUse) {
+  //       const [[minLat, minLng], [maxLat, maxLng]] = boundsToUse;
+  //       boundsString = `${minLat},${minLng},${maxLat},${maxLng}`;
+  //       console.log('Loading layer:', tableName, 'zoom:', zoom, 'bounds:', boundsString);
+  //     } else {
+  //       boundsString = '-11,95,6,141';
+  //       console.log('Loading layer:', tableName, 'zoom:', zoom, 'Indonesia bounds (no filter)');
+  //     }
+
+  //     const dasFilter = selectedDas.length > 0 ? selectedDas.map(d => d.nama_das) : null;
+  //     const dasFilterParam = dasFilter ? `&dasFilter=${encodeURIComponent(JSON.stringify(dasFilter))}` : '';
+
+  //     console.log('DAS Filter for layer:', dasFilter);
+
+  //     const response = await fetch(
+  //       `${API_URL}/api/layers/${tableName}/geojson?bounds=${boundsString}&zoom=${zoom}${dasFilterParam}`
+  //     );
+
+  //     if (!response.ok) {
+  //       throw new Error(`HTTP error! status: ${response.status}`);
+  //     }
+
+  //     const geojsonData = await response.json();
+  //     console.log('GeoJSON data received for', tableName, ':', geojsonData.features?.length || 0, 'features');
+
+  //     // Log sample feature untuk debug
+  //     if (geojsonData.features && geojsonData.features.length > 0) {
+  //       console.log('Sample feature properties:', geojsonData.features[0].properties);
+  //     }
+
+  //     // Hapus layer lama jika ada
+  //     if (layerGroupsRef.current[tableName]) {
+  //       mapInstanceRef.current.removeLayer(layerGroupsRef.current[tableName]);
+  //     }
+
+  //     if (!geojsonData.features || geojsonData.features.length === 0) {
+  //       console.warn('No features found in bounds for:', tableName);
+  //       layerGroupsRef.current[tableName] = window.L.layerGroup();
+  //       layerGroupsRef.current[tableName].addTo(mapInstanceRef.current);
+  //       return;
+  //     }
+
+  //     // PERBAIKAN: Build color map LANGSUNG dari GeoJSON features
+  //     let colorMap = new Map();
+
+  //     if (tableName === 'tutupan_lahan') {
+  //       // Fetch data untuk populate tabel bottom tabs
+  //       const fetchedData = await fetchTutupanLahanData();
+
+  //       // Extract unique pl2024_id dari GeoJSON
+  //       const uniquePl2024Ids = new Set<string>();
+  //       geojsonData.features.forEach((feature: any) => {
+  //         uniquePl2024Ids.add(String(feature.properties.pl2024_id));
+  //       });
+
+  //       // Assign colors
+  //       let colorIndex = 0;
+  //       uniquePl2024Ids.forEach(pl2024_id => {
+  //         colorMap.set(pl2024_id, tutupanLahanColors[colorIndex % tutupanLahanColors.length]);
+  //         colorIndex++;
+  //       });
+
+  //       console.log('Building color map for tutupan_lahan, unique count:', uniquePl2024Ids.size);
+
+  //     } else if (tableName === 'geologi') {
+  //       // Extract unique combinations dari GeoJSON
+  //       const uniqueCombinations = new Map<string, {namobj: string, umurobj: string}>();
+
+  //       geojsonData.features.forEach((feature: any) => {
+  //         const namobj = feature.properties.namobj || '';
+  //         const umurobj = feature.properties.umurobj || '';
+  //         const key = `${namobj}|${umurobj}`;
+
+  //         if (!uniqueCombinations.has(key)) {
+  //           uniqueCombinations.set(key, { namobj, umurobj });
+  //         }
+  //       });
+
+  //       // Assign colors berdasarkan urutan sorted
+  //       const sortedKeys = Array.from(uniqueCombinations.keys()).sort();
+  //       sortedKeys.forEach((key, index) => {
+  //         colorMap.set(key, geologiColors[index % geologiColors.length]);
+  //         console.log(`Map: ${key} -> ${geologiColors[index % geologiColors.length]}`);
+  //       });
+
+  //       console.log('Building color map for geologi, unique count:', uniqueCombinations.size);
+
+  //       // PENTING: Update geologiData untuk tabel bottom tabs dengan data yang sudah di-aggregate
+  //       const aggregatedData: any[] = [];
+  //       const aggregateMap = new Map<string, number>();
+
+  //       geojsonData.features.forEach((feature: any) => {
+  //         const namobj = feature.properties.namobj || '';
+  //         const umurobj = feature.properties.umurobj || '';
+  //         const keliling = parseFloat(feature.properties.keliling_m || 0);
+  //         const key = `${namobj}|${umurobj}`;
+
+  //         if (aggregateMap.has(key)) {
+  //           aggregateMap.set(key, aggregateMap.get(key)! + keliling);
+  //         } else {
+  //           aggregateMap.set(key, keliling);
+  //         }
+  //       });
+
+  //       // Convert to array with colors
+  //       sortedKeys.forEach(key => {
+  //         const [namobj, umurobj] = key.split('|');
+  //         aggregatedData.push({
+  //           namobj,
+  //           umurobj,
+  //           keliling_total: aggregateMap.get(key) || 0,
+  //           color: colorMap.get(key)
+  //         });
+  //       });
+
+  //       setGeologiData(aggregatedData);
+  //       console.log('Geologi data set from GeoJSON:', aggregatedData.length);
+  //     }
+
+  //     // MODIFIKASI: Styling berdasarkan tabel dengan color map yang sudah dibangun
+  //     let styleFunction;
+
+  //     if (tableName === 'tutupan_lahan') {
+  //       styleFunction = function(feature: any) {
+  //         const pl2024_id = String(feature.properties.pl2024_id);
+  //         const fillColor = colorMap.get(pl2024_id) || '#EF4444';
+
+  //         return {
+  //           color: fillColor,
+  //           weight: zoom > 10 ? 2 : 1,
+  //           opacity: 0.8,
+  //           fillColor: fillColor,
+  //           fillOpacity: zoom > 10 ? 0.4 : 0.3
+  //         };
+  //       };
+  //     } else if (tableName === 'geologi') {
+  //       styleFunction = function(feature: any) {
+  //         const namobj = feature.properties.namobj || '';
+  //         const umurobj = feature.properties.umurobj || '';
+  //         const key = `${namobj}|${umurobj}`;
+  //         const fillColor = colorMap.get(key) || '#B45309';
+
+  //         return {
+  //           color: fillColor,
+  //           weight: zoom > 10 ? 2 : 1,
+  //           opacity: 0.8,
+  //           fillColor: fillColor,
+  //           fillOpacity: zoom > 10 ? 0.4 : 0.3
+  //         };
+  //       };
+  //     } else {
+  //       const tableColor = getColorForTable(tableName);
+  //       styleFunction = function(feature: any) {
+  //         return {
+  //           color: tableColor,
+  //           weight: zoom > 10 ? 2 : 1,
+  //           opacity: 0.8,
+  //           fillOpacity: zoom > 10 ? 0.4 : 0.3
+  //         };
+  //       };
+  //     }
+
+  //     // Buat layer group baru dengan styling dinamis
+  //     const layerGroup = window.L.geoJSON(geojsonData, {
+  //       pane: 'overlayPane',
+  //       style: styleFunction,
+  //       pointToLayer: function(feature, latlng) {
+  //         const tableColor = getColorForTable(tableName);
+  //         return window.L.circleMarker(latlng, {
+  //           radius: zoom > 10 ? 6 : 4,
+  //           fillColor: tableColor,
+  //           color: '#000',
+  //           weight: 1,
+  //           opacity: 1,
+  //           fillOpacity: 0.7
+  //         });
+  //       },
+  //       onEachFeature: function(feature, layer) {
+  //         if (zoom > 8 && feature.properties) {
+  //           let popupContent = '<div style="max-height: 200px; overflow-y: auto;">';
+  //           popupContent += `<h3 style="margin: 0 0 8px 0; font-weight: bold;">${tableName}</h3>`;
+  //           for (const [key, value] of Object.entries(feature.properties)) {
+  //             if (key !== 'geom' && key !== 'geometry') {
+  //               popupContent += `<p style="margin: 2px 0;"><strong>${key}:</strong> ${value}</p>`;
+  //             }
+  //           }
+  //           popupContent += '</div>';
+  //           layer.bindPopup(popupContent);
+  //         }
+  //       }
+  //     });
+
+  //     layerGroup.addTo(mapInstanceRef.current);
+  //     layerGroupsRef.current[tableName] = layerGroup;
+
+  //     const boundsType = currentBounds ? 'administrative bounds' : 'Indonesia bounds (all data)';
+  //     console.log(`Layer loaded successfully with ${boundsType}`);
+
+  //   } catch (error) {
+  //     console.error('Error loading layer in bounds:', error);
+  //   }
+  // };
 
   const loadLayerInBounds = async (
     tableName: string,
     customBounds?: [[number, number], [number, number]],
-    targetTab?: string,
+    areasOverride?: Array<any>,
   ) => {
     if (!mapInstanceRef.current || !window.L) {
       console.log("Map not ready");
       return;
     }
 
-    const originalLayerName = tableName;
-    const resolvedLayerName = resolveUiLayerName(tableName);
-    if (resolvedLayerName !== tableName) {
-      console.log(`🔎 Resolve layer UI: ${tableName} -> ${resolvedLayerName}`);
-    }
-    tableName = resolvedLayerName;
-    const apiLayerName = normalizeLayerApiName(tableName);
-    if (apiLayerName !== tableName) {
-      console.log(`🔗 Layer alias: ${tableName} -> ${apiLayerName}`);
-    }
-
-    if (isSigapKawasanHutanLayer(tableName)) {
-      await loadSigapKawasanHutan(customBounds, tableName);
-      return;
-    }
-
-    // Setelah request API dibentuk, gunakan nama backend untuk seluruh pemrosesan
-    // GeoJSON agar branch KHDTK (`tableName === "khdtk"`) tetap bekerja.
-    tableName = apiLayerName;
-
     try {
-      const requestId = (layerRequestSeqRef.current[tableName] || 0) + 1;
-      layerRequestSeqRef.current[tableName] = requestId;
-
       setIsLoadingLayer(true);
       setLoadingLayerNames((prev) => new Set([...prev, tableName]));
       setLayerError("");
 
-      const mapAtRequest = mapInstanceRef.current;
-      const zoom = mapAtRequest.getZoom();
+      const zoom = mapInstanceRef.current.getZoom();
       let boundsString = "";
 
-      const viewport = mapAtRequest.getBounds();
-      const viewportBounds: [[number, number], [number, number]] = [
-        [viewport.getSouth(), viewport.getWest()],
-        [viewport.getNorth(), viewport.getEast()],
-      ];
-
-      // Semua layer, termasuk kerawanan pada tampilan nasional, dibatasi
-      // pada viewport aktif agar backend tidak memindai seluruh Indonesia.
-      // Flag nasional tetap dipakai untuk pagination agar fitur di viewport
-      // tidak terpotong ketika jumlahnya melebihi FEATURE_LIMIT.
-      const isNationalRiskView =
-        BENCANA_FOCUS_LAYERS.has(apiLayerName) &&
-        selectedAreas.length === 0 &&
-        selectedDas.length === 0;
-      const boundsToUse = isNationalRiskView
-        ? viewportBounds
-        : customBounds || currentBounds || viewportBounds;
+      const boundsToUse = customBounds || currentBounds;
 
       if (boundsToUse) {
         const [[minLat, minLng], [maxLat, maxLng]] = boundsToUse;
         boundsString = `${minLat},${minLng},${maxLat},${maxLng}`;
+      } else {
+        boundsString = "-11,95,6,141";
       }
 
-      // Build URL dengan filter viewport, administrasi, dan/atau DAS.
-      // Pagination nasional hanya mengambil halaman fitur yang berpotongan
-      // dengan viewport, bukan seluruh geometri Indonesia.
-      let url = `${API_URL}/api/layers/${apiLayerName}/geojson?zoom=${zoom}`;
-      if (boundsString) url += `&bounds=${encodeURIComponent(boundsString)}`;
+      // Build URL dengan filter administrasi/DAS
+      let url = `${API_URL}/api/layers/${tableName}/geojson?bounds=${boundsString}&zoom=${zoom}`;
+
+      // Gunakan pilihan daerah terbaru jika dikirim oleh updateMapBounds
+      const areasToUse = areasOverride ?? selectedAreas;
+      const dasToUse = areasOverride !== undefined ? [] : selectedDas;
 
       // Prioritas: DAS > Administrasi
-      if (selectedDas.length > 0) {
-        const dasNames = selectedDas.map((d) => d.nama_das);
+      if (dasToUse.length > 0) {
+        const dasNames = dasToUse.map((d) => d.nama_das);
         url += `&dasFilter=${encodeURIComponent(JSON.stringify(dasNames))}`;
-        console.log(" Loading layer with DAS filtering:", tableName, dasNames);
-      } else if (selectedAreas.length > 0) {
-        const firstArea = selectedAreas[0];
+        console.log(
+          "🔄 Loading layer with DAS filtering:",
+          tableName,
+          dasNames,
+        );
+      } else if (areasToUse.length > 0) {
+        const firstArea = areasToUse[0];
         const adminLevel = firstArea.level;
 
-        const adminNames = selectedAreas
+        const adminNames = areasToUse
           .map((area) => {
             switch (area.level) {
               case "provinsi":
@@ -2442,149 +629,26 @@ const Kerawanan = () => {
         url += `&adminFilter=${encodeURIComponent(JSON.stringify(adminNames))}`;
         url += `&adminLevel=${adminLevel}`;
         console.log(
-          " Loading layer with admin filtering:",
+          "🔄 Loading layer with admin filtering:",
           tableName,
           adminLevel,
           adminNames,
         );
       }
 
-      console.log(` Memuat layer: ${tableName}...`);
+      console.log(`🔄 Memuat layer: ${tableName}...`);
 
-      // Jangan kirim "Authorization: Bearer " kosong.
-      // Sejumlah middleware menganggap header Bearer kosong sebagai token invalid,
-      // sehingga endpoint GeoJSON gagal walaupun layer bersifat publik.
-      const authToken = getAuthToken();
-      const requestHeaders: Record<string, string> = {
-        Accept: "application/geo+json, application/json",
-      };
-      if (authToken) requestHeaders.Authorization = `Bearer ${authToken}`;
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("smiti_token")}`,
+        },
+      });
 
-      // Mode nasional tetap mengambil seluruh fitur pada viewport, tetapi
-      // halaman berikutnya diambil paralel (2 request) agar tidak menunggu
-      // rangkaian request serial yang panjang. View lokal tetap satu request.
-      const allNationalFeatures: any[] = [];
-      let pageOffset = 0;
-      let geojsonData: any = null;
-      let continueNationalPaging = true;
-      const nationalPageSize = 2000;
-
-      const fetchGeoJsonPage = async (offset: number) => {
-        const pageUrl = isNationalRiskView
-          ? `${url}&offset=${offset}`
-          : url;
-        const response = await fetch(pageUrl, {
-          method: "GET",
-          headers: requestHeaders,
-          credentials: "same-origin",
-        });
-
-        const responseText = await response.text();
-        let pageData: any;
-        try {
-          pageData = responseText ? JSON.parse(responseText) : null;
-        } catch {
-          throw new Error(
-            `Respons API layer bukan JSON yang valid (HTTP ${response.status}).`,
-          );
-        }
-
-        if (!response.ok) {
-          const detail =
-            pageData?.message ||
-            pageData?.error ||
-            response.statusText ||
-            "Permintaan GeoJSON gagal";
-          throw new Error(`HTTP ${response.status}: ${detail}`);
-        }
-
-        const pageGeoJson =
-          pageData?.type === "FeatureCollection"
-            ? pageData
-            : pageData?.geojson?.type === "FeatureCollection"
-              ? pageData.geojson
-              : pageData?.data?.type === "FeatureCollection"
-                ? pageData.data
-                : pageData;
-
-        if (!pageGeoJson || !Array.isArray(pageGeoJson.features)) {
-          throw new Error(
-            `Format GeoJSON untuk "${tableName}" tidak sesuai. Periksa respons endpoint ${apiLayerName}/geojson.`,
-          );
-        }
-
-        return { pageData, pageGeoJson };
-      };
-
-      // Halaman pertama wajib selesai lebih dulu untuk mengetahui apakah
-      // pagination diperlukan. Sesudah itu maksimal dua halaman diproses
-      // bersamaan untuk menjaga beban PostgreSQL tetap terkendali.
-      const firstPage = await fetchGeoJsonPage(0);
-
-      if (!isNationalRiskView) {
-        geojsonData = firstPage.pageGeoJson;
-        continueNationalPaging = false;
-      } else {
-        allNationalFeatures.push(...firstPage.pageGeoJson.features);
-        const firstPageSize =
-          Number(firstPage.pageData?.featureLimit) || nationalPageSize;
-        pageOffset = firstPageSize;
-        continueNationalPaging = Boolean(firstPage.pageData?.hasMore);
-
-        while (continueNationalPaging) {
-          const offsets = [pageOffset, pageOffset + firstPageSize];
-          const pages = await Promise.all(
-            offsets.map((offset) => fetchGeoJsonPage(offset)),
-          );
-
-          for (const page of pages) {
-            allNationalFeatures.push(...page.pageGeoJson.features);
-            pageOffset += firstPageSize;
-            continueNationalPaging = Boolean(page.pageData?.hasMore);
-
-            if (page.pageGeoJson.features.length === 0) {
-              continueNationalPaging = false;
-            }
-            if (!continueNationalPaging) break;
-          }
-
-          if (
-            layerRequestSeqRef.current[tableName] !== requestId ||
-            mapInstanceRef.current !== mapAtRequest ||
-            !isLeafletMapUsable(mapAtRequest)
-          ) {
-            console.log(`⏭️ Hentikan pagination stale untuk ${tableName}`);
-            return;
-          }
-        }
-
-        geojsonData = {
-          type: "FeatureCollection",
-          features: allNationalFeatures,
-        };
-        console.log(
-          `🇮🇩 Data nasional ${tableName}: ${allNationalFeatures.length} features dimuat`,
-        );
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      if (!geojsonData || !Array.isArray(geojsonData.features)) {
-        throw new Error(
-          `Format GeoJSON untuk "${tableName}" tidak sesuai. Periksa respons endpoint ${apiLayerName}/geojson.`,
-        );
-      }
-
-      // Request ini sudah tidak relevan; jangan sentuh layer/map dengan data lama.
-      if (
-        layerRequestSeqRef.current[tableName] !== requestId ||
-        mapInstanceRef.current !== mapAtRequest ||
-        !isLeafletMapUsable(mapAtRequest)
-      ) {
-        console.log(
-          `⏭️ Abaikan response lama/stale untuk ${tableName} (request #${requestId})`,
-        );
-        return;
-      }
-
+      const geojsonData = await response.json();
       console.log(
         "✅ GeoJSON data received for",
         tableName,
@@ -2593,17 +657,26 @@ const Kerawanan = () => {
         "features",
       );
 
+      // Tampilkan peringatan jika LIMIT tercapai
+      // if (geojsonData.limitReached) {
+      //   console.warn(`⚠️ PERINGATAN: Layer ${tableName} mencapai batas maksimum 5000 features.`);
+      //   setLayerError(`⚠️ Layer "${tableName}" mencapai batas 5000 features. Zoom in untuk detail lebih lanjut.`);
+      //   setTimeout(() => setLayerError(''), 8000);
+      // }
+
       // Hapus layer lama
       if (layerGroupsRef.current[tableName]) {
-        safeRemoveMapLayer(layerGroupsRef.current[tableName]);
+        mapInstanceRef.current.removeLayer(layerGroupsRef.current[tableName]);
       }
 
       if (!geojsonData.features || geojsonData.features.length === 0) {
-        console.warn(" No features found for:", tableName);
-        setLayerError(` Tidak ada data "${tableName}" di area yang dipilih.`);
+        console.warn("ℹ️ No features found for:", tableName);
+        setLayerError(
+          `ℹ️ Tidak ada data "${tableName}" di area yang dipilih.`,
+        );
         setTimeout(() => setLayerError(""), 5000);
         layerGroupsRef.current[tableName] = window.L.layerGroup();
-        safeAddMapLayer(mapAtRequest, layerGroupsRef.current[tableName]);
+        layerGroupsRef.current[tableName].addTo(mapInstanceRef.current);
         setLoadingLayerNames((prev) => {
           const next = new Set(prev);
           next.delete(tableName);
@@ -2619,80 +692,23 @@ const Kerawanan = () => {
       if (tableName === "tutupan_lahan") {
         const fetchedData = await fetchTutupanLahanData();
 
-        // Create mapping from deskripsi_domain to color
-        const deskripsiToColorMap = new Map<string, string>();
-        fetchedData.forEach((item: any) => {
-          const color = tutupanLahanColors[item.deskripsi_domain] || "#999999";
-          if (!deskripsiToColorMap.has(item.deskripsi_domain)) {
-            deskripsiToColorMap.set(item.deskripsi_domain, color);
-          }
-        });
-
-        // Assign colors based on deskripsi_domain from GeoJSON properties
+        const uniquePl2024Ids = new Set<string>();
         geojsonData.features.forEach((feature: any) => {
-          const deskripsi = feature.properties.deskripsi_domain;
-          const pl2024_id = String(feature.properties.pl2024_id);
-
-          // Try to get color from map first, then directly from tutupanLahanColors
-          let color = deskripsiToColorMap.get(deskripsi);
-          if (!color) {
-            color = tutupanLahanColors[deskripsi] || "#999999";
-          }
-
-          colorMap.set(pl2024_id, color);
-          colorMappingRef.current.tutupanLahan.set(pl2024_id, color);
-        });
-      } else if (tableName === "penutupan_lahan_2024") {
-        const fetchedData = await fetchPenutupanLahan2024Data();
-
-        // Create mapping from deskripsi_domain to color
-        const deskripsiToColorMap = new Map<string, string>();
-        fetchedData.forEach((item: any) => {
-          const color = tutupanLahanColors[item.deskripsi_domain] || "#999999";
-          if (!deskripsiToColorMap.has(item.deskripsi_domain)) {
-            deskripsiToColorMap.set(item.deskripsi_domain, color);
-          }
+          uniquePl2024Ids.add(String(feature.properties.pl2024_id));
         });
 
-        // Assign colors based on deskripsi_domain from GeoJSON properties
-        geojsonData.features.forEach((feature: any) => {
-          const deskripsi = feature.properties.deskripsi_domain;
-          const pl2024_id = String(feature.properties.pl2024_id);
-
-          // Try to get color from map first, then directly from tutupanLahanColors
-          let color = deskripsiToColorMap.get(deskripsi);
-          if (!color) {
-            color = tutupanLahanColors[deskripsi] || "#999999";
+        const sortedIds = Array.from(uniquePl2024Ids).sort();
+        sortedIds.forEach((pl2024_id) => {
+          if (!colorMappingRef.current.tutupanLahan.has(pl2024_id)) {
+            const colorIndex = colorMappingRef.current.tutupanLahan.size;
+            const color =
+              tutupanLahanColors[colorIndex % tutupanLahanColors.length];
+            colorMappingRef.current.tutupanLahan.set(pl2024_id, color);
           }
-
-          colorMap.set(pl2024_id, color);
-          colorMappingRef.current.penutupanLahan2024.set(pl2024_id, color);
-        });
-      } else if (tableName === "pl2024") {
-        const fetchedData = await fetchPL2024();
-
-        // Create mapping from deskripsi_domain to color
-        const deskripsiToColorMap = new Map<string, string>();
-        fetchedData.forEach((item: any) => {
-          const color = tutupanLahanColors[item.deskripsi_domain] || "#999999";
-          if (!deskripsiToColorMap.has(item.deskripsi_domain)) {
-            deskripsiToColorMap.set(item.deskripsi_domain, color);
-          }
-        });
-
-        // Assign colors based on deskripsi_domain from GeoJSON properties
-        geojsonData.features.forEach((feature: any) => {
-          const deskripsi = feature.properties.deskripsi_domain;
-          const pl2024_id = String(feature.properties.pl2024_id);
-
-          // Try to get color from map first, then directly from tutupanLahanColors
-          let color = deskripsiToColorMap.get(deskripsi);
-          if (!color) {
-            color = tutupanLahanColors[deskripsi] || "#999999";
-          }
-
-          colorMap.set(pl2024_id, color);
-          colorMappingRef.current.pl2024.set(pl2024_id, color);
+          colorMap.set(
+            pl2024_id,
+            colorMappingRef.current.tutupanLahan.get(pl2024_id)!,
+          );
         });
       } else if (tableName === "geologi") {
         const uniqueCombinations = new Map<
@@ -2806,16 +822,13 @@ const Kerawanan = () => {
 
         kritisArray.forEach((item) => {
           colorMap.set(item.kritis, item.color!);
-          colorMappingRef.current.lahanKritis.set(item.kritis, item.color!);
         });
       } else if (tableName === "rawan_erosi") {
-        // Samakan pembacaan data dengan kerawanan-ori.tsx:
-        // kategori dibaca dari properties.tingkat dan luas dari properties.n_a.
         const tingkatMap = new Map<string, number>();
 
         geojsonData.features.forEach((feature: any) => {
-          const tingkat = feature.properties?.tingkat || "";
-          const luas = parseFloat(feature.properties?.n_a) || 0;
+          const tingkat = feature.properties.tingkat || "";
+          const luas = parseFloat(feature.properties.n_a) || 0;
 
           if (tingkat) {
             tingkatMap.set(tingkat, (tingkatMap.get(tingkat) || 0) + luas);
@@ -2824,8 +837,8 @@ const Kerawanan = () => {
 
         const erosiArray = Array.from(tingkatMap.entries()).map(
           ([tingkat, luas_ha]) => ({
-            tingkat,
-            luas_ha,
+            tingkat: tingkat,
+            luas_ha: luas_ha,
             color: rawanErosiColors[tingkat] || "#808080",
           }),
         );
@@ -2837,18 +850,16 @@ const Kerawanan = () => {
           "Rendah",
           "Sangat Rendah",
         ];
-
         erosiArray.sort((a, b) => {
-          const aIdx = tingkatOrder.indexOf(a.tingkat);
-          const bIdx = tingkatOrder.indexOf(b.tingkat);
-          return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+          return (
+            tingkatOrder.indexOf(a.tingkat) - tingkatOrder.indexOf(b.tingkat)
+          );
         });
 
         setRawanErosiData(erosiArray);
 
         erosiArray.forEach((item) => {
           colorMap.set(item.tingkat, item.color!);
-          colorMappingRef.current.rawanErosi.set(item.tingkat, item.color!);
         });
       } else if (tableName === "rawan_longsor") {
         const unsurMap = new Map<string, number>();
@@ -2891,17 +902,13 @@ const Kerawanan = () => {
 
         longsorArray.forEach((item) => {
           colorMap.set(item.tingkat, item.color!);
-          colorMappingRef.current.rawanLongsor.set(item.tingkat, item.color!);
         });
       } else if (tableName === "rawan_limpasan") {
         const limpasanMap = new Map<string, number>();
 
         geojsonData.features.forEach((feature: any) => {
           const limpasan = feature.properties.limpasan || "";
-          const luas =
-            parseFloat(feature.properties.shape_area) ||
-            parseFloat(feature.properties.shape_leng) ||
-            0;
+          const luas = parseFloat(feature.properties.shape_leng) || 0;
 
           if (limpasan) {
             limpasanMap.set(limpasan, (limpasanMap.get(limpasan) || 0) + luas);
@@ -2927,7 +934,6 @@ const Kerawanan = () => {
 
         limpasanArray.forEach((item) => {
           colorMap.set(item.tingkat, item.color!);
-          colorMappingRef.current.rawanLimpasan.set(item.tingkat, item.color!);
         });
       } else if (tableName === "rawan_karhutla") {
         const kelasMap = new Map<string, number>();
@@ -2958,464 +964,13 @@ const Kerawanan = () => {
 
         karhutlaArray.forEach((item) => {
           colorMap.set(item.tingkat, item.color!);
-          colorMappingRef.current.rawanKarhutla.set(item.tingkat, item.color!);
         });
-      } else if (tableName === "bahaya_kekeringan") {
-        const kelasMap = new Map<string, number>();
-        geojsonData.features.forEach((feature: any) => {
-          const kelas = feature.properties.kelas || "";
-          const luas = parseFloat(feature.properties.shape_area) || 0;
-          if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
-        });
-        const order = ["Tinggi", "Sedang", "Rendah"];
-        const arr = Array.from(kelasMap.entries())
-          .map(([kelas, luas]) => ({
-            kelas,
-            luas,
-            color: bahayaKelasColors[kelas] || "#808080",
-          }))
-          .sort(
-            (a, b) =>
-              (order.indexOf(a.kelas) === -1 ? 999 : order.indexOf(a.kelas)) -
-              (order.indexOf(b.kelas) === -1 ? 999 : order.indexOf(b.kelas)),
-          );
-        setBahayaKekeringanData(arr);
-        arr.forEach((item) => {
-          colorMap.set(item.kelas, item.color!);
-          colorMappingRef.current.bahayaKekeringan.set(item.kelas, item.color!);
-        });
-      } else if (tableName === "bahaya_abrasi_dan_gelombang_ekstrim") {
-        const kelasMap = new Map<string, number>();
-        geojsonData.features.forEach((feature: any) => {
-          const kelas = feature.properties.kelas || "";
-          const luas = parseFloat(feature.properties.shape_area) || 0;
-          if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
-        });
-        const order = ["Tinggi", "Rendah"];
-        const arr = Array.from(kelasMap.entries())
-          .map(([kelas, luas]) => ({
-            kelas,
-            luas,
-            color: bahayaKelasColors[kelas] || "#808080",
-          }))
-          .sort(
-            (a, b) =>
-              (order.indexOf(a.kelas) === -1 ? 999 : order.indexOf(a.kelas)) -
-              (order.indexOf(b.kelas) === -1 ? 999 : order.indexOf(b.kelas)),
-          );
-        setBahayaAbrasiData(arr);
-        arr.forEach((item) => {
-          colorMap.set(item.kelas, item.color!);
-          colorMappingRef.current.bahayaAbrasi.set(item.kelas, item.color!);
-        });
-      } else if (tableName === "bahaya_banjir") {
-        const kelasMap = new Map<string, number>();
-        geojsonData.features.forEach((feature: any) => {
-          const kelas = feature.properties.kelas || "";
-          const luas = parseFloat(feature.properties.shape_area) || 0;
-          if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
-        });
-        const order = ["Tinggi", "Sedang", "Rendah"];
-        const arr = Array.from(kelasMap.entries())
-          .map(([kelas, luas]) => ({
-            kelas,
-            luas,
-            color: bahayaKelasColors[kelas] || "#808080",
-          }))
-          .sort(
-            (a, b) =>
-              (order.indexOf(a.kelas) === -1 ? 999 : order.indexOf(a.kelas)) -
-              (order.indexOf(b.kelas) === -1 ? 999 : order.indexOf(b.kelas)),
-          );
-        setBahayaBanjirData(arr);
-        arr.forEach((item) => {
-          colorMap.set(item.kelas, item.color!);
-          colorMappingRef.current.bahayaBanjir.set(item.kelas, item.color!);
-        });
-      } else if (tableName === "bahaya_banjir_bandang") {
-        const kelasMap = new Map<string, number>();
-        geojsonData.features.forEach((feature: any) => {
-          const kelas = feature.properties.kelas || "";
-          const luas = parseFloat(feature.properties.shape_area) || 0;
-          if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
-        });
-        const order = ["Tinggi", "Sedang", "Rendah"];
-        const arr = Array.from(kelasMap.entries())
-          .map(([kelas, luas]) => ({
-            kelas,
-            luas,
-            color: bahayaKelasColors[kelas] || "#808080",
-          }))
-          .sort(
-            (a, b) =>
-              (order.indexOf(a.kelas) === -1 ? 999 : order.indexOf(a.kelas)) -
-              (order.indexOf(b.kelas) === -1 ? 999 : order.indexOf(b.kelas)),
-          );
-        setBahayaBanjirBandangData(arr);
-        arr.forEach((item) => {
-          colorMap.set(item.kelas, item.color!);
-          colorMappingRef.current.bahayaBanjirBandang.set(
-            item.kelas,
-            item.color!,
-          );
-        });
-      } else if (tableName === "dta_danau") {
-        const tipeMap = new Map<string, number>();
-        geojsonData.features.forEach((feature: any) => {
-          const tipe = feature.properties.tipe_danau || "";
-          const luas = parseFloat(feature.properties.luas_ha) || 0;
-          if (tipe) tipeMap.set(tipe, (tipeMap.get(tipe) || 0) + luas);
-        });
-        const arr = Array.from(tipeMap.entries()).map(([tipe_danau, luas]) => ({
-          tipe_danau,
-          luas,
-          color: dtaDanauColors[tipe_danau] || "#808080",
-        }));
-        setDtaDanauData(arr);
-        arr.forEach((item) => {
-          colorMap.set(item.tipe_danau, item.color!);
-          colorMappingRef.current.dtaDanau.set(item.tipe_danau, item.color!);
-        });
-      } else if (tableName === "rehabilitasi_das") {
-        const bpdasMap = new Map<string, number>();
-        const bpdasColorMap = new Map<string, string>();
-        geojsonData.features.forEach((feature: any) => {
-          const bpdas = feature.properties.bpdas || "";
-          const luas = parseFloat(feature.properties.luas_rdas) || 0;
-          if (bpdas) bpdasMap.set(bpdas, (bpdasMap.get(bpdas) || 0) + luas);
-        });
-        const arr = Array.from(bpdasMap.entries()).map(([bpdas, luas]) => {
-          const color = getRandomColor(bpdas, bpdasColorMap);
-          return { bpdas, luas, color };
-        });
-        setRehabilitasiDasData(arr);
-        arr.forEach((item) => {
-          colorMap.set(item.bpdas, item.color!);
-          colorMappingRef.current.rehabilitasiDas.set(item.bpdas, item.color!);
-        });
-      } else if (tableName === "rehabilitasi_hutan") {
-        const jenisTanaMap = new Map<string, number>();
-        const jenisTanaColorMap = new Map<string, string>();
-        geojsonData.features.forEach((feature: any) => {
-          const jenis_tana = String(feature.properties.jenis_tana || "");
-          const luas = parseFloat(feature.properties.luas_ha) || 0;
-          if (jenis_tana)
-            jenisTanaMap.set(
-              jenis_tana,
-              (jenisTanaMap.get(jenis_tana) || 0) + luas,
-            );
-        });
-        const arr = Array.from(jenisTanaMap.entries()).map(
-          ([jenis_tana, luas]) => {
-            const color = getRandomColor(jenis_tana, jenisTanaColorMap);
-            return { jenis_tana, luas, color };
-          },
-        );
-        setRehabilitasiHutanData(arr);
-        arr.forEach((item) => {
-          colorMap.set(item.jenis_tana, item.color!);
-          colorMappingRef.current.rehabilitasiHutan.set(
-            item.jenis_tana,
-            item.color!,
-          );
-        });
-      } else if (tableName === "restorasi_gambut") {
-        const uniqueMap = new Map<string, { jenis: string; bahan: string }>();
-        geojsonData.features.forEach((feature: any) => {
-          const jenis = String(feature.properties.jenis || "");
-          const bahan = String(feature.properties.bahan || "");
-          const key = `${jenis}||${bahan}`;
-          if (!uniqueMap.has(key)) uniqueMap.set(key, { jenis, bahan });
-        });
-        setRestorasiGambutData(Array.from(uniqueMap.values()));
-      } else if (tableName === "penerapan_teknik_kta") {
-        const uniqueMap = new Map<string, { das: string; subdas: string }>();
-        geojsonData.features.forEach((feature: any) => {
-          const das = String(feature.properties.das || "");
-          const subdas = String(feature.properties.subdas || "");
-          const key = `${das}||${subdas}`;
-          if (!uniqueMap.has(key)) uniqueMap.set(key, { das, subdas });
-        });
-        setPenerapanTeknikKtaData(Array.from(uniqueMap.values()));
-      } else if (tableName === "karhutla_2021") {
-        const periodeColorMap = new Map<string, string>();
-        const uniquePeriode = new Set<string>();
-        geojsonData.features.forEach((feature: any) => {
-          const periode = String(feature.properties.periode || "");
-          if (periode) uniquePeriode.add(periode);
-        });
-        const arr = Array.from(uniquePeriode).map((periode) => ({
-          periode,
-          color: getRandomColor(periode, periodeColorMap),
-        }));
-        setKebakaran2021Data(arr);
-        arr.forEach((item) => {
-          colorMap.set(item.periode, item.color!);
-          colorMappingRef.current.kebakaran2021.set(item.periode, item.color!);
-        });
-      } else if (tableName === "karhutla_2022") {
-        const periodeMap = new Map<string, number>();
-        const periodeColorMap = new Map<string, string>();
-        geojsonData.features.forEach((feature: any) => {
-          const periode = String(feature.properties.periode || "");
-          const luas = parseFloat(feature.properties.luas) || 0;
-          if (periode)
-            periodeMap.set(periode, (periodeMap.get(periode) || 0) + luas);
-        });
-        const arr = Array.from(periodeMap.entries()).map(([periode, luas]) => ({
-          periode,
-          luas,
-          color: getRandomColor(periode, periodeColorMap),
-        }));
-        setKebakaran2022Data(arr);
-        arr.forEach((item) => {
-          colorMap.set(item.periode, item.color!);
-          colorMappingRef.current.kebakaran2022.set(item.periode, item.color!);
-        });
-      } else if (tableName === "karhutla_2023") {
-        const periodeColorMap = new Map<string, string>();
-        const uniquePeriode = new Set<string>();
-        geojsonData.features.forEach((feature: any) => {
-          const periode = String(feature.properties.periode || "");
-          if (periode) uniquePeriode.add(periode);
-        });
-        const arr = Array.from(uniquePeriode).map((periode) => ({
-          periode,
-          color: getRandomColor(periode, periodeColorMap),
-        }));
-        setKebakaran2023Data(arr);
-        arr.forEach((item) => {
-          colorMap.set(item.periode, item.color!);
-          colorMappingRef.current.kebakaran2023.set(item.periode, item.color!);
-        });
-      } else if (tableName === "karhutla_2024") {
-        const periodeMap = new Map<string, number>();
-        const periodeColorMap = new Map<string, string>();
-        geojsonData.features.forEach((feature: any) => {
-          const periode = String(feature.properties.periode || "");
-          const luas = parseFloat(feature.properties.luas) || 0;
-          if (periode)
-            periodeMap.set(periode, (periodeMap.get(periode) || 0) + luas);
-        });
-        const arr = Array.from(periodeMap.entries()).map(([periode, luas]) => ({
-          periode,
-          luas,
-          color: getRandomColor(periode, periodeColorMap),
-        }));
-        setKebakaran2024Data(arr);
-        arr.forEach((item) => {
-          colorMap.set(item.periode, item.color!);
-          colorMappingRef.current.kebakaran2024.set(item.periode, item.color!);
-        });
-      } else if (tableName === "karhutla_2025") {
-        const periodeMap = new Map<string, number>();
-        const periodeColorMap = new Map<string, string>();
-        geojsonData.features.forEach((feature: any) => {
-          const periode = String(feature.properties.periode || "");
-          const luas = parseFloat(feature.properties.luas) || 0;
-          if (periode)
-            periodeMap.set(periode, (periodeMap.get(periode) || 0) + luas);
-        });
-        const arr = Array.from(periodeMap.entries()).map(([periode, luas]) => ({
-          periode,
-          luas,
-          color: getRandomColor(periode, periodeColorMap),
-        }));
-        setKebakaran2025Data(arr);
-        arr.forEach((item) => {
-          colorMap.set(item.periode, item.color!);
-          colorMappingRef.current.kebakaran2025.set(item.periode, item.color!);
-        });
-      } else if (tableName === "kawasan_hutan") {
-        const mappingKawasanHutan: Record<string, string> = {
-          "0": "Tidak Terdefinisi",
-          "000000": "Tidak Terdefinisi",
-          "100000": "Kawasan Suaka Alam/Kawasan Pelestarian Alam",
-          "100100": "Hutan Lindung",
-          "100200": "Hutan (Kawasan) Suaka Alam/Wisata",
-          "100300": "Hutan Produksi Tetap",
-          "100400": "Hutan Produksi Tetap",
-          "100500": "Hutan Produksi yang dapat di Konversi",
-          "100600": "Hutan Negara Bebas",
-          "100700": "Areal Penggunaan Lain",
-          "500100": "Danau",
-          "500300": "Tubuh Air",
-          "100210": "Cagar Alam",
-          "100220": "Suaka Margastwa",
-          "100230": "Taman Buru",
-          "100240": "Taman Nasional",
-          "100250": "Taman Wisata Alam/Hutan Wisata",
-          "100260": "Taman Hutan Raya",
-          "100201": "Hutan Suaka Alam/Wisata (Perairan)",
-          "100211": "Cagar Alam (Perairan)",
-          "100221": "Suaka Margasatwa (Perairan)",
-          "100241": "Taman Nasional (Perairan)",
-          "100251": "Taman Wisata Alam/Hutan Wisata (Perairan)",
-        };
-        const kawasanColorMap = new Map<string, string>();
-        // Group by deskripsi_domain agar 100300 dan 100400 dijadikan satu
-        const deskripsiMap = new Map<string, string>(); // deskripsi_domain -> color (via getRandomColor per deskripsi)
-        const fungsikwsToDescrip = new Map<string, string>(); // fungsikws -> deskripsi_domain
-        geojsonData.features.forEach((feature: any) => {
-          const fungsikws = String(feature.properties.fungsikws ?? "");
-          if (fungsikws) {
-            const deskripsi =
-              mappingKawasanHutan[fungsikws] || `Kode ${fungsikws}`;
-            fungsikwsToDescrip.set(fungsikws, deskripsi);
-            if (!deskripsiMap.has(deskripsi)) {
-              deskripsiMap.set(
-                deskripsi,
-                getRandomColor(deskripsi, kawasanColorMap),
-              );
-            }
-          }
-        });
-        // Build arr: satu baris per deskripsi_domain unik
-        const seenDeskripsi = new Set<string>();
-        const arr: Array<{
-          fungsikws: string;
-          deskripsi_domain: string;
-          color?: string;
-        }> = [];
-        // Kumpulkan semua fungsikws unik, lalu filter per deskripsi unik
-        Array.from(fungsikwsToDescrip.entries()).forEach(
-          ([fungsikws, deskripsi]) => {
-            if (!seenDeskripsi.has(deskripsi)) {
-              seenDeskripsi.add(deskripsi);
-              const color = deskripsiMap.get(deskripsi)!;
-              arr.push({ fungsikws, deskripsi_domain: deskripsi, color });
-            }
-            // Simpan mapping warna untuk SEMUA fungsikws yang sama deskripsinya (untuk highlight)
-            const color = deskripsiMap.get(deskripsi)!;
-            colorMap.set(fungsikws, color);
-            colorMappingRef.current.kawasanHutan.set(fungsikws, color);
-          },
-        );
-        setKawasanHutanData(arr);
-      } else if (
-        [
-          "risiko_banjir",
-          "risiko_banjir_bandang",
-          "risiko_kekeringan",
-          "risiko_abrasi",
-          "risiko_longsor",
-          "risiko_karhutla",
-        ].includes(tableName)
-      ) {
-        const kelasMap = new Map<string, number>();
-        geojsonData.features.forEach((feature: any) => {
-          const kelas = feature.properties.kelas || "";
-          const luas =
-            parseFloat(feature.properties.shape_area) ||
-            parseFloat(feature.properties.shape_leng) ||
-            0;
-          if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
-        });
-        const fallbackRiskColor = getBencanaLayerColor(tableName);
-        const arr = Array.from(kelasMap.entries()).map(([kelas, luas]) => ({
-          kelas,
-          luas,
-          color: getRiskClassColor(kelas, fallbackRiskColor),
-        }));
-        const risikoKey = tableName as keyof typeof risikoData;
-        setRisikoData((prev) => ({ ...prev, [tableName]: arr }));
-        const refKeyMap: Record<string, keyof typeof colorMappingRef.current> =
-          {
-            risiko_banjir: "risikoBanjir",
-            risiko_banjir_bandang: "risikoBanjirBandang",
-            risiko_kekeringan: "risikoKekeringan",
-            risiko_abrasi: "risikoAbrasi",
-            risiko_longsor: "risikoLongsor",
-            risiko_karhutla: "risikoKarhutla",
-          };
-        const refKey = refKeyMap[tableName];
-        arr.forEach((item) => {
-          colorMap.set(item.kelas, item.color!);
-          colorMappingRef.current[refKey].set(item.kelas, item.color!);
-        });
-      } else if (tableName === "khdtk") {
-        const khdtkColorMap = new Map<string, string>();
-        const namobjMap = new Map<
-          string,
-          { lsktap: number; jnskhdtk: string }
-        >();
-        geojsonData.features.forEach((feature: any) => {
-          const namobj = feature.properties.namobj || "";
-          const lsktap = parseFloat(feature.properties.lsktap) || 0;
-          const jnskhdtk = feature.properties.jnskhdtk || "";
-          if (namobj) {
-            if (namobjMap.has(namobj)) {
-              namobjMap.get(namobj)!.lsktap += lsktap;
-            } else {
-              namobjMap.set(namobj, { lsktap, jnskhdtk });
-            }
-          }
-        });
-        const arr = Array.from(namobjMap.entries()).map(([namobj, val]) => ({
-          namobj,
-          lsktap: val.lsktap,
-          jnskhdtk: val.jnskhdtk,
-          color: getRandomColor(namobj, khdtkColorMap),
-        }));
-        setKhdtkData(arr);
-        arr.forEach((item) => {
-          colorMap.set(item.namobj, item.color!);
-          colorMappingRef.current.khdtk.set(item.namobj, item.color!);
-        });
-      } else if (INFRA_IDS.includes(tableName as any)) {
-        const rows = geojsonData.features.map((f: any) => f.properties);
-        setInfraData((prev) => ({ ...prev, [tableName]: rows }));
       }
 
       // Styling function
       let styleFunction;
 
-      // BENCANA: warna ditentukan oleh JENIS BENCANA.
-      // Dengan begitu karhutla selalu merah, banjir selalu hijau, dst.
-      if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
-        const bencanaColor = getBencanaLayerColor(String(tableName));
-        styleFunction = function (feature: any) {
-          const kelas = getBencanaFeatureClass(feature);
-          // Encode dua informasi tanpa membuat satu layer menutupi layer lain:
-          // warna isi = jenis bencana; warna garis = kelas kerawanan dari data.
-          const classColor = getRiskClassColor(kelas, bencanaColor);
-          return {
-            color: classColor,
-            fillColor: bencanaColor,
-            weight: zoom > 10 ? 2.2 : 1.6,
-            opacity: 0.98,
-            fillOpacity: 0.16,
-            lineCap: "round",
-            lineJoin: "round",
-          };
-        };
-      } else if (tableName === "tutupan_lahan") {
-        styleFunction = function (feature: any) {
-          const pl2024_id = String(feature.properties.pl2024_id);
-          const fillColor = colorMap.get(pl2024_id) || "#EF4444";
-
-          return {
-            color: fillColor,
-            weight: zoom > 10 ? 2 : 1,
-            opacity: 0.8,
-            fillColor: fillColor,
-            fillOpacity: zoom > 10 ? 0.4 : 0.3,
-          };
-        };
-      } else if (tableName === "pl2024") {
-        styleFunction = function (feature: any) {
-          const pl2024_id = String(feature.properties.pl2024_id);
-          const fillColor = colorMap.get(pl2024_id) || "#EF4444";
-
-          return {
-            color: fillColor,
-            weight: zoom > 10 ? 2 : 1,
-            opacity: 0.8,
-            fillColor: fillColor,
-            fillOpacity: zoom > 10 ? 0.4 : 0.3,
-          };
-        };
-      } else if (tableName === "penutupan_lahan_2024") {
+      if (tableName === "tutupan_lahan") {
         styleFunction = function (feature: any) {
           const pl2024_id = String(feature.properties.pl2024_id);
           const fillColor = colorMap.get(pl2024_id) || "#EF4444";
@@ -3470,9 +1025,8 @@ const Kerawanan = () => {
         };
       } else if (tableName === "rawan_erosi") {
         styleFunction = function (feature: any) {
-          const keterangan = feature.properties.keterangan || "";
-          const fillColor = colorMap.get(keterangan) || "#808080";
-
+          const tingkat = feature.properties.tingkat || "";
+          const fillColor = colorMap.get(tingkat) || "#808080";
           return {
             color: fillColor,
             fillColor: fillColor,
@@ -3517,198 +1071,11 @@ const Kerawanan = () => {
             fillOpacity: 0.5,
           };
         };
-        // } else {
-        //   const tableColor = getColorForTable(tableName);
-        //   styleFunction = function(feature: any) {
-        //     return {
-        //       color: tableColor,
-        //       weight: zoom > 10 ? 2 : 1,
-        //       opacity: 0.8,
-        //       fillOpacity: zoom > 10 ? 0.4 : 0.3
-        //     };
-      } else if (
-        [
-          "bahaya_kekeringan",
-          "bahaya_abrasi_dan_gelombang_ekstrim",
-          "bahaya_banjir",
-          "bahaya_banjir_bandang",
-        ].includes(tableName)
-      ) {
-        styleFunction = function (feature: any) {
-          const kelas = feature.properties.kelas || "";
-          const fillColor = colorMap.get(kelas) || "#808080";
-          return {
-            color: fillColor,
-            fillColor,
-            weight: 1,
-            opacity: 0.8,
-            fillOpacity: 0.5,
-          };
-        };
-      } else if (tableName === "dta_danau") {
-        styleFunction = function (feature: any) {
-          const tipe = feature.properties.tipe_danau || "";
-          const fillColor = colorMap.get(tipe) || "#808080";
-          return {
-            color: fillColor,
-            fillColor,
-            weight: 1,
-            opacity: 0.8,
-            fillOpacity: 0.5,
-          };
-        };
-      } else if (tableName === "rehabilitasi_das") {
-        styleFunction = function (feature: any) {
-          const bpdas = feature.properties.bpdas || "";
-          const fillColor = colorMap.get(bpdas) || "#808080";
-          return {
-            color: fillColor,
-            fillColor,
-            weight: 1,
-            opacity: 0.8,
-            fillOpacity: 0.5,
-          };
-        };
-      } else if (tableName === "rehabilitasi_hutan") {
-        styleFunction = function (feature: any) {
-          const jenis_tana = String(feature.properties.jenis_tana || "");
-          const fillColor = colorMap.get(jenis_tana) || "#808080";
-          return {
-            color: fillColor,
-            fillColor,
-            weight: 1,
-            opacity: 0.8,
-            fillOpacity: 0.5,
-          };
-        };
-      } else if (
-        [
-          "karhutla_2021",
-          "karhutla_2022",
-          "karhutla_2023",
-          "karhutla_2024",
-          "karhutla_2025",
-        ].includes(tableName)
-      ) {
-        styleFunction = function (feature: any) {
-          const periode = String(feature.properties.periode || "");
-          const fillColor = colorMap.get(periode) || "#808080";
-          return {
-            color: fillColor,
-            fillColor,
-            weight: 1,
-            opacity: 0.8,
-            fillOpacity: 0.5,
-          };
-        };
-      } else if (tableName === "kawasan_hutan") {
-        styleFunction = function (feature: any) {
-          const fungsikws = String(feature.properties.fungsikws ?? "");
-          const fillColor = colorMap.get(fungsikws) || "#808080";
-          return {
-            color: fillColor,
-            fillColor,
-            weight: 1,
-            opacity: 0.8,
-            fillOpacity: 0.5,
-          };
-        };
-      } else if (
-        [
-          "risiko_banjir",
-          "risiko_banjir_bandang",
-          "risiko_kekeringan",
-          "risiko_abrasi",
-          "risiko_longsor",
-          "risiko_karhutla",
-        ].includes(tableName)
-      ) {
-        styleFunction = function (feature: any) {
-          const kelas = feature.properties.kelas || "";
-          const refKeyMap: Record<
-            string,
-            keyof typeof colorMappingRef.current
-          > = {
-            risiko_banjir: "risikoBanjir",
-            risiko_banjir_bandang: "risikoBanjirBandang",
-            risiko_kekeringan: "risikoKekeringan",
-            risiko_abrasi: "risikoAbrasi",
-            risiko_longsor: "risikoLongsor",
-            risiko_karhutla: "risikoKarhutla",
-          };
-          const refKey = refKeyMap[tableName];
-          const fillColor =
-            colorMappingRef.current[refKey]?.get(kelas) ||
-            colorMap.get(kelas) ||
-            "#808080";
-          return {
-            color: fillColor,
-            fillColor,
-            weight: 1,
-            opacity: 0.8,
-            fillOpacity: 0.5,
-          };
-        };
-      } else if (tableName === "khdtk") {
-        styleFunction = function (feature: any) {
-          const namobj = feature.properties.namobj || "";
-          const fillColor =
-            colorMappingRef.current.khdtk.get(namobj) ||
-            colorMap.get(namobj) ||
-            "#808080";
-          return {
-            color: fillColor,
-            fillColor,
-            weight: 1,
-            opacity: 0.8,
-            fillOpacity: 0.5,
-          };
-        };
       } else {
-        // Untuk layer umum, beri warna berbeda per feature
+        const tableColor = getColorForTable(tableName);
         styleFunction = function (feature: any) {
-          // Ambil warna berdasarkan property tertentu, misal: gid, id, atau nama
-          let featureIdentifier =
-            feature.properties.gid ||
-            feature.properties.id ||
-            feature.properties.nama ||
-            feature.properties.name ||
-            JSON.stringify(feature.properties); // fallback: gunakan semua properties
-
-          // Hash untuk mendapatkan warna unik per feature
-          const colors = [
-            "#FF6B6B",
-            "#4ECDC4",
-            "#45B7D1",
-            "#FFA07A",
-            "#98D8C8",
-            "#F7DC6F",
-            "#BB8FCE",
-            "#85C1E2",
-            "#F8B739",
-            "#52BE80",
-            "#EC7063",
-            "#5DADE2",
-            "#F1948A",
-            "#73C6B6",
-            "#F39C12",
-            "#AED6F1",
-            "#F8C471",
-            "#82E0AA",
-            "#E59866",
-            "#D7BDE2",
-          ];
-
-          let hash = 0;
-          const str = String(featureIdentifier);
-          for (let i = 0; i < str.length; i++) {
-            hash = str.charCodeAt(i) + ((hash << 5) - hash);
-          }
-          const colorIndex = Math.abs(hash) % colors.length;
-          const featureColor = colors[colorIndex];
-
           return {
-            color: featureColor,
+            color: tableColor,
             weight: zoom > 10 ? 2 : 1,
             opacity: 0.8,
             fillOpacity: zoom > 10 ? 0.4 : 0.3,
@@ -3716,70 +1083,13 @@ const Kerawanan = () => {
         };
       }
 
-      // Buat layer group. GeoJSON Point yang koordinatnya rusak harus dilewati
-      // agar satu feature invalid tidak membuat renderer Leaflet crash saat pan/resize/export PDF.
+      // Buat layer group
       const layerGroup = window.L.geoJSON(geojsonData, {
         pane: "overlayPane",
         style: styleFunction,
-        filter: function (feature: any) {
-          const geometry = feature?.geometry;
-          if (!geometry) return false;
-          if (geometry.type === "Point") {
-            const coords = geometry.coordinates;
-            const lng = Number(coords?.[0]);
-            const lat = Number(coords?.[1]);
-            if (
-              !Number.isFinite(lat) ||
-              !Number.isFinite(lng) ||
-              lat < -90 ||
-              lat > 90 ||
-              lng < -180 ||
-              lng > 180
-            ) {
-              console.warn("SIMITI: skipping invalid Point geometry", {
-                tableName,
-                feature,
-              });
-              return false;
-            }
-          }
-          return true;
-        },
         pointToLayer: function (feature, latlng) {
-          const lat = Number(latlng?.lat);
-          const lng = Number(latlng?.lng);
-          if (
-            !Number.isFinite(lat) ||
-            !Number.isFinite(lng) ||
-            lat < -90 ||
-            lat > 90 ||
-            lng < -180 ||
-            lng > 180
-          ) {
-            console.warn("SIMITI: skipping invalid Leaflet LatLng", {
-              tableName,
-              feature,
-              latlng,
-            });
-            return window.L.layerGroup();
-          }
-          const isBencanaLayer = BENCANA_FOCUS_LAYERS.has(String(tableName));
-          const tableColor = isBencanaLayer
-            ? getRiskClassColor(
-                getBencanaFeatureClass(feature),
-                getBencanaLayerColor(String(tableName)),
-              )
-            : getColorForTable(tableName);
-
-          // Point pada layer bencana tetap ditampilkan. Beberapa sumber bencana
-          // menyimpan kejadian sebagai Point, jadi jangan dibuang karena itu membuat
-          // tanda bencana hilang ketika area dipilih.
-          // SIMITI: Point/CircleMarker wajib memakai Canvas renderer.
-          // Renderer SVG dapat masuk ke Bounds.js dengan _pxBounds yang belum
-          // terbentuk ketika map sedang add/remove/invalidateSize.
-          const pointRenderer = window.L.canvas({ padding: 0.5 });
-          return window.L.circleMarker([lat, lng], {
-            renderer: pointRenderer,
+          const tableColor = getColorForTable(tableName);
+          return window.L.circleMarker(latlng, {
             radius: zoom > 10 ? 6 : 4,
             fillColor: tableColor,
             color: "#000",
@@ -3789,84 +1099,6 @@ const Kerawanan = () => {
           });
         },
         onEachFeature: function (feature, layer) {
-          layer.on("click", (event: any) => {
-            if (event?.originalEvent?.stopPropagation) {
-              event.originalEvent.stopPropagation();
-            }
-
-            // ==================================================
-            // SIMITI - FEATURE SELECTION LOCK
-            //
-            // Jika user memilih polygon KHDTK, simpan polygon
-            // tersebut sebagai target kerawanan.
-            //
-            // Contoh:
-            // KHDTK A diklik -> hanya KHDTK A yang menjadi target.
-            // KHDTK B/C tidak ikut terkena ketika legenda diklik.
-            // ==================================================
-            if (String(tableName).toLowerCase() === "khdtk") {
-              const props = feature?.properties || {};
-
-              let originalColor = "#808080";
-
-              const namobj = String(props.namobj || "");
-
-              if (namobj) {
-                originalColor =
-                  colorMappingRef.current.khdtk.get(namobj) || "#808080";
-              }
-
-              selectedSpatialFeatureRef.current = {
-                layerType: "khdtk",
-                feature,
-                layer,
-                originalColor,
-              };
-
-              // Visual selection sementara agar user tahu
-              // polygon mana yang sedang menjadi target.
-              if (layer?.setStyle) {
-                layer.setStyle({
-                  weight: 4,
-                  color: "#111827",
-                  opacity: 1,
-                  fillOpacity: 0.72,
-                });
-
-                if (layer?.bringToFront) {
-                  layer.bringToFront();
-                }
-              }
-
-              console.log("SIMITI selected KHDTK:", props.namobj || props);
-              requestAnimationFrame(() => syncSelectedSpatialFeatureBencanaClip());
-            } else if (
-              !BENCANA_FOCUS_LAYERS.has(String(tableName)) &&
-              ["Polygon", "MultiPolygon"].includes(String(feature?.geometry?.type))
-            ) {
-              // Klik polygon non-risiko di peta = target clip risiko.
-              // Jangan mengunci feature risiko itu sendiri sebagai batas clip.
-              selectedSpatialFeatureRef.current = {
-                layerType: "map-polygon",
-                feature,
-                layer,
-              };
-
-              console.log("SIMITI selected map polygon for risk clip:", {
-                sourceLayer: tableName,
-                properties: feature?.properties || {},
-              });
-
-              requestAnimationFrame(() => syncSelectedSpatialFeatureBencanaClip());
-            }
-
-            openEnterpriseIdentify(
-              feature,
-              tableName,
-              event?.latlng,
-              "SIMITI GIS",
-            );
-          });
           if (zoom > 8 && feature.properties) {
             let popupContent =
               '<div style="max-height: 200px; overflow-y: auto;">';
@@ -3882,159 +1114,8 @@ const Kerawanan = () => {
         },
       });
 
-      if (
-        layerRequestSeqRef.current[tableName] !== requestId ||
-        mapInstanceRef.current !== mapAtRequest ||
-        !isLeafletMapUsable(mapAtRequest)
-      ) {
-        console.log(`⏭️ Layer ${tableName} stale sebelum addTo(map)`);
-        return;
-      }
-
-      // Cache layer terlebih dahulu. Layer hanya dipasang jika tab-nya aktif.
-      const hasBottomTab = layersWithBottomTabs.includes(tableName);
-
-      const tabMapping: Record<string, string> = {
-        tutupan_lahan: "tutupanLahan",
-        penutupan_lahan_2024: "penutupanLahan2024",
-        pl2024: "pl2024",
-        jenis_tanah: "jenisTanah",
-        geologi: "geologi",
-        lahan_kritis: "lahan_kritis",
-        rawan_erosi: "rawan_erosi",
-        rawan_banjir: "rawan_banjir",
-        rawan_longsor: "rawan_longsor",
-        rawan_limpasan: "rawan_limpasan",
-        rawan_karhutla: "rawan_karhutla",
-        bahaya_kekeringan: "bahaya_kekeringan",
-        bahaya_abrasi_dan_gelombang_ekstrim: "bahaya_abrasi",
-        bahaya_banjir: "bahaya_banjir",
-        bahaya_banjir_bandang: "bahaya_banjir_bandang",
-        dta_danau: "dta_danau",
-        rehabilitasi_das: "rehabilitasi_das",
-        rehabilitasi_hutan: "rehabilitasi_hutan",
-        restorasi_gambut: "restorasi_gambut",
-        penerapan_teknik_kta: "penerapan_teknik_kta",
-        karhutla_2021: "kebakaran_2021",
-        karhutla_2022: "kebakaran_2022",
-        karhutla_2023: "kebakaran_2023",
-        karhutla_2024: "kebakaran_2024",
-        karhutla_2025: "kebakaran_2025",
-        kawasan_hutan: "kawasan_hutan",
-        risiko_banjir: "risiko_banjir",
-        risiko_banjir_bandang: "risiko_banjir_bandang",
-        risiko_kekeringan: "risiko_kekeringan",
-        risiko_abrasi: "risiko_abrasi",
-        risiko_longsor: "risiko_longsor",
-        risiko_karhutla: "risiko_karhutla",
-        khdtk: "khdtk",
-      };
-
-      const isInfrastructureLayer = INFRA_IDS.includes(tableName as any);
-      const correspondingTab = isInfrastructureLayer
-        ? "mitigasi_adaptasi"
-        : tabMapping[tableName];
-
-      const shouldDisplayOnMap =
-        !hasBottomTab || correspondingTab === (targetTab || activeBottomTab);
-
-      layerCacheRef.current.set(tableName, layerGroup);
-
-      if (shouldDisplayOnMap) {
-        if (!safeAddMapLayer(mapAtRequest, layerGroup)) {
-          throw new Error(`Leaflet gagal menambahkan layer ${tableName}`);
-        }
-        console.log(`SIMITI: layer ${tableName} dipasang pada tab ${activeBottomTab}`);
-      } else {
-        console.log(`SIMITI: layer ${tableName} disimpan di cache; tab ${correspondingTab} belum aktif`);
-      }
-      // Pastikan request masih yang terbaru sebelum menyimpan reference layer.
-      if (layerRequestSeqRef.current[tableName] !== requestId) {
-        safeRemoveMapLayer(layerGroup);
-        return;
-      }
-
-      cleanupLegacyBencanaCircleMarkers();
-
-      // SIMITI: WARNA TEMATIK TANPA BLEND WARNA ANTARLAYER.
-      // Pertahankan warna tiap risiko; pola irisan akan ditangani terpisah.
-      if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
-        const forcedBencanaColor = getBencanaLayerColor(String(tableName));
-
-        layerGroup.eachLayer((layer: any) => {
-          try {
-            if (layer?._path?.style) layer._path.style.mixBlendMode = "normal";
-            const classColor = getRiskClassColor(
-              getBencanaFeatureClass(layer?.feature),
-              forcedBencanaColor,
-            );
-            const style = {
-              color: classColor,
-              fillColor: forcedBencanaColor,
-              weight: zoom > 10 ? 2.2 : 1.6,
-              opacity: 0.98,
-              fillOpacity: 0.16,
-              lineCap: "round",
-              lineJoin: "round",
-            };
-            if (layer?.setStyle) layer.setStyle(style);
-            if (layer?.options) Object.assign(layer.options, style);
-          } catch (styleError) {
-            console.warn("SIMITI: gagal menerapkan warna risiko:", tableName, styleError);
-          }
-        });
-
-        console.log(`SIMITI RISK COLOR: ${tableName} -> ${forcedBencanaColor}`);
-      }
+      layerGroup.addTo(mapInstanceRef.current);
       layerGroupsRef.current[tableName] = layerGroup;
-      if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
-        const selectedAdminClipAreas =
-          selectedAreaBencanaClipPathRef.current?.areas ||
-          getDeepestSelectedAdminAreas(selectedAreas);
-        if (selectedAdminClipAreas.length && selectedDas.length === 0) {
-          requestAnimationFrame(() =>
-            applyBencanaClipToLayer(String(tableName), selectedAdminClipAreas),
-          );
-        }
-      }
-  // SIMITI_HATCH_REFRESH_ON_LOAD
-  if (BENCANA_FOCUS_LAYERS.has(String(tableName))) refreshRiskOverlapHatch();
-
-      // Urutan layer stabil, tidak bergantung urutan checkbox diklik.
-      // Semua layer risiko tetap memakai fill transparan; garis kelas dan arsiran
-      // irisan membantu membaca dua sumber data pada lokasi yang sama.
-      const bencanaRenderPriority: Record<string, number> = {
-        risiko_banjir: 10,
-        rawan_banjir: 10,
-        bahaya_banjir: 10,
-        risiko_banjir_bandang: 20,
-        bahaya_banjir_bandang: 20,
-        risiko_longsor: 30,
-        rawan_longsor: 30,
-        rawan_erosi: 35,
-        rawan_limpasan: 40,
-        risiko_karhutla: 50,
-        rawan_karhutla: 50,
-        risiko_abrasi: 60,
-        bahaya_abrasi_dan_gelombang_ekstrim: 60,
-        risiko_kekeringan: 70,
-        bahaya_kekeringan: 70,
-      };
-      const cachedBencanaLayers = Array.from(layerCacheRef.current.entries())
-        .filter(([name, cachedLayer]: [string, any]) =>
-          BENCANA_FOCUS_LAYERS.has(String(name)) &&
-          cachedLayer && mapInstanceRef.current?.hasLayer?.(cachedLayer),
-        )
-        .sort(([nameA], [nameB]) =>
-          (bencanaRenderPriority[nameA] ?? 45) - (bencanaRenderPriority[nameB] ?? 45),
-        );
-      cachedBencanaLayers.forEach(([, cachedLayer]: [string, any]) => {
-        try {
-          cachedLayer.eachLayer?.((child: any) => child?.bringToFront?.());
-        } catch (orderError) {
-          console.warn("SIMITI: urutan layer bencana dilewati:", orderError);
-        }
-      });
 
       const filterType =
         selectedDas.length > 0
@@ -4077,58 +1158,25 @@ const Kerawanan = () => {
     }
   };
 
-  const searchAreas = async (
-    query: string,
-    levelOverride?: typeof adminLevel,
-  ) => {
+  const searchAreas = async (query: string) => {
     if (query.trim().length < 2) {
       setAreaSearchResults([]);
-      setShowAreaSearchDropdown(false);
       return;
-    }
-
-    const level = levelOverride || adminLevel;
-    const params = new URLSearchParams({
-      query: query.trim(),
-      level,
-    });
-
-    // Ambil wilayah induk yang dipilih untuk membatasi pencarian anak.
-    const latest = (targetLevel: string) =>
-      [...selectedAreas].reverse().find((area) => area.level === targetLevel);
-
-    if (level === "kabupaten") {
-      const parent = latest("provinsi");
-      if (parent?.provinsi) params.set("provinsi", parent.provinsi);
-    } else if (level === "kecamatan") {
-      const parent = latest("kabupaten");
-      if (parent?.provinsi) params.set("provinsi", parent.provinsi);
-      if (parent?.kab_kota) params.set("kab_kota", parent.kab_kota);
-    } else if (level === "kelurahan") {
-      const parent = latest("kecamatan");
-      if (parent?.provinsi) params.set("provinsi", parent.provinsi);
-      if (parent?.kab_kota) params.set("kab_kota", parent.kab_kota);
-      if (parent?.kecamatan) params.set("kecamatan", parent.kecamatan);
     }
 
     try {
       const response = await fetch(
-        `${API_URL}/api/areas/search?${params.toString()}`,
+        `${API_URL}/api/areas/search?query=${encodeURIComponent(query)}&level=${adminLevel}`,
       );
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
       const data = await response.json();
-      setAreaSearchResults(Array.isArray(data) ? data : []);
+      setAreaSearchResults(data);
       setShowAreaSearchDropdown(true);
     } catch (error) {
       console.error("Error searching areas:", error);
       setAreaSearchResults([]);
-      setShowAreaSearchDropdown(false);
     }
   };
+
   useEffect(() => {
     const checkExistingSession = async () => {
       const token = localStorage.getItem("adminToken");
@@ -4164,394 +1212,6 @@ const Kerawanan = () => {
 
     checkExistingSession();
   }, []);
-
-  useEffect(() => {
-    if (!mapInstanceRef.current || !window.L) return;
-
-    // List layer yang merupakan data layer (bukan boundary)
-    const dataLayers = [
-      "tutupan_lahan",
-      "penutupan_lahan_2024",
-      "pl2024",
-      "geologi",
-      "jenis_tanah",
-      "lahan_kritis",
-      "rawan_erosi",
-      "rawan_banjir",
-      "rawan_longsor",
-      "rawan_limpasan",
-      "rawan_karhutla",
-      "bahaya_kekeringan",
-      "bahaya_abrasi_dan_gelombang_ekstrim",
-      "bahaya_banjir",
-      "bahaya_banjir_bandang",
-      "dta_danau",
-      "rehabilitasi_das",
-      "rehabilitasi_hutan",
-      "karhutla_2021",
-      "karhutla_2022",
-      "karhutla_2023",
-      "karhutla_2024",
-      "karhutla_2025",
-      "kawasan_hutan",
-      "risiko_banjir",
-      "risiko_banjir_bandang",
-      "risiko_kekeringan",
-      "risiko_abrasi",
-      "risiko_longsor",
-      "risiko_karhutla",
-      "khdtk",
-      "bendung",
-      "bendungan",
-      "danau",
-      "embung",
-      "situ",
-      "pengaman_pantai",
-      "pengendali_sedimen",
-      "pompa_air",
-    ];
-
-    // Jika ada layer yang sebelumnya di-hover, reset hanya layer tersebut
-    if (hoveredLayerType && dataLayers.includes(hoveredLayerType)) {
-      const layerGroup = layerGroupsRef.current[hoveredLayerType];
-      if (layerGroup) {
-        layerGroup.eachLayer((layer: any) => {
-          if (layer.setStyle && layer.feature) {
-            const zoom = mapInstanceRef.current
-              ? mapInstanceRef.current.getZoom()
-              : 10;
-
-            if (INFRA_IDS.includes(hoveredLayerType as any)) {
-              // Reset circleMarker ke style awal
-              const infraColor =
-                INFRA_LAYERS.find((l) => l.id === hoveredLayerType)?.color ||
-                "#808080";
-              layer.setStyle({
-                radius: zoom > 10 ? 6 : 4,
-                fillColor: infraColor,
-                color: "#000",
-                weight: 1,
-                opacity: 1,
-                fillOpacity: 0.7,
-              });
-            } else {
-              // Reset polygon ke warna aslinya
-              let originalColor = "#3b82f6";
-
-              if (BENCANA_FOCUS_LAYERS.has(String(hoveredLayerType))) {
-                originalColor = getBencanaLayerColor(String(hoveredLayerType));
-              } else if (hoveredLayerType === "tutupan_lahan") {
-                const pl2024_id = String(layer.feature.properties.pl2024_id);
-                originalColor =
-                  colorMappingRef.current.tutupanLahan.get(pl2024_id) ||
-                  "#3b82f6";
-              } else if (hoveredLayerType === "penutupan_lahan_2024") {
-                const pl2024_id = String(layer.feature.properties.pl2024_id);
-                originalColor =
-                  colorMappingRef.current.penutupanLahan2024.get(pl2024_id) ||
-                  "#3b82f6";
-              } else if (hoveredLayerType === "pl2024") {
-                const pl2024_id = String(layer.feature.properties.pl2024_id);
-                originalColor =
-                  colorMappingRef.current.pl2024.get(pl2024_id) || "#3b82f6";
-              } else if (hoveredLayerType === "geologi") {
-                const key = `${layer.feature.properties.namobj || ""}|${layer.feature.properties.umurobj || ""}`;
-                originalColor =
-                  colorMappingRef.current.geologi.get(key) || "#B45309";
-              } else if (hoveredLayerType === "jenis_tanah") {
-                originalColor =
-                  colorMappingRef.current.jenisTanah.get(
-                    layer.feature.properties.jntnh1,
-                  ) || "#8B4513";
-              } else if (hoveredLayerType === "lahan_kritis") {
-                originalColor =
-                  colorMappingRef.current.lahanKritis.get(
-                    layer.feature.properties.kritis,
-                  ) || "#808080";
-              } else if (hoveredLayerType === "rawan_erosi") {
-                originalColor =
-                  colorMappingRef.current.rawanErosi.get(
-                    layer.feature.properties.keterangan,
-                  ) || "#808080";
-              } else if (hoveredLayerType === "rawan_longsor") {
-                originalColor =
-                  colorMappingRef.current.rawanLongsor.get(
-                    layer.feature.properties.unsur,
-                  ) || "#808080";
-              } else if (hoveredLayerType === "rawan_limpasan") {
-                originalColor =
-                  colorMappingRef.current.rawanLimpasan.get(
-                    layer.feature.properties.limpasan,
-                  ) || "#808080";
-              } else if (hoveredLayerType === "rawan_karhutla") {
-                originalColor =
-                  colorMappingRef.current.rawanKarhutla.get(
-                    layer.feature.properties.kelas,
-                  ) || "#808080";
-              } else if (hoveredLayerType === "bahaya_kekeringan") {
-                originalColor =
-                  colorMappingRef.current.bahayaKekeringan.get(
-                    layer.feature.properties.kelas,
-                  ) || "#808080";
-              } else if (
-                hoveredLayerType === "bahaya_abrasi_dan_gelombang_ekstrim"
-              ) {
-                originalColor =
-                  colorMappingRef.current.bahayaAbrasi.get(
-                    layer.feature.properties.kelas,
-                  ) || "#808080";
-              } else if (hoveredLayerType === "bahaya_banjir") {
-                originalColor =
-                  colorMappingRef.current.bahayaBanjir.get(
-                    layer.feature.properties.kelas,
-                  ) || "#808080";
-              } else if (hoveredLayerType === "bahaya_banjir_bandang") {
-                originalColor =
-                  colorMappingRef.current.bahayaBanjirBandang.get(
-                    layer.feature.properties.kelas,
-                  ) || "#808080";
-              } else if (hoveredLayerType === "dta_danau") {
-                originalColor =
-                  colorMappingRef.current.dtaDanau.get(
-                    layer.feature.properties.tipe_danau,
-                  ) || "#808080";
-              } else if (hoveredLayerType === "rehabilitasi_das") {
-                originalColor =
-                  colorMappingRef.current.rehabilitasiDas.get(
-                    layer.feature.properties.bpdas,
-                  ) || "#808080";
-              } else if (hoveredLayerType === "rehabilitasi_hutan") {
-                originalColor =
-                  colorMappingRef.current.rehabilitasiHutan.get(
-                    String(layer.feature.properties.jenis_tana),
-                  ) || "#808080";
-              } else if (hoveredLayerType === "karhutla_2021") {
-                originalColor =
-                  colorMappingRef.current.kebakaran2021.get(
-                    String(layer.feature.properties.periode),
-                  ) || "#808080";
-              } else if (hoveredLayerType === "karhutla_2022") {
-                originalColor =
-                  colorMappingRef.current.kebakaran2022.get(
-                    String(layer.feature.properties.periode),
-                  ) || "#808080";
-              } else if (hoveredLayerType === "karhutla_2023") {
-                originalColor =
-                  colorMappingRef.current.kebakaran2023.get(
-                    String(layer.feature.properties.periode),
-                  ) || "#808080";
-              } else if (hoveredLayerType === "karhutla_2024") {
-                originalColor =
-                  colorMappingRef.current.kebakaran2024.get(
-                    String(layer.feature.properties.periode),
-                  ) || "#808080";
-              } else if (hoveredLayerType === "karhutla_2025") {
-                originalColor =
-                  colorMappingRef.current.kebakaran2025.get(
-                    String(layer.feature.properties.periode),
-                  ) || "#808080";
-              } else if (hoveredLayerType === "kawasan_hutan") {
-                originalColor =
-                  colorMappingRef.current.kawasanHutan.get(
-                    String(layer.feature.properties.fungsikws ?? ""),
-                  ) || "#808080";
-              } else if (
-                [
-                  "risiko_banjir",
-                  "risiko_banjir_bandang",
-                  "risiko_kekeringan",
-                  "risiko_abrasi",
-                  "risiko_longsor",
-                  "risiko_karhutla",
-                ].includes(hoveredLayerType)
-              ) {
-                const refKeyMap: Record<
-                  string,
-                  keyof typeof colorMappingRef.current
-                > = {
-                  risiko_banjir: "risikoBanjir",
-                  risiko_banjir_bandang: "risikoBanjirBandang",
-                  risiko_kekeringan: "risikoKekeringan",
-                  risiko_abrasi: "risikoAbrasi",
-                  risiko_longsor: "risikoLongsor",
-                  risiko_karhutla: "risikoKarhutla",
-                };
-                const refKey = refKeyMap[hoveredLayerType];
-                originalColor =
-                  colorMappingRef.current[refKey]?.get(
-                    layer.feature.properties.kelas || "",
-                  ) || "#808080";
-              } else if (hoveredLayerType === "khdtk") {
-                originalColor =
-                  colorMappingRef.current.khdtk.get(
-                    layer.feature.properties.namobj || "",
-                  ) || "#808080";
-              }
-
-              layer.setStyle({
-                color: originalColor,
-                weight: zoom > 10 ? 2 : 1,
-                opacity: 0.8,
-                fillColor: originalColor,
-                fillOpacity: zoom > 10 ? 0.4 : 0.3,
-              });
-            }
-          }
-        });
-      }
-    }
-
-    // Hover bersifat sementara. Jika tidak sedang hover, gunakan legend yang
-    // dipilih dengan CLICK agar highlight tetap bertahan setelah mouse keluar.
-    const highlightKey = hoveredLayerKey || selectedLegendKey;
-    const highlightType = hoveredLayerType || selectedLegendType;
-    const highlightColor = hoveredLayerColor || selectedLegendColor;
-
-    if (
-      highlightKey &&
-      highlightType &&
-      highlightColor &&
-      dataLayers.includes(highlightType)
-    ) {
-      const layerGroup = layerGroupsRef.current[highlightType];
-      if (layerGroup) {
-        layerGroup.eachLayer((layer: any) => {
-          if (layer.feature && layer.setStyle) {
-            let shouldHighlight = false;
-
-            // Tentukan apakah layer ini yang harus di-highlight
-            if (highlightType === "tutupan_lahan") {
-              shouldHighlight =
-                String(layer.feature.properties.pl2024_id) === highlightKey;
-            } else if (highlightType === "penutupan_lahan_2024") {
-              shouldHighlight =
-                String(layer.feature.properties.pl2024_id) === highlightKey;
-            } else if (highlightType === "pl2024") {
-              shouldHighlight =
-                String(layer.feature.properties.pl2024_id) === highlightKey;
-            } else if (highlightType === "geologi") {
-              const key = `${layer.feature.properties.namobj || ""}|${layer.feature.properties.umurobj || ""}`;
-              shouldHighlight = key === highlightKey;
-            } else if (highlightType === "jenis_tanah") {
-              shouldHighlight =
-                layer.feature.properties.jntnh1 === highlightKey;
-            } else if (highlightType === "lahan_kritis") {
-              shouldHighlight =
-                layer.feature.properties.kritis === highlightKey;
-            } else if (highlightType === "rawan_erosi") {
-              shouldHighlight =
-                layer.feature.properties.keterangan === highlightKey;
-            } else if (highlightType === "rawan_longsor") {
-              shouldHighlight = layer.feature.properties.unsur === highlightKey;
-            } else if (highlightType === "rawan_limpasan") {
-              shouldHighlight =
-                layer.feature.properties.limpasan === highlightKey;
-            } else if (highlightType === "rawan_karhutla") {
-              shouldHighlight = layer.feature.properties.kelas === highlightKey;
-            } else if (highlightType === "bahaya_kekeringan") {
-              shouldHighlight = layer.feature.properties.kelas === highlightKey;
-            } else if (
-              highlightType === "bahaya_abrasi_dan_gelombang_ekstrim"
-            ) {
-              shouldHighlight = layer.feature.properties.kelas === highlightKey;
-            } else if (highlightType === "bahaya_banjir") {
-              shouldHighlight = layer.feature.properties.kelas === highlightKey;
-            } else if (highlightType === "bahaya_banjir_bandang") {
-              shouldHighlight = layer.feature.properties.kelas === highlightKey;
-            } else if (highlightType === "dta_danau") {
-              shouldHighlight =
-                layer.feature.properties.tipe_danau === highlightKey;
-            } else if (highlightType === "rehabilitasi_das") {
-              shouldHighlight = layer.feature.properties.bpdas === highlightKey;
-            } else if (highlightType === "rehabilitasi_hutan") {
-              shouldHighlight =
-                String(layer.feature.properties.jenis_tana) === highlightKey;
-            } else if (highlightType === "karhutla_2021") {
-              shouldHighlight =
-                String(layer.feature.properties.periode) === highlightKey;
-            } else if (highlightType === "karhutla_2022") {
-              shouldHighlight =
-                String(layer.feature.properties.periode) === highlightKey;
-            } else if (highlightType === "karhutla_2023") {
-              shouldHighlight =
-                String(layer.feature.properties.periode) === highlightKey;
-            } else if (highlightType === "karhutla_2024") {
-              shouldHighlight =
-                String(layer.feature.properties.periode) === highlightKey;
-            } else if (highlightType === "karhutla_2025") {
-              shouldHighlight =
-                String(layer.feature.properties.periode) === highlightKey;
-            } else if (highlightType === "kawasan_hutan") {
-              shouldHighlight =
-                String(layer.feature.properties.fungsikws ?? "") ===
-                highlightKey;
-            } else if (
-              [
-                "risiko_banjir",
-                "risiko_banjir_bandang",
-                "risiko_kekeringan",
-                "risiko_abrasi",
-                "risiko_longsor",
-                "risiko_karhutla",
-              ].includes(highlightType)
-            ) {
-              shouldHighlight = layer.feature.properties.kelas === highlightKey;
-            } else if (highlightType === "khdtk") {
-              shouldHighlight =
-                layer.feature.properties.namobj === highlightKey;
-            } else if (INFRA_IDS.includes(highlightType as any)) {
-              const infraLayer = INFRA_LAYERS.find(
-                (l) => l.id === highlightType,
-              );
-              const nameKey = infraLayer?.cols[0].k || "nama_infra";
-              shouldHighlight =
-                String(layer.feature.properties[nameKey] ?? "") ===
-                highlightKey;
-            }
-
-            if (shouldHighlight) {
-              const currentZoom = mapInstanceRef.current
-                ? mapInstanceRef.current.getZoom()
-                : 10;
-              if (INFRA_IDS.includes(highlightType as any)) {
-                // Point/circleMarker highlight
-                layer.setStyle({
-                  radius: currentZoom > 10 ? 10 : 8,
-                  fillColor: highlightColor,
-                  color: "#fff",
-                  weight: 2,
-                  opacity: 1,
-                  fillOpacity: 1,
-                });
-              } else {
-                // Polygon highlight
-                layer.setStyle({
-                  color: highlightColor,
-                  weight: 5,
-                  opacity: 1,
-                  fillColor: highlightColor,
-                  fillOpacity: 0.8,
-                });
-              }
-
-              // Bringkan layer ke depan
-              if (layer.bringToFront) {
-                layer.bringToFront();
-              }
-            }
-          }
-        });
-      }
-    }
-  }, [
-    hoveredLayerKey,
-    hoveredLayerType,
-    hoveredLayerColor,
-    selectedLegendKey,
-    selectedLegendType,
-    selectedLegendColor,
-    selectedAreas,
-  ]);
 
   // Handle logout
   const handleLogout = () => {
@@ -4598,9 +1258,9 @@ const Kerawanan = () => {
 
       if (result.success) {
         // Assign colors to each unique deskripsi_domain
-        const dataWithColors = result.data.map((item: any) => ({
+        const dataWithColors = result.data.map((item: any, index: number) => ({
           ...item,
-          color: tutupanLahanColors[item.deskripsi_domain] || "#999999",
+          color: tutupanLahanColors[index % tutupanLahanColors.length],
         }));
 
         setTutupanLahanData(dataWithColors);
@@ -4611,116 +1271,6 @@ const Kerawanan = () => {
     } catch (error) {
       console.error("Error fetching tutupan lahan data:", error);
       setTutupanLahanData([]);
-      return [];
-    }
-  };
-
-  const fetchPenutupanLahan2024Data = async (): Promise<
-    Array<{
-      pl2024_id: number;
-      deskripsi_domain: string;
-      luas_total: number;
-      color: string;
-    }>
-  > => {
-    if (!mapInstanceRef.current) return [];
-
-    try {
-      let boundsString = "";
-
-      if (currentBounds) {
-        const [[minLat, minLng], [maxLat, maxLng]] = currentBounds;
-        boundsString = `${minLat},${minLng},${maxLat},${maxLng}`;
-      } else {
-        boundsString = "-11,95,6,141";
-      }
-
-      const dasFilter =
-        selectedDas.length > 0 ? selectedDas.map((d) => d.nama_das) : null;
-      const dasFilterParam = dasFilter
-        ? `&dasFilter=${encodeURIComponent(JSON.stringify(dasFilter))}`
-        : "";
-
-      const response = await fetch(
-        `${API_URL}/api/penutupan-lahan-2024/data?bounds=${boundsString}${dasFilterParam}`,
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-
-      if (result.success) {
-        // Assign colors to each unique deskripsi_domain
-        const dataWithColors = result.data.map((item: any) => ({
-          ...item,
-          color: tutupanLahanColors[item.deskripsi_domain] || "#999999",
-        }));
-
-        setPenutupanLahan2024Data(dataWithColors);
-        return dataWithColors; // RETURN DATA
-      }
-
-      return [];
-    } catch (error) {
-      console.error("Error fetching tutupan lahan data:", error);
-      setPenutupanLahan2024Data([]);
-      return [];
-    }
-  };
-
-  const fetchPL2024 = async (): Promise<
-    Array<{
-      pl2024_id: number;
-      deskripsi_domain: string;
-      luas_total: number;
-      color: string;
-    }>
-  > => {
-    if (!mapInstanceRef.current) return [];
-
-    try {
-      let boundsString = "";
-
-      if (currentBounds) {
-        const [[minLat, minLng], [maxLat, maxLng]] = currentBounds;
-        boundsString = `${minLat},${minLng},${maxLat},${maxLng}`;
-      } else {
-        boundsString = "-11,95,6,141";
-      }
-
-      const dasFilter =
-        selectedDas.length > 0 ? selectedDas.map((d) => d.nama_das) : null;
-      const dasFilterParam = dasFilter
-        ? `&dasFilter=${encodeURIComponent(JSON.stringify(dasFilter))}`
-        : "";
-
-      const response = await fetch(
-        `${API_URL}/api/pl-2024/data?bounds=${boundsString}${dasFilterParam}`,
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-
-      if (result.success) {
-        // Assign colors to each unique deskripsi_domain
-        const dataWithColors = result.data.map((item: any) => ({
-          ...item,
-          color: tutupanLahanColors[item.deskripsi_domain] || "#999999",
-        }));
-
-        setPL2024Data(dataWithColors);
-        return dataWithColors; // RETURN DATA
-      }
-
-      return [];
-    } catch (error) {
-      console.error("Error fetching tutupan lahan data:", error);
-      setPL2024Data([]);
       return [];
     }
   };
@@ -4841,49 +1391,6 @@ const Kerawanan = () => {
         ? `&dasFilter=${encodeURIComponent(JSON.stringify(dasFilter))}`
         : "";
 
-      // Filter administrasi mengikuti wilayah yang dipilih pengguna.
-      // Bounds tetap dipakai sebagai batas spasial tambahan.
-      let adminFilterParam = "";
-
-      if (selectedAreas.length > 0 && selectedDas.length === 0) {
-        const levelOrder: Record<string, number> = {
-          provinsi: 1,
-          kabupaten: 2,
-          kecamatan: 3,
-          kelurahan: 4,
-        };
-
-        const selectedLevel = selectedAreas.reduce((deepest, area) =>
-          (levelOrder[area.level] ?? 0) > (levelOrder[deepest.level] ?? 0)
-            ? area
-            : deepest,
-        ).level;
-
-        const adminNames = selectedAreas
-          .filter((area: any) => area.level === selectedLevel)
-          .map((area: any) => {
-            switch (area.level) {
-              case "provinsi":
-                return area.provinsi || area.label || "";
-              case "kabupaten":
-                return area.kab_kota || area.label || "";
-              case "kecamatan":
-                return area.kecamatan || area.label || "";
-              case "kelurahan":
-                return area.kel_desa || area.label || "";
-              default:
-                return area.label || "";
-            }
-          })
-          .filter(Boolean);
-
-        if (adminNames.length > 0) {
-          adminFilterParam =
-            `&adminFilter=${encodeURIComponent(JSON.stringify(adminNames))}` +
-            `&adminLevel=${encodeURIComponent(selectedLevel)}`;
-        }
-      }
-
       const allListings: any[] = [];
 
       for (const layerName of activeKejadianLayerNames) {
@@ -4900,7 +1407,7 @@ const Kerawanan = () => {
         );
 
         const response = await fetch(
-          `${API_URL}/api/kejadian/by-year/${metadata.year}?bounds=${boundsString}${dasFilterParam}${adminFilterParam}${categoryParam}`,
+          `${API_URL}/api/kejadian/by-year/${metadata.year}?bounds=${boundsString}${dasFilterParam}${categoryParam}`,
         );
 
         if (!response.ok) {
@@ -4914,31 +1421,7 @@ const Kerawanan = () => {
         );
 
         if (data.features && data.features.length > 0) {
-          const mappedData = data.features.map((f: any) => {
-            const props = f.properties;
-            const coords = f.geometry.coordinates;
-
-            console.log("Feature properties for listing:", props);
-            console.log("Geometry coordinates:", coords);
-
-            // Format data sama seperti di marker
-            return {
-              id: props.id,
-              title: props.title,
-              location: props.location,
-              category: props.category,
-              date: props.date,
-              das: props.das,
-              description: props.description,
-              thumbnail_path: props.thumbnail_path,
-              images_paths: props.images_paths,
-              latitude: coords[1],
-              longitude: coords[0],
-              featured: props.featured || false,
-              curah_hujan: props.curah_hujan,
-            };
-          });
-          allListings.push(...mappedData);
+          allListings.push(...data.features.map((f: any) => f.properties));
         }
       }
 
@@ -5101,7 +1584,10 @@ const Kerawanan = () => {
         url += `&category=${encodeURIComponent(category)}`;
       }
 
-      // Prioritas: forceDasFilter > selectedDas > selectedAreas
+      // Filter bencana:
+      // - DAS tetap dipakai jika tersedia.
+      // - Daerah terpilih WAJIB tetap menjadi filter administratif.
+      // Jadi filter DAS tidak boleh menghilangkan filter daerah.
       if (
         forceDasFilter !== undefined &&
         forceDasFilter !== null &&
@@ -5113,7 +1599,9 @@ const Kerawanan = () => {
         const dasNames = selectedDas.map((d) => d.nama_das);
         url += `&dasFilter=${encodeURIComponent(JSON.stringify(dasNames))}`;
         console.log("Using DAS filter:", dasNames);
-      } else if (selectedAreas.length > 0) {
+      }
+
+      if (selectedAreas.length > 0) {
         const firstArea = selectedAreas[0];
         const adminLevel = firstArea.level;
 
@@ -5136,29 +1624,23 @@ const Kerawanan = () => {
 
         url += `&adminFilter=${encodeURIComponent(JSON.stringify(adminNames))}`;
         url += `&adminLevel=${adminLevel}`;
-        console.log("Using admin filter:", adminLevel, adminNames);
+        console.log(
+          "Using mandatory selected-area filter:",
+          adminLevel,
+          adminNames,
+        );
       }
 
       console.log("Loading kejadian layer:", layerName, "Full URL:", url);
 
       const response = await fetch(url, {
         headers: {
-          Authorization: `Bearer ${getAuthToken()}`,
-          Accept: "application/json",
+          Authorization: `Bearer ${localStorage.getItem("smiti_token")}`,
         },
       });
 
       if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({}));
-        if (response.status === 403) {
-          throw new Error(
-            errorBody?.message ||
-              `Akses View layer "${originalLayerName}" ditolak oleh server.`,
-          );
-        }
-        throw new Error(
-          errorBody?.message || `HTTP error! status: ${response.status}`,
-        );
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const geojsonData = await response.json();
@@ -5172,64 +1654,48 @@ const Kerawanan = () => {
 
       // Hapus layer lama jika ada
       if (layerGroupsRef.current[layerName]) {
-        safeRemoveMapLayer(layerGroupsRef.current[layerName]);
+        mapInstanceRef.current.removeLayer(layerGroupsRef.current[layerName]);
       }
 
       if (!geojsonData.features || geojsonData.features.length === 0) {
         console.warn("No kejadian found for:", layerName);
         layerGroupsRef.current[layerName] = window.L.layerGroup();
-        safeAddMapLayer(
-          mapInstanceRef.current,
-          layerGroupsRef.current[layerName],
-        );
+        layerGroupsRef.current[layerName].addTo(mapInstanceRef.current);
         return;
       }
 
       // Function untuk create custom icon berdasarkan category
       const createKejadianIcon = (category: string) => {
-        let iconContent = "";
+        let iconSVG = "";
         let bgColor = "#3b82f6"; // default blue
-        let hoverColor = "#ef4444"; // default hover red
-        let type = "banjir"; // default type
 
         if (category === "Banjir") {
           bgColor = "#3b82f6"; // blue
-          hoverColor = "#ef4444"; // hover red (dari kebakaran)
-          type = "banjir";
-          iconContent = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+          iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
         </svg>`;
         } else if (category === "Tanah Longsor dan Erosi") {
-          bgColor = "#f59e0b"; // orange
-          hoverColor = "#3b82f6"; // hover blue (dari banjir)
-          type = "longsor";
-          iconContent = `<img src="/images/landslide-svgrepo-com.svg" style="width: 16px; height: 16px; filter: brightness(0) invert(1);" />`;
+          bgColor = "#22c55e"; // green
+          iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+          <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+        </svg>`;
         } else if (category === "Kebakaran Hutan dan Kekeringan") {
           bgColor = "#ef4444"; // red
-          hoverColor = "#f59e0b"; // hover orange (dari longsor)
-          type = "kebakaran";
-          iconContent = `<img src="/images/fire-svgrepo-com.svg" style="width: 16px; height: 16px; filter: brightness(0) invert(1);" />`;
+          iconSVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+          <path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/>
+        </svg>`;
         }
 
         return window.L.divIcon({
           className: "custom-kejadian-marker",
           html: `
-          <style>
-            .marker-container-kejadian-${type} .marker-bg {
-              fill: ${bgColor};
-              transition: fill 0.3s ease;
-            }
-            .marker-container-kejadian-${type}:hover .marker-bg {
-              fill: ${hoverColor} !important;
-            }
-          }
-      </style>
-          <div class="marker-container marker-container-kejadian-${type}" style="position: relative; width: 44px; height: 44px; cursor: pointer;">
+          <div class="marker-container" style="position: relative; width: 44px; height: 44px; cursor: pointer;">
             <svg class="marker-circle" width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
-              <circle class="marker-bg" cx="22" cy="22" r="20" stroke="white" stroke-width="3" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"/>
+              <circle class="marker-bg" cx="22" cy="22" r="20" fill="${bgColor}" stroke="white" stroke-width="3" 
+                style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); transition: fill 0.2s ease;"/>
             </svg>
-            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; display: flex; align-items: center; justify-content: center;">
-              ${iconContent}
+            <div style="position: absolute; top: 12px; left: 12px; pointer-events: none;">
+              ${iconSVG}
             </div>
           </div>
         `,
@@ -5250,7 +1716,7 @@ const Kerawanan = () => {
           icon: createKejadianIcon(props.category),
         });
 
-        // Store incident data - LENGKAP dengan semua field (match kejadian.tsx format)
+        // Store incident data
         (marker as any).incidentData = {
           id: props.id,
           title: props.title,
@@ -5259,41 +1725,16 @@ const Kerawanan = () => {
             : "https://images.unsplash.com/photo-1611273426858-450d8e3c9fce?w=400",
           location: props.location,
           category: props.category,
-          type: props.category.toLowerCase().includes("banjir")
-            ? "banjir"
-            : props.category.toLowerCase().includes("longsor")
-              ? "longsor"
-              : "kebakaran",
           date: props.date,
           das: props.das,
           description: props.description,
-          thumbnail_path: props.thumbnail_path,
           images_paths: props.images_paths,
-          coordinates: [coordinates[1], coordinates[0]],
-          latitude: coordinates[1],
-          longitude: coordinates[0],
-          featured: props.featured || false,
-          curah_hujan: props.curah_hujan,
         };
 
         // Add click event
         marker.on("click", function (e: any) {
           const inc = (this as any).incidentData;
           if (!inc) return;
-
-          openEnterpriseIdentify(
-            {
-              type: "Feature",
-              geometry: {
-                type: "Point",
-                coordinates: [inc.longitude, inc.latitude],
-              },
-              properties: inc,
-            },
-            layerName,
-            e.latlng,
-            "Data Kejadian SIMITI",
-          );
 
           const popupContent = `
           <div onclick="window.navigateToKejadianDetail()" style="width: 280px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border-radius: 8px; overflow: hidden; cursor: pointer;">
@@ -5379,107 +1820,6 @@ const Kerawanan = () => {
     }
   };
 
-  // Cari lokasi dari kolom pencarian utama lalu langsung arahkan peta ke hasilnya.
-  // Pencarian lokasi menggunakan endpoint geocoding backend SIMITI; browser tidak memanggil Nominatim langsung.
-  const searchLocationOnMap = async (query: string) => {
-    const trimmed = query.trim();
-    if (trimmed.length < 3) return;
-
-    const requestId = ++locationSearchRequestRef.current;
-    setLocationSearchLoading(true);
-
-    try {
-      const response = await fetch(
-        `${API_URL}/api/geocode/search?q=${encodeURIComponent(trimmed)}`,
-        { headers: { Accept: "application/json" } },
-      );
-
-      if (!response.ok) throw new Error(`Geocoding HTTP ${response.status}`);
-
-      const results = await response.json();
-      if (requestId !== locationSearchRequestRef.current) return;
-
-      const result = results?.[0];
-      if (!result || !mapInstanceRef.current || !window.L) {
-        setLocationSearchLoading(false);
-        return;
-      }
-
-      const latitude = Number(result.lat);
-      const longitude = Number(result.lon);
-      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-        setLocationSearchLoading(false);
-        return;
-      }
-
-      // Pindahkan peta dengan animasi dan pertahankan marker lokasi terpilih.
-      mapInstanceRef.current.flyTo([latitude, longitude], 12, {
-        duration: 1.2,
-      });
-
-      if (mapWeatherMarkerRef.current) {
-        mapWeatherMarkerRef.current.setLatLng([latitude, longitude]);
-      } else {
-        mapWeatherMarkerRef.current = window.L.marker([
-          latitude,
-          longitude,
-        ]).addTo(mapInstanceRef.current);
-      }
-
-      mapWeatherMarkerRef.current
-        .bindPopup(
-          `<div style="font-size:12px;line-height:1.4"><b>${String(result.display_name || trimmed).replace(/[&<>\"]/g, "")}</b><br/><span style="color:#64748b">${latitude.toFixed(5)}, ${longitude.toFixed(5)}</span></div>`,
-        )
-        .openPopup();
-
-      // Panel cuaca kanan ikut berpindah ke lokasi hasil pencarian.
-      fetchMapWeather(latitude, longitude);
-    } catch (error) {
-      if (requestId === locationSearchRequestRef.current) {
-        console.error("Gagal mencari lokasi:", error);
-      }
-    } finally {
-      if (requestId === locationSearchRequestRef.current) {
-        setLocationSearchLoading(false);
-      }
-    }
-  };
-
-  const handleLocationSearchChange = (value: string) => {
-    setAreaSearchQuery(value);
-
-    // Jangan query geocoder saat user masih mengetik.
-    // Pencarian dijalankan hanya saat Enter agar tidak memicu rate-limit provider.
-    if (locationSearchTimerRef.current) {
-      clearTimeout(locationSearchTimerRef.current);
-      locationSearchTimerRef.current = null;
-    }
-
-    if (value.trim().length < 3) {
-      setLocationSearchLoading(false);
-    }
-  };
-
-  const handleLocationSearchKeyDown = (
-    event: React.KeyboardEvent<HTMLInputElement>,
-  ) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      if (locationSearchTimerRef.current) {
-        clearTimeout(locationSearchTimerRef.current);
-      }
-      void searchLocationOnMap(areaSearchQuery);
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      if (locationSearchTimerRef.current) {
-        clearTimeout(locationSearchTimerRef.current);
-      }
-    };
-  }, []);
-
   // Debounced search
   const debouncedSearch = useRef<NodeJS.Timeout>();
   const handleAreaSearchChange = (value: string) => {
@@ -5537,17 +1877,13 @@ const Kerawanan = () => {
       const newSelectedDas = [...selectedDas, das];
       setSelectedDas(newSelectedDas);
 
-      // DAS baru menjadi batas clip utama kerawanan.
-      clearSelectedDasClip();
-      syncSelectedDasClip(newSelectedDas);
-
       // Clear selected areas when DAS is selected
       setSelectedAreas([]);
 
       // Clear ALL admin boundaries when switching to DAS
       Object.keys(layerGroupsRef.current).forEach((key) => {
         if (key.startsWith("admin_boundary")) {
-          safeRemoveMapLayer(layerGroupsRef.current[key]);
+          mapInstanceRef.current?.removeLayer(layerGroupsRef.current[key]);
           delete layerGroupsRef.current[key];
         }
       });
@@ -5604,17 +1940,10 @@ const Kerawanan = () => {
     const newSelectedDas = selectedDas.filter((_, i) => i !== index);
     setSelectedDas(newSelectedDas);
 
-    // Update clip kerawanan mengikuti daftar DAS terbaru.
-    if (newSelectedDas.length > 0) {
-      syncSelectedDasClip(newSelectedDas);
-    } else {
-      clearSelectedDasClip();
-    }
-
     // Remove SPECIFIC DAS boundary layer
     const boundaryKey = `das_boundary_${removedDas.nama_das.replace(/\s+/g, "_")}`;
     if (layerGroupsRef.current[boundaryKey]) {
-      safeRemoveMapLayer(layerGroupsRef.current[boundaryKey]);
+      mapInstanceRef.current?.removeLayer(layerGroupsRef.current[boundaryKey]);
       delete layerGroupsRef.current[boundaryKey];
       console.log("🗑️ Removed DAS boundary:", boundaryKey);
     }
@@ -5627,7 +1956,11 @@ const Kerawanan = () => {
       setSelectedAreas([]);
 
       // const kejadianResponse = await fetch('${API_URL}/api/kejadian/years');
-      const kejadianResponse = await fetch(`${API_URL}/api/layers`);
+      const kejadianResponse = await fetch(`${API_URL}/api/layers`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("smiti_token")}`,
+        },
+      });
       const kejadianData = await kejadianResponse.json();
 
       const allKejadianLayers = kejadianData.years.map((year: number) => ({
@@ -5636,10 +1969,6 @@ const Kerawanan = () => {
         year: year,
       }));
 
-      console.log(
-        "🔎 MITIGASI DATA:",
-        JSON.stringify(layerData?.mitigasiAdaptasi || [], null, 2),
-      );
       setAvailableLayers({
         kerawanan: layerData.kerawanan || [],
         mitigasiAdaptasi: layerData.mitigasiAdaptasi || [],
@@ -5647,6 +1976,16 @@ const Kerawanan = () => {
         kejadian: kejadianData.kejadian || [],
       });
 
+      // setTimeout(async () => {
+      //   for (const tableName of activeLayers) {
+      //     if (tableName.startsWith('kejadian_')) {
+      //       const year = parseInt(tableName.replace('kejadian_', ''));
+      //       await loadKejadianLayer(tableName, year);
+      //     } else {
+      //       await loadLayerInBounds(tableName, null);
+      //     }
+      //   }
+      // }, 100);
       setTimeout(async () => {
         for (const tableName of activeLayers) {
           if (tableName.startsWith("kejadian_")) {
@@ -5662,55 +2001,10 @@ const Kerawanan = () => {
           }
         }
       }, 100);
-      // Saat wilayah terakhir ditutup/dihapus, kembalikan peta ke cakupan Indonesia penuh.
-      // Gunakan batas yang sama dengan initial map agar Sumatra sampai Papua terlihat.
-      if (mapInstanceRef.current && window.L) {
-        const container = mapInstanceRef.current.getContainer?.();
-        const width = container?.clientWidth || window.innerWidth;
-        const padding = width < 480 ? [12, 38] : width < 900 ? [18, 28] : [24, 24];
-        const indonesiaBounds = window.L.latLngBounds(
-          [-11.5, 93.0],
-          [6.5, 142.5],
-        );
-        mapInstanceRef.current.fitBounds(indonesiaBounds, {
-          padding,
-          animate: false,
-          maxZoom: 5,
-        });
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.setView([-2.5, 118.0], 5);
       }
     }
-  };
-
-  // Validasi bounds dari API sebelum diberikan ke Leaflet.
-  const isValidMapBounds = (bounds: any) => {
-    if (
-      !Array.isArray(bounds) ||
-      bounds.length < 2 ||
-      !Array.isArray(bounds[0]) ||
-      !Array.isArray(bounds[1])
-    )
-      return null;
-    const pairs = bounds
-      .slice(0, 2)
-      .map((pair: any) => [Number(pair?.[0]), Number(pair?.[1])]);
-    if (
-      pairs.some(
-        ([lat, lng]: number[]) =>
-          !Number.isFinite(lat) ||
-          !Number.isFinite(lng) ||
-          lat < -90 ||
-          lat > 90 ||
-          lng < -180 ||
-          lng > 180,
-      )
-    )
-      return null;
-    const [[south, west], [north, east]] = pairs as [
-      [number, number],
-      [number, number],
-    ];
-    if (south > north || west > east) return null;
-    return pairs as [[number, number], [number, number]];
   };
 
   // Function untuk update map bounds based on selected DAS
@@ -5729,18 +2023,26 @@ const Kerawanan = () => {
       const data = await response.json();
 
       if (data.bounds) {
-        // Set bounds dulu
-        const validBounds = isValidMapBounds(data.bounds);
-        if (!validBounds) {
-          console.warn("SIMITI: API returned invalid map bounds", data.bounds);
-          return;
-        }
-        setCurrentBounds(validBounds);
-        mapInstanceRef.current.fitBounds(validBounds, { padding: [50, 50] });
+        // Bounds daerah menjadi sumber fokus utama peta.
+        // Checkbox bencana nantinya hanya memuat data di area ini.
+        setCurrentBounds(data.bounds);
+        mapInstanceRef.current.fitBounds(data.bounds, { padding: [50, 50] });
 
         // Check available layers in these bounds
         await checkLayerAvailability(data.bounds);
 
+        // Tunggu sebentar agar state ter-update, lalu reload layers
+        // setTimeout(async () => {
+        //   const dasNames = dasList.map(d => d.nama_das);
+        //   for (const tableName of activeLayers) {
+        //     if (tableName.startsWith('kejadian_')) {
+        //       const year = parseInt(tableName.replace('kejadian_', ''));
+        //       await loadKejadianLayer(tableName, year, dasNames);
+        //     } else {
+        //       await loadLayerInBounds(tableName, data.bounds); // PASS BOUNDS LANGSUNG
+        //     }
+        //   }
+        // }, 100);
         setTimeout(async () => {
           const dasNames = dasList.map((d) => d.nama_das);
           for (const tableName of activeLayers) {
@@ -5763,7 +2065,7 @@ const Kerawanan = () => {
   };
 
   // Function untuk select area
-  const handleAreaSelect = async (area: any) => {
+  const handleAreaSelect = (area: any) => {
     const isAlreadySelected = selectedAreas.some((a) => {
       if (a.level !== area.level) return false;
 
@@ -5794,42 +2096,20 @@ const Kerawanan = () => {
       const newSelectedAreas = [...selectedAreas, area];
       setSelectedAreas(newSelectedAreas);
 
-      // Otomatis lanjut ke tingkat administrasi berikutnya.
-      const nextAdminLevel: typeof adminLevel =
-        area.level === "provinsi"
-          ? "kabupaten"
-          : area.level === "kabupaten"
-            ? "kecamatan"
-            : area.level === "kecamatan"
-              ? "kelurahan"
-              : "kelurahan";
-
-      setAdminLevel(nextAdminLevel);
-      setSelectedInfoTab("Mitigasi");
-      setAiError("");
-      // Jalankan diagnosis memakai area terbaru (bukan state lama).
-      setTimeout(() => runAiMitigationRecommendation(newSelectedAreas), 0);
-
       // Clear selected DAS when area is selected
       setSelectedDas([]);
 
       // Clear ALL DAS boundaries when switching to admin areas
       Object.keys(layerGroupsRef.current).forEach((key) => {
         if (key.startsWith("das_boundary")) {
-          safeRemoveMapLayer(layerGroupsRef.current[key]);
+          mapInstanceRef.current?.removeLayer(layerGroupsRef.current[key]);
           delete layerGroupsRef.current[key];
         }
       });
 
-      // Render polygon administrasi terpilih dan bersihkan polygon lama agar tidak bertumpuk.
+      // TAMBAHAN: Render admin boundary langsung dengan unique key
       if (area.geom && mapInstanceRef.current && window.L) {
-        Object.keys(layerGroupsRef.current).forEach((key) => {
-          if (key.startsWith("admin_boundary_")) {
-            safeRemoveMapLayer(layerGroupsRef.current[key]);
-            delete layerGroupsRef.current[key];
-          }
-        });
-        console.log("SIMITI: rendering selected admin polygon:", area.label);
+        console.log("✅ Rendering admin boundary for:", area.label);
 
         try {
           // Unique key per area
@@ -5843,49 +2123,19 @@ const Kerawanan = () => {
             },
             {
               style: {
-                color: selectedLegendColor || "#ef4444",
-                weight: 2.5,
-                opacity: 0.9,
-                fill: true,
-                fillColor: selectedLegendColor || "#ef4444",
-                fillOpacity: 0.025,
-                dashArray: "8 5",
-              },
-              onEachFeature: (selectedFeature: any, selectedLayer: any) => {
-                selectedLayer.on("click", (event: any) => {
-                  event?.originalEvent?.stopPropagation?.();
-                  selectedSpatialFeatureRef.current = {
-                    layerType: "map-polygon",
-                    feature: selectedFeature,
-                    layer: selectedLayer,
-                  };
-                  console.log("SIMITI selected administrative map polygon:", area.label);
-                  requestAnimationFrame(() => syncSelectedSpatialFeatureBencanaClip());
-                  openEnterpriseIdentify(
-                    selectedFeature,
-                    "admin_boundary",
-                    event?.latlng,
-                    "SIMITI GIS",
-                  );
-                });
+                color: "#ef4444",
+                weight: 3,
+                opacity: 0.8,
+                fillColor: "#fee2e2",
+                fillOpacity: 0.1,
               },
             },
           );
 
           geoJsonLayer.addTo(mapInstanceRef.current);
           layerGroupsRef.current[boundaryKey] = geoJsonLayer;
-          const polygonBounds = geoJsonLayer.getBounds?.();
-          if (polygonBounds?.isValid?.()) {
-            mapInstanceRef.current.fitBounds(polygonBounds, {
-              padding: [36, 36],
-              maxZoom: 13,
-            });
-          }
 
-          console.log(
-            "SIMITI: admin polygon rendered and map focused:",
-            boundaryKey,
-          );
+          console.log("✅ Admin boundary rendered with key:", boundaryKey);
         } catch (error) {
           console.error("❌ Error rendering admin boundary:", error);
         }
@@ -5895,13 +2145,6 @@ const Kerawanan = () => {
         );
       }
 
-      // Clip visual risiko ke polygon terdalam yang dipilih.
-      // API filter tetap berjalan seperti sebelumnya; clip ini mencegah
-      // geometri risiko yang melintasi batas ikut mewarnai wilayah tetangga.
-      syncSelectedAreaBencanaClip(
-        getDeepestSelectedAdminAreas(newSelectedAreas),
-        Array.from(activeLayers),
-      );
       updateMapBounds(newSelectedAreas);
     }
 
@@ -5919,24 +2162,23 @@ const Kerawanan = () => {
     // Remove SPECIFIC admin boundary layer
     const boundaryKey = `admin_boundary_${removedArea.label.replace(/[,\s]+/g, "_")}`;
     if (layerGroupsRef.current[boundaryKey]) {
-      safeRemoveMapLayer(layerGroupsRef.current[boundaryKey]);
+      mapInstanceRef.current?.removeLayer(layerGroupsRef.current[boundaryKey]);
       delete layerGroupsRef.current[boundaryKey];
       console.log("🗑️ Removed admin boundary:", boundaryKey);
     }
 
     if (newSelectedAreas.length > 0) {
-      syncSelectedAreaBencanaClip(
-        getDeepestSelectedAdminAreas(newSelectedAreas),
-        Array.from(activeLayers),
-      );
       await updateMapBounds(newSelectedAreas);
     } else {
-      clearSelectedAreaBencanaClip();
       setCurrentBounds(null);
       setSelectedDas([]);
 
       // const kejadianResponse = await fetch('${API_URL}/api/kejadian/years');
-      const kejadianResponse = await fetch(`${API_URL}/api/layers`);
+      const kejadianResponse = await fetch(`${API_URL}/api/layers`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("smiti_token")}`,
+        },
+      });
       const kejadianData = await kejadianResponse.json();
 
       const allKejadianLayers = kejadianData.years.map((year: number) => ({
@@ -5945,10 +2187,6 @@ const Kerawanan = () => {
         year: year,
       }));
 
-      console.log(
-        "🔎 MITIGASI DATA:",
-        JSON.stringify(layerData?.mitigasiAdaptasi || [], null, 2),
-      );
       setAvailableLayers({
         kerawanan: layerData.kerawanan || [],
         mitigasiAdaptasi: layerData.mitigasiAdaptasi || [],
@@ -5956,6 +2194,16 @@ const Kerawanan = () => {
         kejadian: kejadianData.kejadian || [],
       });
 
+      // setTimeout(async () => {
+      //   for (const tableName of activeLayers) {
+      //     if (tableName.startsWith('kejadian_')) {
+      //       const year = parseInt(tableName.replace('kejadian_', ''));
+      //       await loadKejadianLayer(tableName, year);
+      //     } else {
+      //       await loadLayerInBounds(tableName, null);
+      //     }
+      //   }
+      // }, 100);
       setTimeout(async () => {
         for (const tableName of activeLayers) {
           if (tableName.startsWith("kejadian_")) {
@@ -5971,21 +2219,8 @@ const Kerawanan = () => {
           }
         }
       }, 100);
-      // Saat wilayah terakhir ditutup/dihapus, kembalikan peta ke cakupan Indonesia penuh.
-      // Gunakan batas yang sama dengan initial map agar Sumatra sampai Papua terlihat.
-      if (mapInstanceRef.current && window.L) {
-        const container = mapInstanceRef.current.getContainer?.();
-        const width = container?.clientWidth || window.innerWidth;
-        const padding = width < 480 ? [12, 38] : width < 900 ? [18, 28] : [24, 24];
-        const indonesiaBounds = window.L.latLngBounds(
-          [-11.5, 93.0],
-          [6.5, 142.5],
-        );
-        mapInstanceRef.current.fitBounds(indonesiaBounds, {
-          padding,
-          animate: false,
-          maxZoom: 5,
-        });
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.setView([-2.5, 118.0], 5);
       }
     }
   };
@@ -6007,17 +2242,23 @@ const Kerawanan = () => {
 
       if (data.bounds) {
         // Set bounds dulu
-        const validBounds = isValidMapBounds(data.bounds);
-        if (!validBounds) {
-          console.warn("SIMITI: API returned invalid map bounds", data.bounds);
-          return;
-        }
-        setCurrentBounds(validBounds);
-        mapInstanceRef.current.fitBounds(validBounds, { padding: [50, 50] });
+        setCurrentBounds(data.bounds);
+        mapInstanceRef.current.fitBounds(data.bounds, { padding: [50, 50] });
 
         // Check available layers in these bounds
         await checkLayerAvailability(data.bounds);
 
+        // Tunggu sebentar agar state ter-update, lalu reload layers
+        // setTimeout(async () => {
+        //   for (const tableName of activeLayers) {
+        //     if (tableName.startsWith('kejadian_')) {
+        //       const year = parseInt(tableName.replace('kejadian_', ''));
+        //       await loadKejadianLayer(tableName, year, null);
+        //     } else {
+        //       await loadLayerInBounds(tableName, data.bounds); // PASS BOUNDS LANGSUNG
+        //     }
+        //   }
+        // }, 100);
         setTimeout(async () => {
           const dasNames =
             selectedDas.length > 0 ? selectedDas.map((d) => d.nama_das) : [];
@@ -6030,7 +2271,7 @@ const Kerawanan = () => {
                 await loadKejadianLayer(tableName, year, category, dasNames);
               }
             } else {
-              await loadLayerInBounds(tableName, data.bounds);
+              await loadLayerInBounds(tableName, data.bounds, areas);
             }
           }
         }, 100);
@@ -6055,7 +2296,7 @@ const Kerawanan = () => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${getAuthToken()}`,
+            Authorization: `Bearer ${localStorage.getItem("smiti_token")}`,
           },
           body: JSON.stringify({
             bounds,
@@ -6126,97 +2367,57 @@ const Kerawanan = () => {
         kejadian: [] as Array<{
           id: string;
           name: string;
-          category?: string;
-          year?: number;
-          count?: number;
-          isAutoGenerated?: boolean;
-          isManual?: boolean;
-          isShapefile?: boolean;
+          category: string;
+          year: number;
+          count: number;
         }>,
       };
 
-      // Add regular layers (including shapefile kejadian)
+      // Add regular layers
       layersData.availableLayers.forEach((layer: any) => {
         if (grouped[layer.section as keyof typeof grouped]) {
-          const layerInfo: any = {
+          grouped[layer.section as keyof typeof grouped].push({
             id: layer.id,
             name: layer.name,
-          };
-
-          // ✅ PERBAIKAN: Tambahkan flags untuk shapefile kejadian
-          if (layer.section === "kejadian") {
-            layerInfo.isManual = true;
-            layerInfo.isShapefile = true;
-          }
-
-          grouped[layer.section as keyof typeof grouped].push(layerInfo);
+          });
         }
       });
 
-      // ✅ APPEND kejadian auto-generated, jangan overwrite
+      // Add kejadian layers for available category + year combinations
       if (
         kejadianData.availableKejadian &&
         kejadianData.availableKejadian.length > 0
       ) {
-        const autoKejadian = kejadianData.availableKejadian.map(
-          (item: any) => ({
-            id: `kejadian_${item.category.replace(/\s+/g, "_")}_${item.year}`,
-            name: `${item.category} ${item.year}`,
-            category: item.category,
-            year: item.year,
-            count: item.count,
-            isAutoGenerated: true,
-            isManual: false,
-            isShapefile: false,
-          }),
-        );
-
-        // Gabungkan shapefile kejadian + auto-generated kejadian
-        grouped.kejadian = [...grouped.kejadian, ...autoKejadian];
+        grouped.kejadian = kejadianData.availableKejadian.map((item: any) => ({
+          id: `kejadian_${item.category.replace(/\s+/g, "_")}_${item.year}`,
+          name: `${item.category} ${item.year}`,
+          category: item.category,
+          year: item.year,
+          count: item.count,
+        }));
       }
 
-      // ================================================================
-      // SAMAKAN DATA FLOW DENGAN kerawanan-ori.tsx
-      // ================================================================
-      // Availability hanya menentukan metadata/count layer pada wilayah
-      // terpilih. Catalog utama tetap berasal dari layerData.
-      //
-      // Khusus KEJADIAN:
-      // - layerData.kejadian = catalog utama
-      // - grouped.kejadian = hasil availability
-      // - catalog harus tetap dipertahankan walaupun availability kosong
-      // - availability boleh memperbarui metadata yang tersedia
-      //
-      // Dengan pola ini checkbox KEJADIAN tidak hilang hanya karena
-      // /api/layers/check-availability tidak mengembalikan item tertentu.
-
-      const kejadianCatalog = Array.isArray(layerData?.kejadian)
-        ? layerData.kejadian
-        : [];
-
-      const availableKejadianById = new Map(
+      // Jangan menghapus checkbox kejadian hanya karena endpoint availability
+      // mengembalikan 0 data untuk daerah terpilih. Checkbox tetap berasal dari
+      // katalog layer, sedangkan request data tetap memakai filter daerah.
+      const kejadianCatalog = layerData.kejadian || [];
+      const availableById = new Map(
         grouped.kejadian.map((item: any) => [item.id, item]),
       );
-
       const mergedKejadian = kejadianCatalog.map((item: any) => ({
         ...item,
-        ...(availableKejadianById.get(item.id) || {}),
+        ...(availableById.get(item.id) || {}),
       }));
+      const mergedIds = new Set(mergedKejadian.map((item: any) => item.id));
+      grouped.kejadian.forEach((item: any) => {
+        if (!mergedIds.has(item.id)) mergedKejadian.push(item);
+      });
+      grouped.kejadian = mergedKejadian;
 
-      // Pertahankan auto-generated kejadian dari hasil availability yang
-      // memang belum ada di catalog utama.
-      const catalogIds = new Set(kejadianCatalog.map((item: any) => item.id));
-
-      const extraAvailableKejadian = grouped.kejadian.filter(
-        (item: any) => !catalogIds.has(item.id),
+      console.log(
+        "Grouped available layers (kejadian catalog preserved):",
+        grouped,
       );
-
-      grouped.kejadian = [...mergedKejadian, ...extraAvailableKejadian];
-
-      console.log("Grouped available layers:", grouped);
-      console.log("Kejadian catalog:", kejadianCatalog);
-      console.log("Merged kejadian:", grouped.kejadian);
-
       setAvailableLayers(grouped);
     } catch (error) {
       console.error("Error checking layer availability:", error);
@@ -6229,6 +2430,14 @@ const Kerawanan = () => {
       }));
     }
   };
+
+  // const reloadActiveLayers = () => {
+  //   if (isLoadingLayer) return; // Hindari multiple reload
+
+  //   activeLayers.forEach(tableName => {
+  //     loadLayerInBounds(tableName);
+  //   });
+  // };
 
   useEffect(() => {
     const updateKejadianCount = async () => {
@@ -6300,10 +2509,27 @@ const Kerawanan = () => {
             }),
           );
 
-          setAvailableLayers((prev) => ({
-            ...prev,
-            kejadian: updatedKejadian,
-          }));
+          setAvailableLayers((prev) => {
+            // Availability dipakai untuk memperbarui metadata/count, tetapi
+            // checkbox tetap menggunakan seluruh katalog kejadian yang sudah
+            // dimuat dari /api/layers.
+            const catalog = layerData.kejadian || prev.kejadian || [];
+            const byId = new Map(
+              updatedKejadian.map((item: any) => [item.id, item]),
+            );
+            const merged = catalog.map((item: any) => ({
+              ...item,
+              ...(byId.get(item.id) || {}),
+            }));
+            const ids = new Set(merged.map((item: any) => item.id));
+            updatedKejadian.forEach((item: any) => {
+              if (!ids.has(item.id)) merged.push(item);
+            });
+            return {
+              ...prev,
+              kejadian: merged,
+            };
+          });
         }
       } catch (error) {
         console.error("Error updating kejadian count:", error);
@@ -6320,13 +2546,9 @@ const Kerawanan = () => {
     category?: string,
     isShapefile?: boolean,
   ) => {
-    const uiLayerKey = String(tableName);
-    const resolvedTableName = resolveUiLayerName(uiLayerKey);
     console.log(
       "Toggle layer clicked:",
-      uiLayerKey,
-      "=>",
-      resolvedTableName,
+      tableName,
       "isChecked:",
       isChecked,
       "year:",
@@ -6339,33 +2561,29 @@ const Kerawanan = () => {
     console.log("Current active layers:", Array.from(activeLayers));
 
     if (isChecked) {
-      tableName = resolvedTableName;
+      // Saat checkbox Kerawanan dipilih, langsung tampilkan tab layer tersebut
+      // pada panel bawah agar legenda tidak tertinggal di tab sebelumnya.
+      const isKerawananLayer = [...(layerData.kerawanan || []), ...(availableLayers.kerawanan || [])]
+        .some((layer) => layer?.name === tableName);
+      if (isKerawananLayer) setActiveBottomTab(tableName);
 
-      const riskTabLayers = [
-        "risiko_banjir",
-        "risiko_banjir_bandang",
-        "risiko_kekeringan",
-        "risiko_abrasi",
-        "risiko_longsor",
-        "risiko_karhutla",
-      ];
-
-      const targetBottomTab = riskTabLayers.includes(tableName)
-        ? tableName
-        : undefined;
-
-      if (targetBottomTab) {
-        setActiveBottomTab(targetBottomTab);
-        setIsBottomSummaryOpen(true);
-      }
       // Tambahkan layer ke active layers
       setActiveLayers((prev) => new Set([...prev, tableName]));
 
-      // Enterprise flow:
-      // checkbox -> activeLayers -> load GeoJSON -> infraData -> Data Grid
-      if (INFRA_IDS.includes(tableName as any)) {
-        setActiveBottomTab("mitigasi_adaptasi");
-        setIsBottomSummaryOpen(true);
+      // Jika daerah sudah dipilih, checkbox bencana tidak boleh
+      // menggeser fokus peta. Kembalikan/pertahankan fokus ke bounds daerah.
+      if (
+        tableName.startsWith("kejadian_") &&
+        selectedAreas.length > 0 &&
+        currentBounds &&
+        mapInstanceRef.current
+      ) {
+        console.log(
+          "Keeping map focused on selected area before loading kejadian:",
+          selectedAreas,
+          currentBounds,
+        );
+        mapInstanceRef.current.fitBounds(currentBounds, { padding: [50, 50] });
       }
 
       // Simpan metadata untuk kejadian layer
@@ -6384,116 +2602,17 @@ const Kerawanan = () => {
         await loadKejadianLayer(tableName, year, category);
       } else if (isShapefile) {
         // Layer manual shapefile
-        await loadLayerInBounds(tableName, undefined, targetBottomTab);
+        await loadLayerInBounds(tableName);
       } else if (tableName.startsWith("kejadian_")) {
         // Fallback untuk format lama (hanya year)
         const yearFromName = parseInt(tableName.replace("kejadian_", ""));
         await loadKejadianLayer(tableName, yearFromName);
       } else {
         // Load layer biasa
-        await loadLayerInBounds(tableName, undefined, targetBottomTab);
-      }
-
-      // Jika ada polygon yang diklik langsung di peta (KHDTK atau polygon
-      // wilayah lainnya), batasi layer risiko ke geometri polygon tersebut.
-      if (
-        selectedSpatialFeatureRef.current?.feature?.geometry &&
-        BENCANA_FOCUS_LAYERS.has(String(tableName))
-      ) {
-        requestAnimationFrame(() =>
-          applyBencanaClipToSelectedKhdtk(String(tableName)),
-        );
-      }
-
-      // Jika DAS aktif, polygon kerawanan yang melampaui batas DAS
-      // dipotong di renderer agar tidak melebar ke wilayah tetangga.
-      if (
-        selectedDas.length > 0 &&
-        BENCANA_FOCUS_LAYERS.has(String(tableName))
-      ) {
-        syncSelectedDasClip(selectedDas, [String(tableName)]);
-        requestAnimationFrame(() =>
-          applyDasClipToLayer(String(tableName), selectedDas),
-        );
-      }
-
-      if (
-        BENCANA_FOCUS_LAYERS.has(String(tableName)) &&
-        selectedAreas.length > 0
-      ) {
-        try {
-          const map = mapInstanceRef.current;
-          if (map && window.L) {
-            let focusBounds: any = null;
-            for (const area of selectedAreas) {
-              if (!area?.geom) continue;
-              const areaLayer = window.L.geoJSON({
-                type: "Feature",
-                geometry: area.geom,
-                properties: {},
-              });
-              const bounds = areaLayer.getBounds();
-              if (!bounds?.isValid?.()) continue;
-              focusBounds = focusBounds ? focusBounds.extend(bounds) : bounds;
-            }
-            if (focusBounds?.isValid?.()) {
-              try {
-                if (focusBounds?.isValid?.()) {
-                  map.fitBounds(focusBounds, {
-                    padding: [40, 40],
-                    maxZoom: 14,
-                    animate: true,
-                  });
-                }
-              } catch (fitError) {
-                console.warn("SIMITI: fitBounds bencana dilewati:", fitError);
-              }
-            }
-          }
-        } catch (focusError) {
-          console.warn("SIMITI: gagal focus ke area bencana:", focusError);
-        }
-        // API/adminFilter tetap dipakai sebagai filter data, sedangkan
-        // renderer clip membatasi warna risiko tepat pada polygon terdalam.
-        syncSelectedAreaBencanaClip(
-          getDeepestSelectedAdminAreas(selectedAreas),
-          [String(tableName)],
-        );
-        requestAnimationFrame(() =>
-          applyBencanaClipToLayer(
-            String(tableName),
-            getDeepestSelectedAdminAreas(selectedAreas),
-          ),
-        );
-      }
-
-      // Jika polygon dipilih langsung dengan klik peta, geometri tersebut
-      // menjadi batas paling spesifik dan harus menang atas adminFilter.
-      if (
-        selectedSpatialFeatureRef.current?.feature?.geometry &&
-        BENCANA_FOCUS_LAYERS.has(String(tableName))
-      ) {
-        requestAnimationFrame(() =>
-          applyBencanaClipToSelectedKhdtk(String(tableName)),
-        );
+        await loadLayerInBounds(tableName);
       }
     } else {
-      tableName = resolvedTableName;
-            // SIMITI_REQUEST_INVALIDATE_ON_UNCHECK
-      // Key harus sama dengan nama tabel yang dipakai loader API.
-      const apiTableName = normalizeLayerApiName(
-        resolveUiLayerName(tableName),
-      );
-      layerRequestSeqRef.current[apiTableName] =
-        (layerRequestSeqRef.current[apiTableName] || 0) + 1;
-
-      // Bersihkan cache alias UI dan API.
-      for (const cacheKey of new Set([tableName, apiTableName])) {
-        const cachedLayer = layerCacheRef.current.get(cacheKey);
-        if (cachedLayer) safeRemoveMapLayer(cachedLayer);
-        layerCacheRef.current.delete(cacheKey);
-      }
-// Hapus layer dari active layers DULU
+      // Hapus layer dari active layers DULU
       setActiveLayers((prev) => {
         const newSet = new Set(prev);
         newSet.delete(tableName);
@@ -6506,22 +2625,7 @@ const Kerawanan = () => {
       if (layerGroupsRef.current[tableName] && mapInstanceRef.current) {
         mapInstanceRef.current.removeLayer(layerGroupsRef.current[tableName]);
         delete layerGroupsRef.current[tableName];
-        // SIMITI_HATCH_REFRESH_ON_REMOVE
-        if (BENCANA_FOCUS_LAYERS.has(String(tableName))) refreshRiskOverlapHatch();
         console.log("Layer removed from map");
-
-        if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
-          const remainingBencana = Array.from(activeLayers).filter(
-            (name) =>
-              name !== tableName && BENCANA_FOCUS_LAYERS.has(String(name)),
-          );
-          if (remainingBencana.length === 0) {
-            clearSelectedAreaBencanaClip();
-            clearSelectedDasClip();
-          } else if (selectedDas.length > 0) {
-            syncSelectedDasClip(selectedDas);
-          }
-        }
 
         // Hapus metadata kejadian layer
         if (tableName.startsWith("kejadian_")) {
@@ -6566,18 +2670,7 @@ const Kerawanan = () => {
   };
 
   // Fungsi helper untuk generate warna konsisten berdasarkan nama tabel
-  const getColorForTable = (tableName: string): string => {
-    const infraColors: Record<string, string> = {
-      bendung: "#E24B4A",
-      bendungan: "#EF9F27",
-      danau: "#1D9E75",
-      embung: "#378ADD",
-      situ: "#7F77DD",
-      pengaman_pantai: "#2C2C2A",
-      pengendali_sedimen: "#D4537E",
-      pompa_air: "#888780",
-    };
-    if (infraColors[tableName]) return infraColors[tableName];
+  const getColorForTable = (tableName: string) => {
     const colors = [
       "#FF6B6B",
       "#4ECDC4",
@@ -6589,312 +2682,31 @@ const Kerawanan = () => {
       "#85C1E2",
       "#F8B739",
       "#52BE80",
-      "#EC7063",
-      "#5DADE2",
-      "#F1948A",
-      "#73C6B6",
+      "#E74C3C",
+      "#3498DB",
+      "#9B59B6",
+      "#1ABC9C",
       "#F39C12",
+      "#D35400",
+      "#C0392B",
+      "#2980B9",
+      "#8E44AD",
+      "#16A085",
     ];
 
-    // Hash dari nama tabel untuk mendapatkan warna yang konsisten
+    // Generate hash dari nama tabel untuk mendapatkan index yang konsisten
     let hash = 0;
     for (let i = 0; i < tableName.length; i++) {
       hash = tableName.charCodeAt(i) + ((hash << 5) - hash);
     }
+
     const index = Math.abs(hash) % colors.length;
     return colors[index];
   };
 
-  const resetLayerStyle = (layerId: string) => {
-    const layerGroup = layerGroupsRef.current[layerId];
-    if (!layerGroup) return;
-    const zoom = mapInstanceRef.current ? mapInstanceRef.current.getZoom() : 10;
-
-    if (INFRA_IDS.includes(layerId as any)) {
-      const infraColor =
-        INFRA_LAYERS.find((l) => l.id === layerId)?.color || "#808080";
-      layerGroup.eachLayer((layer: any) => {
-        if (layer.setStyle)
-          layer.setStyle({
-            fillColor: infraColor,
-            color: "#000",
-            weight: 1,
-            opacity: 1,
-            fillOpacity: 0.7,
-            radius: zoom > 10 ? 6 : 4,
-          });
-      });
-      return;
-    }
-
-    layerGroup.eachLayer((layer: any) => {
-      if (!layer.setStyle || !layer.feature) return;
-
-      const isBencanaLayer = BENCANA_FOCUS_LAYERS.has(String(layerId));
-
-      let color = isBencanaLayer
-        ? getBencanaLayerColor(String(layerId))
-        : "#3b82f6";
-      const p = layer.feature.properties;
-      const cm = colorMappingRef.current;
-      if (layerId === "tutupan_lahan")
-        color = cm.tutupanLahan.get(String(p.pl2024_id)) || color;
-      else if (layerId === "penutupan_lahan_2024")
-        color = cm.penutupanLahan2024.get(String(p.pl2024_id)) || color;
-      else if (layerId === "pl2024")
-        color = cm.pl2024.get(String(p.pl2024_id)) || color;
-      else if (layerId === "geologi")
-        color =
-          cm.geologi.get(`${p.namobj || ""}|${p.umurobj || ""}`) || "#B45309";
-      else if (layerId === "jenis_tanah")
-        color = cm.jenisTanah.get(p.jntnh1) || "#8B4513";
-      else if (layerId === "lahan_kritis")
-        color = cm.lahanKritis.get(p.kritis) || "#808080";
-      else if (layerId === "rawan_erosi")
-        color = cm.rawanErosi.get(p.keterangan) || "#808080";
-      else if (layerId === "rawan_longsor")
-        color = cm.rawanLongsor.get(p.unsur) || "#808080";
-      else if (layerId === "rawan_limpasan")
-        color = cm.rawanLimpasan.get(p.limpasan) || "#808080";
-      else if (layerId === "rawan_karhutla")
-        color = cm.rawanKarhutla.get(p.kelas) || "#808080";
-      else if (layerId === "bahaya_kekeringan")
-        color = cm.bahayaKekeringan.get(p.kelas) || "#808080";
-      else if (layerId === "bahaya_abrasi_dan_gelombang_ekstrim")
-        color = cm.bahayaAbrasi.get(p.kelas) || "#808080";
-      else if (layerId === "bahaya_banjir")
-        color = cm.bahayaBanjir.get(p.kelas) || "#808080";
-      else if (layerId === "bahaya_banjir_bandang")
-        color = cm.bahayaBanjirBandang.get(p.kelas) || "#808080";
-      else if (layerId === "dta_danau")
-        color = cm.dtaDanau.get(p.tipe_danau) || "#808080";
-      else if (layerId === "rehabilitasi_das")
-        color = cm.rehabilitasiDas.get(p.bpdas) || "#808080";
-      else if (layerId === "rehabilitasi_hutan")
-        color = cm.rehabilitasiHutan.get(String(p.jenis_tana)) || "#808080";
-      else if (layerId === "karhutla_2021")
-        color = cm.kebakaran2021.get(String(p.periode)) || "#808080";
-      else if (layerId === "karhutla_2022")
-        color = cm.kebakaran2022.get(String(p.periode)) || "#808080";
-      else if (layerId === "karhutla_2023")
-        color = cm.kebakaran2023.get(String(p.periode)) || "#808080";
-      else if (layerId === "karhutla_2024")
-        color = cm.kebakaran2024.get(String(p.periode)) || "#808080";
-      else if (layerId === "karhutla_2025")
-        color = cm.kebakaran2025.get(String(p.periode)) || "#808080";
-      else if (layerId === "kawasan_hutan" || layerId === "97")
-        color = cm.kawasanHutan.get(String(p.fungsikws ?? "")) || "#808080";
-      else if (
-        [
-          "risiko_banjir",
-          "risiko_banjir_bandang",
-          "risiko_kekeringan",
-          "risiko_abrasi",
-          "risiko_longsor",
-          "risiko_karhutla",
-        ].includes(layerId)
-      ) {
-        const refKeyMap: Record<string, keyof typeof cm> = {
-          risiko_banjir: "risikoBanjir",
-          risiko_banjir_bandang: "risikoBanjirBandang",
-          risiko_kekeringan: "risikoKekeringan",
-          risiko_abrasi: "risikoAbrasi",
-          risiko_longsor: "risikoLongsor",
-          risiko_karhutla: "risikoKarhutla",
-        };
-        color = cm[refKeyMap[layerId]]?.get(p.kelas || "") || "#808080";
-      } else if (layerId === "khdtk")
-        color = cm.khdtk.get(p.namobj || "") || "#808080";
-
-      if (isBencanaLayer) {
-        // ======================================================
-        // SIMITI FINAL BENCANA COLOR LOCK
-        // Jangan biarkan mapping kelas/risk menimpa warna
-        // berdasarkan JENIS BENCANA.
-        // ======================================================
-        color = getBencanaLayerColor(String(layerId));
-        const classColor = getRiskClassColor(
-          getBencanaFeatureClass(layer?.feature),
-          color,
-        );
-        const riskStyle = {
-          color: classColor,
-          weight: zoom > 10 ? 2.2 : 1.6,
-          opacity: 0.98,
-          fillColor: color,
-          fillOpacity: 0.16,
-          lineCap: "round" as const,
-          lineJoin: "round" as const,
-        };
-        layer.setStyle(riskStyle);
-
-        // Jaga style sinkron agar refresh legenda/zoom tidak membuat
-        // polygon kembali opak dan menutupi layer risiko lainnya.
-        if (layer.options) Object.assign(layer.options, riskStyle);
-
-        return;
-      }
-
-      const isBencanaStyle = BENCANA_FOCUS_LAYERS.has(String(layerId));
-
-      layer.setStyle({
-        color,
-        weight: isBencanaStyle ? (zoom > 10 ? 2.2 : 1.5) : zoom > 10 ? 2 : 1,
-        opacity: isBencanaStyle ? 1 : 0.8,
-        fillColor: color,
-        fillOpacity: isBencanaStyle ? 0.65 : zoom > 10 ? 0.4 : 0.3,
-      });
-    });
-  };
-
-  const applySelectedLegendToAdminBoundaries = (color: string | null) => {
-    const map = mapInstanceRef.current;
-    if (!map || !color) return;
-
-    Object.keys(layerGroupsRef.current).forEach((key) => {
-      if (!key.startsWith("admin_boundary_")) return;
-      const boundary = layerGroupsRef.current[key];
-      if (!boundary?.setStyle) return;
-
-      boundary.setStyle({
-        color,
-        weight: 3,
-        opacity: 1,
-        fillColor: color,
-      });
-      if (boundary.bringToFront) boundary.bringToFront();
-    });
-  };
-
-  // ============================================================
-  // SIMITI - APPLY RISK ONLY TO SELECTED FEATURE
-  // ============================================================
-  const applySelectedLegendToSpatialFeature = (color: string) => {
-    const selected = selectedSpatialFeatureRef.current;
-
-    if (!selected?.layer?.setStyle) {
-      return false;
-    }
-
-    selected.layer.setStyle({
-      color,
-      fillColor: color,
-      weight: 4,
-      opacity: 1,
-      fillOpacity: 0.72,
-    });
-
-    if (selected.layer?.bringToFront) {
-      selected.layer.bringToFront();
-    }
-
-    console.log(
-      "SIMITI risk applied ONLY to selected feature:",
-      selected.layerType,
-      selected.feature?.properties?.namobj ||
-        selected.feature?.properties?.nama ||
-        selected.feature?.properties?.name ||
-        selected.feature?.properties,
-      color,
-    );
-
-    return true;
-  };
-
-  const handleLegendClick = (key: string, layerType: string, color: string) => {
-    // Klik legend = pilihan permanen sampai user memilih kelas lain.
-    setSelectedLegendKey(key);
-    setSelectedLegendType(layerType);
-    setSelectedLegendColor(color);
-
-    // ==========================================================
-    // PRIORITAS:
-    // Jika user sedang memilih feature KHDTK, legenda hanya
-    // diterapkan ke KHDTK tersebut.
-    //
-    // Jangan gunakan applySelectedLegendToAdminBoundaries()
-    // karena fungsi tersebut memang ditujukan untuk boundary
-    // administrasi dan menyebabkan warna melebar ke wilayah lain.
-    // ==========================================================
-    const selectedFeature = selectedSpatialFeatureRef.current;
-
-    if (selectedFeature && selectedFeature.layerType === "khdtk") {
-      applySelectedLegendToSpatialFeature(color);
-      return;
-    }
-
-    // Perilaku lama tetap dipertahankan untuk boundary administrasi.
-    applySelectedLegendToAdminBoundaries(color);
-  };
-
-  const clearSelectedLegend = () => {
-    setSelectedLegendKey(null);
-    setSelectedLegendType(null);
-    setSelectedLegendColor(null);
-  };
-
-  const handleRowMouseEnter = (
-    key: string,
-    layerType: string,
-    color: string,
-  ) => {
-    // Reset layer sebelumnya jika berbeda
-    if (
-      lastHighlightedRef.current &&
-      lastHighlightedRef.current.layerId !== layerType
-    ) {
-      lastHighlightedRef.current.resetFn();
-    }
-    setHoveredLayerKey(key);
-    setHoveredLayerType(layerType);
-    setHoveredLayerColor(color);
-    lastHighlightedRef.current = {
-      layerId: layerType,
-      resetFn: () => resetLayerStyle(layerType),
-    };
-  };
-
-  const handleRowMouseLeave = () => {
-    setHoveredLayerKey(null);
-    setHoveredLayerType(null);
-    setHoveredLayerColor(null);
-    if (lastHighlightedRef.current) {
-      lastHighlightedRef.current.resetFn();
-      lastHighlightedRef.current = null;
-    }
-  };
-
   // Fetch layers from database on mount
   useEffect(() => {
-    const bootstrapLayerAccess = async () => {
-      // Katalog layer dimuat langsung untuk akses publik.
-      await loadMyLayerAuthorizations();
-      await fetchLayers();
-
-      // Defense-in-depth: jika ada layer aktif dari state/cache lama,
-      // layer publik tetap dapat ditampilkan tanpa token.
-      setActiveLayers((prev) => {
-        const next = new Set<string>();
-        for (const name of prev) {
-          if (String(name).startsWith("kejadian_") || isLayerAuthorized(name)) {
-            next.add(name);
-          } else {
-            const apiName = normalizeLayerApiName(name);
-            const existing =
-              layerGroupsRef.current?.[apiName] ??
-              layerGroupsRef.current?.[name];
-            if (existing && mapInstanceRef.current) {
-              safeRemoveMapLayer(existing);
-              delete layerGroupsRef.current[apiName];
-              delete layerGroupsRef.current[name];
-            }
-          }
-        }
-        return next;
-      });
-    };
-
-    void bootstrapLayerAccess();
+    fetchLayers();
 
     // Clear all kejadian layers on mount/reload
     setActiveLayers((prev) => {
@@ -6916,31 +2728,51 @@ const Kerawanan = () => {
     setKejadianListings([]);
   }, []);
 
+  // const fetchKejadianYears = async () => {
+  //   try {
+  //     const response = await fetch(`${API_URL}/api/kejadian/years`);
+  //     const data = await response.json();
+
+  //     const kejadianLayers = data.years.map((year: number) => ({
+  //       id: `kejadian_${year}`,
+  //       name: `kejadian_${year}`,
+  //       year: year
+  //     }));
+
+  //     setLayerData(prev => ({
+  //       ...prev,
+  //       kejadian: kejadianLayers
+  //     }));
+
+  //     setAvailableLayers(prev => ({
+  //       ...prev,
+  //       kejadian: kejadianLayers
+  //     }));
+
+  //   } catch (error) {
+  //     console.error('Error fetching kejadian years:', error);
+  //   }
+  // };
+
   const fetchLayers = async () => {
     try {
-      const token = getAuthToken();
       const response = await fetch(`${API_URL}/api/layers`, {
-        headers: token
-          ? { Authorization: `Bearer ${token}`, Accept: "application/json" }
-          : { Accept: "application/json" },
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("smiti_token")}`,
+        },
       });
-
       const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.message || `HTTP ${response.status}`);
-      }
 
-      const authorizedData = filterAuthorizedLayerData(data);
-      console.log("Fetched layers data (authorized):", authorizedData);
+      console.log("Fetched layers data:", data);
 
-      setLayerData(authorizedData);
+      setLayerData(data);
 
       // Jika ada bounds yang dipilih, filter layers
       if (currentBounds) {
-        void checkLayerAvailability(currentBounds);
+        checkLayerAvailability(currentBounds);
       } else {
-        // Tidak ada bounds: tetap gunakan catalog yang sudah difilter authorization.
-        setAvailableLayers(authorizedData);
+        // Jika tidak ada bounds, tampilkan semua layer termasuk kejadian
+        setAvailableLayers(data);
       }
     } catch (error) {
       console.error("Error fetching layers:", error);
@@ -7168,6 +3000,69 @@ const Kerawanan = () => {
     return titles[section as keyof typeof titles];
   };
 
+  // useEffect(() => {
+  //   if (!mapReady || !mapInstanceRef.current) return;
+
+  //   console.log('Active layers changed:', Array.from(activeLayers));
+
+  //   // Reload semua active layers dengan bounds terbaru
+  //   const reloadLayers = async () => {
+  //     if (isLoadingLayer) return;
+
+  //     setIsLoadingLayer(true);
+
+  //     for (const tableName of activeLayers) {
+  //       await loadLayerInBounds(tableName);
+  //     }
+
+  //     setIsLoadingLayer(false);
+  //   };
+
+  //   reloadLayers();
+  // }, [activeLayers, mapReady]);
+
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+
+    const handleZoomEnd = async () => {
+      const currentZoom = mapInstanceRef.current.getZoom();
+      console.log(
+        "Zoom changed to:",
+        currentZoom,
+        "- Reloading layers for new simplification level",
+      );
+
+      const layersToReload = Array.from(activeLayers);
+      console.log("Reloading active layers:", layersToReload);
+
+      for (const layerName of layersToReload) {
+        if (layerName.startsWith("kejadian_")) {
+          // Ambil metadata yang tersimpan
+          const metadata = activeKejadianLayers.get(layerName);
+          if (metadata) {
+            await loadKejadianLayer(
+              layerName,
+              metadata.year,
+              metadata.category,
+            );
+          } else {
+            console.warn("No metadata found for kejadian layer:", layerName);
+          }
+        } else {
+          await loadLayerInBounds(layerName);
+        }
+      }
+    };
+
+    mapInstanceRef.current.on("zoomend", handleZoomEnd);
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.off("zoomend", handleZoomEnd);
+      }
+    };
+  }, [activeLayers, activeKejadianLayers, currentBounds, selectedDas]);
+
   useEffect(() => {
     if (!mapInstanceRef.current) return;
 
@@ -7190,7 +3085,23 @@ const Kerawanan = () => {
     reloadKejadianLayers();
   }, [currentBounds, selectedDas, selectedAreas, activeKejadianLayers]);
 
+  //   useEffect(() => {
+  //   if (!mapReady || activeLayers.size === 0) return;
+
+  //   // Reload semua active layers dengan bounds yang baru
+  //   const reloadAllLayers = async () => {
+  //     console.log('CurrentBounds changed, reloading active layers:', Array.from(activeLayers));
+  //     for (const tableName of activeLayers) {
+  //       await loadLayerInBounds(tableName);
+  //     }
+  //   };
+
+  //   reloadAllLayers();
+  // }, [currentBounds, mapReady]);
+
   useEffect(() => {
+    let cancelled = false;
+
     // Load Leaflet CSS
     const link = document.createElement("link");
     link.rel = "stylesheet";
@@ -7201,137 +3112,38 @@ const Kerawanan = () => {
     const script = document.createElement("script");
     script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
     script.onload = () => {
-      if (!mapRef.current || !window.L) return;
+      if (
+        !cancelled &&
+        mapRef.current &&
+        window.L &&
+        !mapInstanceRef.current &&
+        !(mapRef.current as any)._leaflet_id
+      ) {
+        const map = window.L.map(mapRef.current).setView([-2.5, 118.0], 5);
+        window.L.tileLayer(
+          "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          {
+            attribution: "&copy; OpenStreetMap contributors",
+          },
+        ).addTo(map);
 
-      // React StrictMode / hot-reload dapat menjalankan lifecycle berulang.
-      // Kunci init supaya dua callback script tidak pernah membuat map bersamaan.
-      if (mapInitializingRef.current) return;
-      if (mapInstanceRef.current) {
-        console.log("🗺️ Leaflet map sudah ada, skip initialization");
-        return;
+        // Simpan instance map ke ref
+        mapInstanceRef.current = map;
+        setMapReady(true);
+
+        // Tambahkan event listener untuk moveend (setelah pan/zoom selesai)
+        // let moveTimeout;
+        // map.on('moveend', () => {
+        //   // Debounce untuk menghindari terlalu banyak request
+        //   clearTimeout(moveTimeout);
+        //   moveTimeout = setTimeout(() => {
+        //     console.log('Map moveend event - reloading active layers');
+
+        //     // Trigger reload dengan mengupdate state
+        //     setActiveLayers(prev => new Set(prev));
+        //   }, 500); // Delay 500ms (lebih lama) untuk performa lebih baik
+        // });
       }
-
-      // Proteksi tambahan terhadap container yang masih ditandai Leaflet
-      const container = mapRef.current as HTMLElement & {
-        _leaflet_id?: number;
-      };
-
-      if (container._leaflet_id) {
-        console.log(
-          "🗺️ Map container masih memiliki instance Leaflet sebelumnya.",
-        );
-        if (mapInstanceRef.current) {
-          try {
-            mapInstanceRef.current.remove();
-          } catch (error) {
-            console.warn("⚠️ Gagal membersihkan instance Leaflet lama:", error);
-          }
-          mapInstanceRef.current = null;
-        }
-        delete container._leaflet_id;
-      }
-
-      mapInitializingRef.current = true;
-      // Tampilan awal seluruh Indonesia untuk desktop, tablet, dan ponsel.
-      // Zoom lebih lebar agar wilayah barat hingga Papua terlihat sejak pertama dibuka.
-      // Kontrol Default Extent menggunakan nilai yang sama.
-      const DEFAULT_MAP_CENTER: [number, number] = [-2.2, 118.0];
-      // Gunakan batas geografis Indonesia, bukan zoom tetap. fitBounds menyesuaikan
-      // viewport portrait/landscape sehingga Sumatra hingga Papua masuk pada awal.
-      const DEFAULT_MAP_BOUNDS = window.L.latLngBounds(
-        [-11.5, 93.0],
-        [6.5, 142.5],
-      );
-      const getDefaultMapPadding = () => {
-        const width = container.clientWidth || window.innerWidth;
-        return width < 480 ? [12, 38] : width < 900 ? [18, 28] : [24, 24];
-      };
-      const map = window.L.map(container, { zoomControl: false });
-      map.fitBounds(DEFAULT_MAP_BOUNDS, {
-        padding: getDefaultMapPadding(),
-        animate: false,
-        maxZoom: 5,
-      });
-
-      // Kontrol zoom berada di kiri bawah; tombol extent tepat di bawahnya.
-      // Area ini sengaja dipisahkan dari pencarian (atas-kiri) dan basemap (atas-kanan).
-      window.L.control.zoom({ position: "bottomleft" }).addTo(map);
-
-      // Kontrol Default Extent mengembalikan viewport ke cakupan awal Indonesia.
-      // Tidak menghapus layer, pilihan wilayah, filter, atau data yang sudah dimuat.
-      const defaultExtentControl = window.L.control({ position: "bottomleft" });
-      defaultExtentControl.onAdd = () => {
-        const control = window.L.DomUtil.create(
-          "div",
-          "leaflet-bar simiti-default-extent-control",
-        );
-        const button = window.L.DomUtil.create("a", "", control);
-        button.href = "#";
-        button.title = "Default Extent — kembali ke tampilan awal Indonesia";
-        button.setAttribute("role", "button");
-        button.setAttribute("aria-label", "Default Extent");
-        button.setAttribute("aria-controls", "simiti-map");
-        button.innerHTML =
-          '<span aria-hidden="true" style="display:block;font-size:18px;line-height:26px;font-weight:700">⌂</span>';
-        window.L.DomEvent.disableClickPropagation(control);
-        window.L.DomEvent.on(button, "click", (event: Event) => {
-          window.L.DomEvent.preventDefault(event);
-          map.fitBounds(DEFAULT_MAP_BOUNDS, {
-            padding: getDefaultMapPadding(),
-            animate: false,
-            maxZoom: 5,
-          });
-        });
-        return control;
-      };
-      defaultExtentControl.addTo(map);
-
-      // Klik peta -> identifikasi GIS, polygon desa/kelurahan, dan cuaca.
-      map.on("click", (event: any) => {
-        const { lat, lng } = event.latlng;
-
-        identifyEnterpriseAtPoint(event.latlng);
-
-        // Tampilkan batas administratif asli dari PostGIS.
-        void showSelectedVillagePolygon(Number(lat), Number(lng));
-
-        // Pertahankan perilaku cuaca yang sudah ada.
-        void fetchMapWeather(Number(lat), Number(lng));
-      });
-
-      map.on("moveend", () => {
-        if (activeLayersRef.current) {
-          // Kawasan Hutan SIGAP mengikuti extent peta setelah pan/zoom.
-          void refreshActiveSigapLayers();
-        }
-      });
-
-      const roadBaseLayer = window.L.tileLayer(
-        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        {
-          attribution: "&copy; OpenStreetMap contributors",
-          crossOrigin: true,
-        },
-      );
-
-      const satelliteBaseLayer = window.L.tileLayer(
-        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        {
-          attribution: "Tiles &copy; Esri",
-          crossOrigin: true,
-        },
-      );
-
-      roadBaseLayerRef.current = roadBaseLayer;
-      satelliteBaseLayerRef.current = satelliteBaseLayer;
-
-      roadBaseLayer.addTo(map);
-
-      mapInstanceRef.current = map;
-      mapInitializingRef.current = false;
-      setMapReady(true);
-
-      console.log("✅ Leaflet map initialized once");
     };
     document.head.appendChild(script);
 
@@ -7342,74 +3154,18 @@ const Kerawanan = () => {
     document.head.appendChild(chartScript);
 
     return () => {
+      cancelled = true;
       link.remove();
       script.remove();
       chartScript.remove();
 
-      // Invalidate semua request async yang masih berjalan sebelum map dihancurkan.
-      Object.keys(layerRequestSeqRef.current).forEach((key) => {
-        layerRequestSeqRef.current[key] += 1;
-      });
-
-      // Batalkan callback GPS/render GPS yang masih pending.
-      gpsRequestSeqRef.current += 1;
-      if (gpsRenderFrameRef.current !== null) {
-        cancelAnimationFrame(gpsRenderFrameRef.current);
-        gpsRenderFrameRef.current = null;
-      }
-
-      try {
-        gpsMarkerRef.current?.remove?.();
-      } catch {}
-      gpsMarkerRef.current = null;
-
-      try {
-        gpsAccuracyCircleRef.current?.remove?.();
-      } catch {}
-      gpsAccuracyCircleRef.current = null;
-
-      mapInitializingRef.current = false;
+      // Cleanup map
       if (mapInstanceRef.current) {
-        try {
-          mapInstanceRef.current.remove();
-        } catch (error) {
-          console.warn("⚠️ Leaflet cleanup warning:", error);
-        }
+        mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
-      if (mapRef.current) {
-        const container = mapRef.current as HTMLElement & {
-          _leaflet_id?: number;
-        };
-        delete container._leaflet_id;
-      }
-      roadBaseLayerRef.current = null;
-      satelliteBaseLayerRef.current = null;
-      setMapReady(false);
     };
   }, []);
-
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    const roadLayer = roadBaseLayerRef.current;
-    const satelliteLayer = satelliteBaseLayerRef.current;
-
-    if (!map || !roadLayer || !satelliteLayer || !mapReady) return;
-
-    if (map.hasLayer(roadLayer)) {
-      map.removeLayer(roadLayer);
-    }
-
-    if (map.hasLayer(satelliteLayer)) {
-      map.removeLayer(satelliteLayer);
-    }
-
-    if (baseMapType === "satellite") {
-      satelliteLayer.addTo(map);
-    } else {
-      roadLayer.addTo(map);
-    }
-  }, [baseMapType, mapReady]);
 
   useEffect(() => {
     // Auto-fetch photos dan listings ketika ada perubahan pada activeLayers kejadian
@@ -7440,979 +3196,11 @@ const Kerawanan = () => {
       setKejadianPhotos([]);
       setKejadianListings([]);
     }
-  }, [activeLayers, activeKejadianLayers, currentBounds, selectedDas, selectedAreas]);
+  }, [activeLayers, activeKejadianLayers, currentBounds, selectedDas]);
 
   const [activeTab, setActiveTab] = useState("administrasi");
   const [activeBottomTab, setActiveBottomTab] = useState("curahHujan");
-  // UI-only: layer mitigasi yang sedang ditampilkan pada tabel ringkas.
-  const [activeInfraSummaryLayer, setActiveInfraSummaryLayer] = useState<
-    string | null
-  >(null);
-
-  // Mode utama filter lokasi: Administrasi atau DAS.
-  // Saat mode berganti, pilihan dari mode sebelumnya dibersihkan
-  // agar filter lama tidak ikut memengaruhi query layer.
-  const handleMainTabChange = (tab: "administrasi" | "das") => {
-    setActiveTab(tab);
-
-    if (tab === "administrasi") {
-      setSelectedDas([]);
-      setDasSearchQuery("");
-      setDasSearchResults([]);
-      setShowDasSearchDropdown(false);
-
-      Object.keys(layerGroupsRef.current).forEach((key) => {
-        if (key.startsWith("das_boundary")) {
-          safeRemoveMapLayer(layerGroupsRef.current[key]);
-          delete layerGroupsRef.current[key];
-        }
-      });
-    } else {
-      setSelectedAreas([]);
-      setAreaSearchQuery("");
-      setAreaSearchResults([]);
-      setShowAreaSearchDropdown(false);
-
-      Object.keys(layerGroupsRef.current).forEach((key) => {
-        if (key.startsWith("admin_boundary")) {
-          safeRemoveMapLayer(layerGroupsRef.current[key]);
-          delete layerGroupsRef.current[key];
-        }
-      });
-    }
-
-    setCurrentBounds(null);
-  };
-  const [showLayerPanel, setShowLayerPanel] = useState(false);
-  // UI-only: collapse/expand panel kanan tanpa mengubah logic layer.
-
-  // ======================================================
-  // ENTERPRISE LAYER MANAGER
-  // Search, active-only view, collapse groups, opacity,
-  // zoom-to-layer and metadata actions. Existing layer logic
-  // tetap dipakai; manager hanya menjadi control surface.
-  // ======================================================
-  const [enterpriseLayerSearch, setEnterpriseLayerSearch] = useState("");
-  const [enterpriseShowActiveOnly, setEnterpriseShowActiveOnly] =
-    useState(false);
-  const [enterpriseCollapsedGroups, setEnterpriseCollapsedGroups] = useState<
-    Set<string>
-  >(new Set());
-  const [enterpriseOpacity, setEnterpriseOpacity] = useState<
-    Record<string, number>
-  >({});
-  const [enterpriseLegendVisible, setEnterpriseLegendVisible] = useState<
-    Record<string, boolean>
-  >({});
-  const [enterpriseMetadataLayer, setEnterpriseMetadataLayer] =
-    useState<any>(null);
-  const [enterpriseSearchQuery, setEnterpriseSearchQuery] = useState("");
-  const [enterpriseSearchResults, setEnterpriseSearchResults] = useState<
-    Array<any>
-  >([]);
-  const [enterpriseSearchLoading, setEnterpriseSearchLoading] = useState(false);
-  const [enterpriseSearchOpen, setEnterpriseSearchOpen] = useState(false);
-  const enterpriseSearchHighlightRef = useRef<any>(null);
-  const enterpriseSearchRequestRef = useRef(0);
-
-  const enterpriseMatchesLayer = (layer: any) => {
-    const id = String(layer?.id ?? layer?.name ?? "");
-    const name = String(layer?.name ?? layer?.id ?? "");
-    const q = enterpriseLayerSearch.trim().toLowerCase();
-    if (
-      enterpriseShowActiveOnly &&
-      !activeLayers.has(id) &&
-      !activeLayers.has(name)
-    )
-      return false;
-    if (!q) return true;
-    return `${id} ${name} ${formatTableName(name)}`.toLowerCase().includes(q);
-  };
-
-  const enterpriseToggleGroup = (group: string) => {
-    setEnterpriseCollapsedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(group)) next.delete(group);
-      else next.add(group);
-      return next;
-    });
-  };
-
-  const enterpriseSetLayerOpacity = (layerName: string, value: number) => {
-    const opacity = Math.max(0, Math.min(1, value));
-    setEnterpriseOpacity((prev) => ({ ...prev, [layerName]: opacity }));
-    const layer =
-      layerGroupsRef.current?.[layerName] ??
-      layerGroupsRef.current?.[normalizeLayerApiName(layerName)];
-    if (!layer) return;
-    try {
-      if (typeof layer.setOpacity === "function") layer.setOpacity(opacity);
-      if (typeof layer.eachLayer === "function") {
-        layer.eachLayer((child: any) => {
-          if (typeof child.setOpacity === "function") child.setOpacity(opacity);
-          if (typeof child.setStyle === "function")
-            child.setStyle({ opacity, fillOpacity: Math.min(opacity, 0.8) });
-        });
-      }
-    } catch (error) {
-      console.warn("Enterprise opacity update failed:", layerName, error);
-    }
-  };
-
-  const enterpriseZoomToLayer = (layerName: string) => {
-    const map = mapInstanceRef.current as any;
-    const layer =
-      layerGroupsRef.current?.[layerName] ??
-      layerGroupsRef.current?.[normalizeLayerApiName(layerName)];
-    if (!map || !layer) return;
-    try {
-      if (typeof layer.getBounds === "function") {
-        const bounds = layer.getBounds();
-        if (bounds?.isValid?.()) {
-          map.fitBounds(bounds, { padding: [24, 24], maxZoom: 14 });
-          return;
-        }
-      }
-      let bounds: any = null;
-      if (typeof layer.eachLayer === "function") {
-        layer.eachLayer((child: any) => {
-          if (typeof child.getBounds === "function") {
-            const b = child.getBounds();
-            if (b?.isValid?.()) bounds = bounds ? bounds.extend(b) : b;
-          } else if (child.getLatLng) {
-            const b = window.L.latLngBounds(
-              child.getLatLng(),
-              child.getLatLng(),
-            );
-            bounds = bounds ? bounds.extend(b) : b;
-          }
-        });
-      }
-      if (bounds?.isValid?.())
-        map.fitBounds(bounds, { padding: [24, 24], maxZoom: 14 });
-    } catch (error) {
-      console.warn("Enterprise zoom-to-layer failed:", layerName, error);
-    }
-  };
-
-  const enterpriseLayerMeta = (layerName: string) => {
-    const all = [
-      ...(layerData?.kerawanan || []),
-      ...(layerData?.mitigasiAdaptasi || []),
-      ...(layerData?.lainnya || []),
-      ...(layerData?.kejadian || []),
-    ] as any[];
-    return (
-      all.find(
-        (x) => String(x.id) === layerName || String(x.name) === layerName,
-      ) || { id: layerName, name: layerName }
-    );
-  };
-
-  const enterpriseActiveLayerEntries = Array.from(activeLayers).map(
-    (layerName) => ({
-      name: layerName,
-      label: formatTableName(enterpriseLayerMeta(layerName)?.name || layerName),
-    }),
-  );
-
-  // ======================================================
-  // STEP 2 — ENTERPRISE SEARCH
-  // Satu kotak pencarian untuk lokasi, layer, dan objek aktif.
-  // Hasil -> FlyTo -> highlight -> Identify.
-  // ======================================================
-  const clearEnterpriseSearchHighlight = () => {
-    const map = mapInstanceRef.current;
-    const highlight = enterpriseSearchHighlightRef.current;
-    if (highlight && map) {
-      try {
-        map.removeLayer(highlight);
-      } catch {}
-    }
-    enterpriseSearchHighlightRef.current = null;
-  };
-
-  const highlightEnterpriseGeometry = (geometry: any, label?: string) => {
-    const map = mapInstanceRef.current;
-    if (!map || !window.L || !geometry) return null;
-    clearEnterpriseSearchHighlight();
-    try {
-      const layer = window.L.geoJSON(
-        {
-          type: "Feature",
-          geometry,
-          properties: { enterpriseSearch: true, label },
-        },
-        {
-          style: {
-            color: "#f59e0b",
-            weight: 5,
-            opacity: 1,
-            fillColor: "#fbbf24",
-            fillOpacity: 0.14,
-            dashArray: "8 5",
-          },
-          interactive: false,
-        },
-      ).addTo(map);
-      enterpriseSearchHighlightRef.current = layer;
-      return layer;
-    } catch (error) {
-      console.warn("Enterprise highlight gagal:", error);
-      return null;
-    }
-  };
-
-  const identifyEnterpriseObject = (obj: any, layerName?: string) => {
-    const map = mapInstanceRef.current;
-    if (!map || !window.L || !obj) return;
-    const lat = Number(obj.latitude ?? obj.lat ?? obj.coordinates?.[1]);
-    const lng = Number(
-      obj.longitude ?? obj.lon ?? obj.lng ?? obj.coordinates?.[0],
-    );
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-
-    map.flyTo([lat, lng], Math.max(map.getZoom(), 14), { duration: 0.9 });
-    const group = layerName ? layerGroupsRef.current?.[layerName] : null;
-    let target: any = null;
-    if (group?.eachLayer) {
-      group.eachLayer((child: any) => {
-        if (target) return;
-        const data = child?.incidentData || child?.feature?.properties;
-        if (
-          data &&
-          String(data.id ?? data.title ?? "") ===
-            String(obj.id ?? obj.title ?? "")
-        )
-          target = child;
-      });
-    }
-    if (target?.openPopup) {
-      window.setTimeout(() => target.openPopup(), 350);
-    } else {
-      window.L.popup({ closeButton: true, autoClose: true })
-        .setLatLng([lat, lng])
-        .setContent(
-          `<div style="font-size:12px;line-height:1.45"><b>${String(obj.title || obj.name || obj.label || "Objek").replace(/[&<>"]/g, "")}</b>${obj.category ? `<br/><span>${String(obj.category).replace(/[&<>"]/g, "")}</span>` : ""}</div>`,
-        )
-        .openOn(map);
-    }
-  };
-
-  const enterpriseEscapeHtml = (value: any) =>
-    String(value ?? "—").replace(
-      /[&<>\"]/g,
-      (char) =>
-        (
-          ({
-            "&": "&amp;",
-            "<": "&lt;",
-            ">": "&gt;",
-            '"': "&quot;",
-          }) as any
-        )[char] || char,
-    );
-
-  const enterpriseGeometryAreaHa = (geometry: any): number | null => {
-    if (!geometry?.coordinates) return null;
-    const R = 6378137;
-    const ringArea = (ring: any[]) => {
-      if (!Array.isArray(ring) || ring.length < 3) return 0;
-      let area = 0;
-      const ref = ring[0];
-      const lat0 = (Number(ref[1]) * Math.PI) / 180;
-      const cosLat = Math.cos(lat0);
-      const mLon = (Math.PI / 180) * R * cosLat;
-      const mLat = (Math.PI / 180) * R;
-      for (let i = 0; i < ring.length; i++) {
-        const a = ring[i];
-        const b = ring[(i + 1) % ring.length];
-        const ax = Number(a[0]) * mLon,
-          ay = Number(a[1]) * mLat;
-        const bx = Number(b[0]) * mLon,
-          by = Number(b[1]) * mLat;
-        area += ax * by - bx * ay;
-      }
-      return Math.abs(area) / 2;
-    };
-    const polygonArea = (poly: any[]) => {
-      if (!Array.isArray(poly) || !poly.length) return 0;
-      const outer = ringArea(poly[0]);
-      const holes = poly.slice(1).reduce((sum, r) => sum + ringArea(r), 0);
-      return Math.max(0, outer - holes);
-    };
-    let m2 = 0;
-    if (geometry.type === "Polygon") m2 = polygonArea(geometry.coordinates);
-    else if (geometry.type === "MultiPolygon")
-      m2 = geometry.coordinates.reduce(
-        (sum: number, p: any) => sum + polygonArea(p),
-        0,
-      );
-    return m2 > 0 ? m2 / 10000 : null;
-  };
-
-  const closeEnterpriseIdentify = () => {
-    const map = mapInstanceRef.current;
-    const highlight = enterpriseIdentifyHighlightRef.current;
-    if (highlight && map) {
-      try {
-        map.removeLayer(highlight);
-      } catch {}
-    }
-    enterpriseIdentifyHighlightRef.current = null;
-    setEnterpriseIdentify((prev) => ({ ...prev, open: false }));
-  };
-
-  const openEnterpriseIdentify = (
-    feature: any,
-    layerName: string,
-    latlng?: any,
-    source = "SIMITI GIS",
-  ) => {
-    const map = mapInstanceRef.current;
-    if (!map || !window.L || !feature) return;
-    const properties = { ...(feature.properties || {}) };
-    const geometry = feature.geometry || null;
-    const point =
-      latlng ||
-      (() => {
-        try {
-          const bounds = window.L.geoJSON(feature).getBounds();
-          return bounds?.isValid?.() ? bounds.getCenter() : null;
-        } catch {
-          return null;
-        }
-      })();
-    const lat = Number(point?.lat);
-    const lng = Number(point?.lng);
-    const label = String(
-      properties.namobj ||
-        properties.nama ||
-        properties.name ||
-        properties.title ||
-        properties.namobjek ||
-        properties.kab_kota ||
-        properties.provinsi ||
-        properties.keterangan ||
-        properties.fungsi ||
-        formatTableName(layerName) ||
-        "Objek GIS",
-    );
-    const propertyArea = Number(
-      properties.luas_ha ??
-        properties.lsktap ??
-        properties.luas ??
-        properties.shape_area ??
-        properties.Shape_Area,
-    );
-    const areaHa =
-      Number.isFinite(propertyArea) && propertyArea > 0
-        ? propertyArea > 100000
-          ? propertyArea / 10000
-          : propertyArea
-        : enterpriseGeometryAreaHa(geometry);
-
-    if (enterpriseIdentifyHighlightRef.current) {
-      try {
-        map.removeLayer(enterpriseIdentifyHighlightRef.current);
-      } catch {}
-    }
-    enterpriseIdentifyHighlightRef.current = null;
-    if (geometry) {
-      try {
-        enterpriseIdentifyHighlightRef.current = window.L.geoJSON(
-          { type: "Feature", geometry, properties: {} },
-          {
-            style: {
-              color: "#ef4444",
-              weight: 4,
-              opacity: 1,
-              fillColor: "#f59e0b",
-              fillOpacity: 0.18,
-              dashArray: "7 4",
-            },
-            interactive: false,
-          },
-        ).addTo(map);
-      } catch {}
-    }
-
-    setEnterpriseIdentify({
-      open: true,
-      loading: false,
-      layerName,
-      layerLabel: formatTableName(
-        enterpriseLayerMeta(layerName)?.name || layerName,
-      ),
-      objectLabel: label,
-      latitude: Number.isFinite(lat) ? lat : null,
-      longitude: Number.isFinite(lng) ? lng : null,
-      areaHa,
-      properties,
-      geometry,
-      source,
-    });
-
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      map.flyTo([lat, lng], Math.max(map.getZoom(), geometry ? 13 : 15), {
-        duration: 0.7,
-      });
-    }
-  };
-
-  const identifyEnterpriseAtPoint = (latlng: any) => {
-    const map = mapInstanceRef.current;
-    if (!map || !window.L) return false;
-    const point = window.L.latLng(latlng.lat, latlng.lng);
-    const candidates: any[] = [];
-    const activeKeys = Array.from(activeLayersRef.current || new Set<string>());
-    const groups = layerGroupsRef.current || {};
-
-    activeKeys.forEach((key) => {
-      const group = groups[key] || groups[normalizeLayerApiName(key)];
-      if (!group?.eachLayer) return;
-      group.eachLayer((child: any) => {
-        const feature = child?.feature;
-        const incident = child?.incidentData;
-        if (incident) {
-          const ll = child.getLatLng?.();
-          if (
-            ll &&
-            map.distance(point, ll) <=
-              Math.max(35, 16 * Math.pow(2, Math.max(0, 14 - map.getZoom())))
-          ) {
-            candidates.push({
-              score: 0,
-              feature: {
-                type: "Feature",
-                geometry: { type: "Point", coordinates: [ll.lng, ll.lat] },
-                properties: incident,
-              },
-              latlng: ll,
-              layerName: key,
-              source: "Data Kejadian SIMITI",
-            });
-          }
-          return;
-        }
-        if (!feature) return;
-        if (child.getLatLng) {
-          const ll = child.getLatLng();
-          if (ll && map.distance(point, ll) <= 35)
-            candidates.push({ score: 1, feature, latlng: ll, layerName: key });
-        } else if (child.getBounds) {
-          try {
-            const b = child.getBounds();
-            if (b?.isValid?.() && b.contains(point))
-              candidates.push({
-                score: 2,
-                feature,
-                latlng: point,
-                layerName: key,
-              });
-          } catch {}
-        }
-      });
-    });
-
-    if (!candidates.length) return false;
-    candidates.sort((a, b) => a.score - b.score);
-    const hit = candidates[0];
-    openEnterpriseIdentify(
-      hit.feature,
-      hit.layerName,
-      hit.latlng,
-      hit.source || "SIMITI GIS",
-    );
-    return true;
-  };
-
-  const enterpriseDataGridTabForLayer = (layerName: string) => {
-    const map: Record<string, string> = {
-      tutupan_lahan: "tutupanLahan",
-      penutupan_lahan_2024: "penutupanLahan2024",
-      pl2024: "pl2024",
-      jenis_tanah: "jenisTanah",
-      geologi: "geologi",
-      lahan_kritis: "lahan_kritis",
-      rawan_erosi: "rawan_erosi",
-      rawan_longsor: "rawan_longsor",
-      rawan_limpasan: "rawan_limpasan",
-      rawan_karhutla: "rawan_karhutla",
-      kawasan_hutan: "kawasan_hutan",
-      "97": "kawasan_hutan",
-      khdtk: "khdtk",
-      bahaya_kekeringan: "bahaya_kekeringan",
-      bahaya_abrasi_dan_gelombang_ekstrim: "bahaya_abrasi",
-      bahaya_banjir: "bahaya_banjir",
-      bahaya_banjir_bandang: "bahaya_banjir_bandang",
-    };
-
-    // Semua layer Mitigasi & Adaptasi menggunakan
-    // satu bottom tab: mitigasi_adaptasi.
-    if (INFRA_IDS.includes(layerName as any)) {
-      return "mitigasi_adaptasi";
-    }
-
-    return map[layerName] || layerName;
-  };
-
-  const openEnterpriseDataGrid = () => {
-    const tab = enterpriseDataGridTabForLayer(enterpriseIdentify.layerName);
-    setActiveBottomTab(tab);
-
-    // Pastikan panel Data Grid terbuka.
-    setIsBottomSummaryOpen(true);
-
-    setEnterpriseIdentify((prev) => ({ ...prev, open: false }));
-    const el = document.getElementById("enterprise-data-grid");
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  };
-
-  const buildEnterpriseSearchResults = async (query: string) => {
-    const q = query.trim();
-    if (q.length < 2) {
-      setEnterpriseSearchResults([]);
-      return;
-    }
-
-    const requestId = ++enterpriseSearchRequestRef.current;
-    setEnterpriseSearchLoading(true);
-    try {
-      const results: any[] = [];
-
-      // 1. Lokasi administratif dari backend yang sudah dipakai aplikasi.
-      try {
-        const response = await fetch(
-          `${API_URL}/api/areas/search?query=${encodeURIComponent(q)}&level=kabupaten`,
-        );
-        if (response.ok) {
-          const areas = await response.json();
-          (Array.isArray(areas) ? areas : [])
-            .slice(0, 6)
-            .forEach((area: any) => {
-              results.push({
-                type: "location",
-                icon: "📍",
-                label: area.label || area.kab_kota || area.provinsi || q,
-                sublabel: [area.level, area.provinsi]
-                  .filter(Boolean)
-                  .join(" • "),
-                data: area,
-              });
-            });
-        }
-      } catch (error) {
-        console.warn("Enterprise area search gagal:", error);
-      }
-
-      // 2. Layer yang tersedia di Layer Manager.
-      const allLayers = [
-        ...(layerData?.kerawanan || [])
-          .filter((x: any) => isLayerAuthorized(x?.name ?? x?.id))
-          .map((x: any) => ({ ...x, group: "Kerawanan" })),
-        ...(layerData?.mitigasiAdaptasi || [])
-          .filter((x: any) => isLayerAuthorized(x?.name ?? x?.id))
-          .map((x: any) => ({ ...x, group: "Mitigasi & Adaptasi" })),
-        ...(layerData?.lainnya || [])
-          .filter((x: any) => isLayerAuthorized(x?.name ?? x?.id))
-          .map((x: any) => ({ ...x, group: "Lainnya" })),
-        ...(layerData?.kejadian || []).map((x: any) => ({
-          ...x,
-          group: "Kejadian",
-        })),
-      ];
-      const seen = new Set<string>();
-      allLayers
-        .filter((layer: any) => {
-          const hay =
-            `${layer.id || ""} ${layer.name || ""} ${formatTableName(layer.name || "")}`.toLowerCase();
-          return hay.includes(q.toLowerCase());
-        })
-        .slice(0, 8)
-        .forEach((layer: any) => {
-          const key = `layer:${layer.id || layer.name}`;
-          if (seen.has(key)) return;
-          seen.add(key);
-          results.push({
-            type: "layer",
-            icon: "🌳",
-            label: formatTableName(layer.name || layer.id),
-            sublabel: layer.group,
-            data: layer,
-          });
-        });
-
-      // 3. Objek yang sudah termuat di map (marker kejadian / feature GeoJSON).
-      Object.entries(layerGroupsRef.current || {}).forEach(
-        ([layerName, group]: [string, any]) => {
-          if (!group?.eachLayer) return;
-          group.eachLayer((child: any) => {
-            const data = child?.incidentData || child?.feature?.properties;
-            if (!data) return;
-            const hay = Object.values(data)
-              .filter((v) => v != null)
-              .join(" ")
-              .toLowerCase();
-            if (!hay.includes(q.toLowerCase())) return;
-            const key = `object:${layerName}:${data.id ?? data.title ?? data.name ?? hay.slice(0, 60)}`;
-            if (seen.has(key)) return;
-            seen.add(key);
-            results.push({
-              type: "object",
-              icon: data.category?.toLowerCase().includes("banjir")
-                ? "⚠️"
-                : "📌",
-              label: data.title || data.name || data.namobj || "Objek GIS",
-              sublabel: data.category || formatTableName(layerName),
-              layerName,
-              data,
-            });
-          });
-        },
-      );
-
-      // 4. Fallback geocoder hanya jika hasil lokal belum cukup.
-      if (results.length < 5) {
-        try {
-          const response = await fetch(
-            `${API_URL}/api/geocode/search?q=${encodeURIComponent(q)}`,
-            { headers: { Accept: "application/json" } },
-          );
-          if (response.ok) {
-            const geo = await response.json();
-            (Array.isArray(geo) ? geo : []).slice(0, 4).forEach((item: any) => {
-              results.push({
-                type: "geocode",
-                icon: "⌖",
-                label: item.display_name || q,
-                sublabel: `${item.lat}, ${item.lon}`,
-                data: item,
-              });
-            });
-          }
-        } catch (error) {
-          console.warn("Enterprise geocode fallback gagal:", error);
-        }
-      }
-
-      if (requestId === enterpriseSearchRequestRef.current)
-        setEnterpriseSearchResults(results.slice(0, 12));
-    } finally {
-      if (requestId === enterpriseSearchRequestRef.current)
-        setEnterpriseSearchLoading(false);
-    }
-  };
-
-  const handleEnterpriseSearchSelect = async (result: any) => {
-    setEnterpriseSearchOpen(false);
-    const map = mapInstanceRef.current;
-    if (!map || !window.L) return;
-    const data = result?.data;
-
-    if (result.type === "location") {
-      if (data?.geom) highlightEnterpriseGeometry(data.geom, result.label);
-      handleAreaSelect(data);
-      window.setTimeout(() => {
-        const key = `admin_boundary_${String(data.label || result.label).replace(/[,\s]+/g, "_")}`;
-        const boundary = layerGroupsRef.current?.[key];
-        if (boundary?.getBounds?.().isValid?.())
-          map.flyToBounds(boundary.getBounds(), {
-            padding: [50, 50],
-            duration: 0.9,
-          });
-      }, 120);
-      return;
-    }
-
-    if (result.type === "layer") {
-      const layerName = String(data.id || data.name);
-      if (!activeLayers.has(layerName))
-        await handleLayerToggle(layerName, true);
-      window.setTimeout(() => enterpriseZoomToLayer(layerName), 450);
-      return;
-    }
-
-    if (result.type === "object") {
-      identifyEnterpriseObject(data, result.layerName);
-      return;
-    }
-
-    if (result.type === "geocode") {
-      const lat = Number(data.lat),
-        lng = Number(data.lon);
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        clearEnterpriseSearchHighlight();
-        map.flyTo([lat, lng], 14, { duration: 1.0 });
-        const marker = window.L.circleMarker([lat, lng], {
-          renderer: window.L.canvas({ padding: 0.5 }),
-          radius: 9,
-          color: "#f59e0b",
-          weight: 4,
-          fillColor: "#fbbf24",
-          fillOpacity: 0.35,
-        }).addTo(map);
-        enterpriseSearchHighlightRef.current = marker;
-        marker
-          .bindPopup(`<b>${String(result.label).replace(/[&<>"]/g, "")}</b>`)
-          .openPopup();
-      }
-    }
-  };
-
-  const [selectedInfoTab, setSelectedInfoTab] = useState("Ringkasan");
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(null);
-
-  // ======================================================
-  // SIMITI AI — Click-to-Diagnose Mitigation
-  // ======================================================
-  type AiMitigationRecommendation = {
-    rank: number;
-    intervention_id: string;
-    intervention: string;
-    priority_score: number;
-    urgency: string;
-    expected_effect: string;
-    why: string;
-    evidence: string[];
-    implementation_notes: string;
-  };
-
-  type AiMitigationPayload = {
-    area: string;
-    hazard: string;
-    diagnosis: string;
-    risk_level: string;
-    primary_drivers: string[];
-    recommendations: AiMitigationRecommendation[];
-    confidence: number;
-    verification_needed: boolean;
-    verification_reason: string;
-    meta?: { model?: string; source?: string; generated_at?: string };
-  };
-
-  const [aiHazard, setAiHazard] = useState("banjir");
-  const [aiRunning, setAiRunning] = useState(false);
-  const [aiStage, setAiStage] = useState("");
-  const [aiError, setAiError] = useState("");
-  const [aiMitigation, setAiMitigation] = useState<AiMitigationPayload | null>(
-    null,
-  );
-
-  const AI_HAZARD_OPTIONS = [
-    ["banjir", "Banjir"],
-    ["banjir_bandang", "Banjir Bandang"],
-    ["longsor", "Longsor"],
-    ["karhutla", "Kebakaran Hutan & Lahan"],
-    ["kekeringan", "Kekeringan"],
-    ["abrasi", "Abrasi"],
-  ];
-
-  const buildMitigationContext = (areasOverride?: any[]) => {
-    const areas = areasOverride ?? selectedAreas;
-    const selectedArea = areas?.[areas.length - 1] || null;
-    const riskMap: Record<string, any[]> = {
-      karhutla: risikoData.risiko_karhutla,
-      banjir: risikoData.risiko_banjir,
-      longsor: risikoData.risiko_longsor,
-      kekeringan: risikoData.risiko_kekeringan,
-      banjir_bandang: risikoData.risiko_banjir_bandang,
-      abrasi: (risikoData as any).risiko_abrasi || [],
-    };
-    const riskRows = riskMap[aiHazard] || [];
-    const riskArea = riskRows.reduce(
-      (sum, item) => sum + Number(item.luas || 0),
-      0,
-    );
-    const highRiskArea = riskRows
-      .filter((item) => /tinggi|sangat/i.test(String(item.kelas || "")))
-      .reduce((sum, item) => sum + Number(item.luas || 0), 0);
-    const historicalCount = Math.max(
-      kejadianListings.length,
-      (kejadianPhotos ?? []).length,
-      kebakaran2025Data.length + kebakaran2024Data.length,
-    );
-    return {
-      area: selectedArea || { label: selectedRegionName },
-      selected_region: selectedArea?.label || selectedRegionName,
-      selected_areas: areas,
-      hazard: aiHazard,
-      spatial_features: {
-        risk_area: riskArea,
-        high_risk_area: highRiskArea,
-        historical_incidents: historicalCount,
-        dominant_land_cover: tutupanLahanData[0]?.deskripsi_domain || null,
-        mitigation_activity_records:
-          rehabilitasiHutanData.length +
-          rehabilitasiDasData.length +
-          restorasiGambutData.length,
-        rawan_karhutla: rawanKarhutlaData.length,
-        rawan_longsor: rawanLongsorData.length,
-        rawan_erosi: rawanErosiData.length,
-        active_layer_count: activeLayerCount,
-      },
-      infrastructure: {
-        rehabilitasi_das: rehabilitasiDasData.length,
-        rehabilitasi_hutan: rehabilitasiHutanData.length,
-        restorasi_gambut: restorasiGambutData.length,
-      },
-      data_timestamp: new Date().toISOString(),
-    };
-  };
-
-  const runAiMitigationRecommendation = async (areasOverride?: any[]) => {
-    if (aiRunning) return;
-    setAiRunning(true);
-    setAiError("");
-    setAiMitigation(null);
-    try {
-      setAiStage("Membaca kondisi wilayah…");
-      const context = buildMitigationContext(areasOverride);
-      if (!context.area) throw new Error("Pilih satu wilayah terlebih dahulu.");
-      setAiStage("Menganalisis penyebab dan kandidat mitigasi dengan LLM…");
-      const response = await fetch(
-        `${API_URL}/api/ai/mitigation-recommendation`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({ context }),
-        },
-      );
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok)
-        throw new Error(
-          payload?.message || payload?.error || `AI HTTP ${response.status}`,
-        );
-      if (!payload?.recommendations?.length)
-        throw new Error("LLM tidak menghasilkan rekomendasi mitigasi.");
-      setAiMitigation(payload);
-      setAiStage("Selesai.");
-    } catch (error: any) {
-      console.error("SIMITI AI mitigation error:", error);
-      setAiError(error?.message || "Analisis AI gagal dijalankan.");
-    } finally {
-      setTimeout(() => setAiStage(""), 700);
-      setAiRunning(false);
-    }
-  };
-
-  const layersWithBottomTabs = [
-    "tutupan_lahan",
-    "penutupan_lahan_2024",
-    "pl2024",
-    "jenis_tanah",
-    "geologi",
-    "lahan_kritis",
-    "rawan_erosi",
-    "rawan_banjir",
-    "rawan_longsor",
-    "rawan_limpasan",
-    "rawan_karhutla",
-    "bahaya_kekeringan",
-    "bahaya_abrasi_dan_gelombang_ekstrim",
-    "bahaya_banjir",
-    "bahaya_banjir_bandang",
-    "dta_danau",
-    "rehabilitasi_das",
-    "rehabilitasi_hutan",
-    "restorasi_gambut",
-    "penerapan_teknik_kta",
-    "karhutla_2021",
-    "karhutla_2022",
-    "karhutla_2023",
-    "karhutla_2024",
-    "karhutla_2025",
-    "kawasan_hutan",
-    "risiko_banjir",
-    "risiko_banjir_bandang",
-    "risiko_kekeringan",
-    "risiko_abrasi",
-    "risiko_longsor",
-    "risiko_karhutla",
-    "khdtk",
-    "bendung",
-    "bendungan",
-    "danau",
-    "embung",
-    "situ",
-    "pengaman_pantai",
-    "pengendali_sedimen",
-    "pompa_air",
-  ];
-
-  useEffect(() => {
-    if (!mapInstanceRef.current) return;
-
-    const tabToLayerMapping: Record<string, string> = {
-      tutupanLahan: "tutupan_lahan",
-      penutupanLahan2024: "penutupan_lahan_2024",
-      pl2024: "pl2024",
-      jenisTanah: "jenis_tanah",
-      geologi: "geologi",
-      lahan_kritis: "lahan_kritis",
-      rawan_erosi: "rawan_erosi",
-      rawan_longsor: "rawan_longsor",
-      rawan_limpasan: "rawan_limpasan",
-      rawan_karhutla: "rawan_karhutla",
-      bahaya_kekeringan: "bahaya_kekeringan",
-      bahaya_abrasi: "bahaya_abrasi_dan_gelombang_ekstrim",
-      bahaya_banjir: "bahaya_banjir",
-      bahaya_banjir_bandang: "bahaya_banjir_bandang",
-      dta_danau: "dta_danau",
-      rehabilitasi_das: "rehabilitasi_das",
-      rehabilitasi_hutan: "rehabilitasi_hutan",
-      restorasi_gambut: "restorasi_gambut",
-      penerapan_teknik_kta: "penerapan_teknik_kta",
-      kebakaran_2021: "karhutla_2021",
-      kebakaran_2022: "karhutla_2022",
-      kebakaran_2023: "karhutla_2023",
-      kebakaran_2024: "karhutla_2024",
-      kebakaran_2025: "karhutla_2025",
-      kawasan_hutan: "kawasan_hutan",
-      risiko_banjir: "risiko_banjir",
-      risiko_banjir_bandang: "risiko_banjir_bandang",
-      risiko_kekeringan: "risiko_kekeringan",
-      risiko_abrasi: "risiko_abrasi",
-      risiko_longsor: "risiko_longsor",
-      risiko_karhutla: "risiko_karhutla",
-      khdtk: "khdtk",
-      mitigasi_adaptasi: "", // tab gabungan, ditangani terpisah
-    };
-
-    // Sembunyikan semua layer yang punya bottom tab
-    layersWithBottomTabs.forEach((layerName) => {
-      const layer = layerGroupsRef.current[layerName];
-      if (layer && mapInstanceRef.current.hasLayer(layer)) {
-        safeRemoveMapLayer(layer);
-      }
-    });
-
-    if (activeBottomTab === "mitigasi_adaptasi") {
-      // Tampilkan semua infra layer yang aktif
-      INFRA_IDS.forEach((id) => {
-        const layer = layerGroupsRef.current[id];
-        if (layer && activeLayers.has(id)) {
-          if (!mapInstanceRef.current.hasLayer(layer))
-            layer.addTo(mapInstanceRef.current);
-        }
-      });
-    } else {
-      // Tampilkan layer sesuai tab aktif (non-infra)
-      const activeLayerName = tabToLayerMapping[activeBottomTab];
-      if (activeLayerName) {
-        const activeLayer = layerGroupsRef.current[activeLayerName];
-        if (activeLayer && activeLayers.has(activeLayerName)) {
-          if (!mapInstanceRef.current.hasLayer(activeLayer)) {
-            activeLayer.addTo(mapInstanceRef.current);
-          }
-        }
-      }
-    }
-  }, [activeBottomTab, activeLayers]);
-
   const [filters, setFilters] = useState({
     kerawanan: {
       banjir: false,
@@ -8472,8 +3260,8 @@ const Kerawanan = () => {
   ];
 
   const CurahHujanChart = () => {
-    const chartRef = useRef<HTMLCanvasElement | null>(null);
-    const chartInstance = useRef<Chart | null>(null);
+    const chartRef = useRef(null);
+    const chartInstance = useRef(null);
 
     useEffect(() => {
       if (chartRef.current && window.Chart) {
@@ -8614,30 +3402,63 @@ const Kerawanan = () => {
   };
 
   const TutupanLahanChart = () => {
-    const chartRef = useRef<HTMLCanvasElement | null>(null);
-    const chartInstance = useRef<Chart | null>(null);
+    const chartRef = useRef(null);
+    const chartInstance = useRef(null);
 
     useEffect(() => {
-      if (!chartRef.current || !window.Chart) {
-        return;
+      if (chartRef.current && window.Chart) {
+        const ctx = chartRef.current.getContext("2d");
+
+        if (chartInstance.current) {
+          chartInstance.current.destroy();
+        }
+
+        chartInstance.current = new window.Chart(ctx, {
+          type: "doughnut",
+          data: {
+            labels: [
+              "Hutan",
+              "Pertanian",
+              "Pemukiman",
+              "Perkebunan",
+              "Lainnya",
+            ],
+            datasets: [
+              {
+                data: [35, 25, 20, 15, 5],
+                backgroundColor: [
+                  "rgba(34, 197, 94, 0.7)",
+                  "rgba(251, 191, 36, 0.7)",
+                  "rgba(239, 68, 68, 0.7)",
+                  "rgba(168, 85, 247, 0.7)",
+                  "rgba(156, 163, 175, 0.7)",
+                ],
+                borderColor: [
+                  "rgba(34, 197, 94, 1)",
+                  "rgba(251, 191, 36, 1)",
+                  "rgba(239, 68, 68, 1)",
+                  "rgba(168, 85, 247, 1)",
+                  "rgba(156, 163, 175, 1)",
+                ],
+                borderWidth: 2,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: "right",
+              },
+            },
+          },
+        });
       }
-
-      const ctx = chartRef.current.getContext("2d");
-
-      if (!ctx) {
-        return;
-      }
-
-      if (chartInstance.current) {
-        chartInstance.current.destroy();
-      }
-
-      // konfigurasi chart...
 
       return () => {
         if (chartInstance.current) {
           chartInstance.current.destroy();
-          chartInstance.current = null;
         }
       };
     }, []);
@@ -8685,6 +3506,18 @@ const Kerawanan = () => {
     </div>
   );
 
+  // const bottomTabs = [
+  //   { id: 'curahHujan', label: 'Curah Hujan 30 Hari', icon: '🌧️' },
+  //   { id: 'kemiringan', label: 'Kemiringan Lereng', icon: '⛰️' },
+  //   { id: 'topografi', label: 'Topografi', icon: '🗺️' },
+  //   { id: 'geologi', label: 'Geologi', icon: '🪨' },
+  //   { id: 'jenisTanah', label: 'Jenis Tanah', icon: '🌱' },
+  //   { id: 'patahan', label: 'Patahan', icon: '⚡' },
+  //   { id: 'tutupanLahan', label: 'Tutupan Lahan', icon: '🌳' },
+  //   { id: 'infrastruktur', label: 'Infrastruktur', icon: '🏗️' },
+  //   { id: 'kepadatan', label: 'Kepadatan Pemukiman', icon: '🏘️' },
+  // ];
+
   const bottomTabs = React.useMemo(() => {
     const tabs: Array<{ id: string; label: string; icon: string }> = [];
 
@@ -8694,24 +3527,16 @@ const Kerawanan = () => {
     );
 
     if (hasAutoKejadian) {
-      tabs.push({ id: "listings", label: "Historis Bencana", icon: "📋" });
+      tabs.push({ id: "listings", label: "Listings", icon: "📋" });
     }
 
     // Hanya tambahkan tab untuk layer-layer yang punya data bottom tabs
     if (activeLayers.has("tutupan_lahan")) {
-      tabs.push({ id: "tutupanLahan", label: "Tutupan Lahan", icon: "🌳" });
-    }
-
-    if (activeLayers.has("penutupan_lahan_2024")) {
       tabs.push({
-        id: "penutupanLahan2024",
-        label: "Penutupan Lahan 2024",
-        icon: "🌲",
+        id: "tutupanLahan",
+        label: "Tutupan Lahan",
+        icon: "🌳",
       });
-    }
-
-    if (activeLayers.has("pl2024")) {
-      tabs.push({ id: "pl2024", label: "PL2024", icon: "🌴" });
     }
 
     if (activeLayers.has("jenis_tanah")) {
@@ -8723,130 +3548,190 @@ const Kerawanan = () => {
     }
 
     if (activeLayers.has("lahan_kritis")) {
-      tabs.push({ id: "lahan_kritis", label: "Lahan Kritis", icon: "⚠️" });
+      tabs.push({
+        id: "lahan_kritis",
+        label: "Lahan Kritis",
+        icon: "⚠️",
+      });
     }
 
-    if (activeLayers.has("rawan_erosi")) {
-      tabs.push({ id: "rawan_erosi", label: "Rawan Erosi", icon: "🏔️" });
-    }
+    // Semua layer pada kategori Kerawanan mendapat tab di panel bawah.
+    // Gunakan katalog + daftar layer untuk mendukung layer dinamis seperti rawan_banjir.
+    const kerawananCatalog = [...(layerData.kerawanan || []), ...(availableLayers.kerawanan || [])];
+    const uniqueKerawanan = new Map<string, { id: string; name: string }>();
+    kerawananCatalog.forEach((layer) => {
+      if (layer?.name && activeLayers.has(layer.name)) {
+        uniqueKerawanan.set(layer.name, layer);
+      }
+    });
 
-    if (activeLayers.has("rawan_longsor")) {
-      tabs.push({ id: "rawan_longsor", label: "Rawan Longsor", icon: "⛰️" });
-    }
+    uniqueKerawanan.forEach((layer) => {
+      tabs.push({
+        id: layer.name,
+        label: formatTableName(layer.name),
+        icon: "🗺️",
+      });
+    });
 
-    if (activeLayers.has("rawan_limpasan")) {
-      tabs.push({ id: "rawan_limpasan", label: "Rawan Limpasan", icon: "💧" });
-    }
-
-    if (activeLayers.has("rawan_karhutla")) {
-      tabs.push({ id: "rawan_karhutla", label: "Rawan Karhutla", icon: "🔥" });
-    }
-
-    if (activeLayers.has("bahaya_kekeringan")) {
-      tabs.push({
-        id: "bahaya_kekeringan",
-        label: "Bahaya Kekeringan",
-        icon: "☀️",
-      });
-    }
-    if (activeLayers.has("bahaya_abrasi_dan_gelombang_ekstrim")) {
-      tabs.push({ id: "bahaya_abrasi", label: "Bahaya Abrasi", icon: "🌊" });
-    }
-    if (activeLayers.has("bahaya_banjir")) {
-      tabs.push({ id: "bahaya_banjir", label: "Bahaya Banjir", icon: "🌧️" });
-    }
-    if (activeLayers.has("bahaya_banjir_bandang")) {
-      tabs.push({
-        id: "bahaya_banjir_bandang",
-        label: "Bahaya Banjir Bandang",
-        icon: "🌊",
-      });
-    }
-    if (activeLayers.has("dta_danau")) {
-      tabs.push({ id: "dta_danau", label: "DTA Danau", icon: "🏞️" });
-    }
-    if (activeLayers.has("rehabilitasi_das")) {
-      tabs.push({
-        id: "rehabilitasi_das",
-        label: "Rehabilitasi DAS",
-        icon: "🌿",
-      });
-    }
-    if (activeLayers.has("rehabilitasi_hutan")) {
-      tabs.push({
-        id: "rehabilitasi_hutan",
-        label: "Rehabilitasi Hutan",
-        icon: "🌲",
-      });
-    }
-    if (activeLayers.has("restorasi_gambut")) {
-      tabs.push({
-        id: "restorasi_gambut",
-        label: "Restorasi Gambut",
-        icon: "🪵",
-      });
-    }
-    if (activeLayers.has("penerapan_teknik_kta")) {
-      tabs.push({
-        id: "penerapan_teknik_kta",
-        label: "Teknik KTA",
-        icon: "🏔️",
-      });
-    }
-    if (activeLayers.has("karhutla_2021")) {
-      tabs.push({ id: "kebakaran_2021", label: "Kebakaran 2021", icon: "🔥" });
-    }
-    if (activeLayers.has("karhutla_2022")) {
-      tabs.push({ id: "kebakaran_2022", label: "Kebakaran 2022", icon: "🔥" });
-    }
-    if (activeLayers.has("karhutla_2023")) {
-      tabs.push({ id: "kebakaran_2023", label: "Kebakaran 2023", icon: "🔥" });
-    }
-    if (activeLayers.has("karhutla_2024")) {
-      tabs.push({ id: "kebakaran_2024", label: "Kebakaran 2024", icon: "🔥" });
-    }
-    if (activeLayers.has("karhutla_2025")) {
-      tabs.push({ id: "kebakaran_2025", label: "Kebakaran 2025", icon: "🔥" });
-    }
-    if (activeLayers.has("kawasan_hutan") || activeLayers.has("97")) {
-      tabs.push({ id: "kawasan_hutan", label: "Kawasan Hutan", icon: "🌳" });
-    }
-    if (activeLayers.has("risiko_banjir"))
-      tabs.push({ id: "risiko_banjir", label: "Risiko Banjir", icon: "🌊" });
-    if (activeLayers.has("risiko_banjir_bandang"))
-      tabs.push({
-        id: "risiko_banjir_bandang",
-        label: "Risiko Banjir Bandang",
-        icon: "🌊",
-      });
-    if (activeLayers.has("risiko_kekeringan"))
-      tabs.push({
-        id: "risiko_kekeringan",
-        label: "Risiko Kekeringan",
-        icon: "☀️",
-      });
-    if (activeLayers.has("risiko_abrasi"))
-      tabs.push({ id: "risiko_abrasi", label: "Risiko Abrasi", icon: "🏖️" });
-    if (activeLayers.has("risiko_longsor"))
-      tabs.push({ id: "risiko_longsor", label: "Risiko Longsor", icon: "⛰️" });
-    if (activeLayers.has("risiko_karhutla"))
-      tabs.push({
-        id: "risiko_karhutla",
-        label: "Risiko Karhutla",
-        icon: "🔥",
-      });
-    if (activeLayers.has("khdtk"))
-      tabs.push({ id: "khdtk", label: "KHDTK", icon: "🌳" });
-    const hasAnyInfra = INFRA_IDS.some((id) => activeLayers.has(id));
-    if (hasAnyInfra) {
-      tabs.push({
-        id: "mitigasi_adaptasi",
-        label: "Mitigasi & Adaptasi",
-        icon: "🏗️",
-      });
-    }
     return tabs;
-  }, [activeLayers, activeKejadianLayers]);
+  }, [activeLayers, activeKejadianLayers, layerData.kerawanan, availableLayers.kerawanan]);
+
+  // Pastikan panel bawah selalu memilih tab yang benar-benar tersedia.
+  // Tab dibuat dinamis mengikuti layer yang sedang diaktifkan.
+  useEffect(() => {
+    if (bottomTabs.length === 0) {
+      if (activeBottomTab !== "") setActiveBottomTab("");
+      return;
+    }
+
+    const activeTabExists = bottomTabs.some(
+      (tab) => tab.id === activeBottomTab,
+    );
+
+    if (!activeTabExists) {
+      setActiveBottomTab(bottomTabs[0].id);
+    }
+  }, [bottomTabs, activeBottomTab]);
+
+  // const renderBottomContent = () => {
+  //   switch(activeBottomTab) {
+  //     case 'curahHujan':
+  //       return (
+  //         <div style={{ height: '180px' }} className="p-3">
+  //           <CurahHujanChart />
+  //         </div>
+  //       );
+  //     case 'kemiringan':
+  //       return (
+  //         <div className="p-3">
+  //           <DataTable
+  //             columns={['No', 'Kelas Lereng', 'Luas (Ha)', 'Persentase (%)', 'Tingkat Bahaya']}
+  //             data={[
+  //               ['1', '0-8%', '1,250', '25%', 'Rendah'],
+  //               ['2', '8-15%', '1,500', '30%', 'Sedang'],
+  //               ['3', '15-25%', '1,000', '20%', 'Tinggi'],
+  //               ['4', '25-40%', '750', '15%', 'Sangat Tinggi'],
+  //               ['5', '>40%', '500', '10%', 'Ekstrim'],
+  //             ]}
+  //           />
+  //         </div>
+  //       );
+  //     case 'topografi':
+  //       return (
+  //         <div className="p-3">
+  //           <DataTable
+  //             columns={['No', 'Kelas Elevasi', 'Luas (Ha)', 'Persentase (%)', 'Kategori']}
+  //             data={[
+  //               ['1', '0-100 mdpl', '2,000', '40%', 'Dataran Rendah'],
+  //               ['2', '100-500 mdpl', '1,500', '30%', 'Dataran Tinggi'],
+  //               ['3', '500-1000 mdpl', '1,000', '20%', 'Perbukitan'],
+  //               ['4', '1000-2000 mdpl', '400', '8%', 'Pegunungan'],
+  //               ['5', '>2000 mdpl', '100', '2%', 'Pegunungan Tinggi'],
+  //             ]}
+  //           />
+  //         </div>
+  //       );
+  //     case 'geologi':
+  //       return (
+  //         <div className="p-3">
+  //           <DataTable
+  //             columns={['No', 'Formasi Batuan', 'Luas (Ha)', 'Persentase (%)']}
+  //             data={[
+  //               ['1', 'Aluvium', '1,800', '36%'],
+  //               ['2', 'Batuan Vulkanik', '1,500', '30%'],
+  //               ['3', 'Batuan Sedimen', '1,200', '24%'],
+  //               ['4', 'Batuan Metamorf', '500', '10%'],
+  //             ]}
+  //           />
+  //         </div>
+  //       );
+  //     case 'jenisTanah':
+  //       return (
+  //         <div style={{ height: '180px' }} className="p-3">
+  //           <JenisTanahChart />
+  //         </div>
+  //       );
+  //     case 'patahan':
+  //       return (
+  //         <div className="p-3">
+  //           <DataTable
+  //             columns={['No', 'Nama Patahan', 'Panjang (km)', 'Status', 'Tingkat Bahaya']}
+  //             data={[
+  //               ['1', 'Patahan Sumatra', '120', 'Aktif', 'Tinggi'],
+  //               ['2', 'Patahan Lembang', '45', 'Aktif', 'Sedang'],
+  //               ['3', 'Patahan Cimandiri', '80', 'Semi-Aktif', 'Sedang'],
+  //               ['4', 'Patahan Palu-Koro', '200', 'Aktif', 'Sangat Tinggi'],
+  //               ['5', 'Patahan Sorong', '150', 'Aktif', 'Tinggi'],
+  //             ]}
+  //           />
+  //         </div>
+  //       );
+  //     case 'tutupanLahan':
+  //       if (activeLayers.has('tutupan_lahan') && tutupanLahanData.length > 0) {
+  //         return (
+  //           <div className="p-3">
+  //             <DataTable
+  //               columns={['No', 'Kode Domain', 'Deskripsi Tutupan Lahan', 'Jumlah']}
+  //               data={tutupanLahanData.map((item, idx) => [
+  //                 (idx + 1).toString(),
+  //                 item.pl2024_id?.toString() || '-',
+  //                 item.deskripsi_domain || '-',
+  //                 item.count?.toString() || '0'
+  //               ])}
+  //             />
+  //           </div>
+  //         );
+  //       } else if (activeLayers.has('tutupan_lahan')) {
+  //         return (
+  //           <div className="p-3 flex items-center justify-center h-full">
+  //             <div className="text-center text-gray-500">
+  //               <p className="text-sm">Tidak ada data tutupan lahan di area yang dipilih</p>
+  //             </div>
+  //           </div>
+  //         );
+  //       } else {
+  //         return (
+  //           <div className="p-3 flex items-center justify-center h-full">
+  //             <div className="text-center text-gray-500">
+  //               <p className="text-sm">Aktifkan layer Tutupan Lahan untuk melihat data</p>
+  //             </div>
+  //           </div>
+  //         );
+  //       }
+  //     case 'infrastruktur':
+  //       return (
+  //         <div className="p-3">
+  //           <DataTable
+  //             columns={['No', 'Jenis Infrastruktur', 'Jumlah', 'Kondisi', 'Tahun Pembangunan']}
+  //             data={[
+  //               ['1', 'Jalan Aspal', '150 km', 'Baik', '2020'],
+  //               ['2', 'Jembatan', '25 unit', 'Baik', '2019'],
+  //               ['3', 'Bendungan', '3 unit', 'Sangat Baik', '2021'],
+  //               ['4', 'Irigasi', '80 km', 'Sedang', '2018'],
+  //               ['5', 'Drainase', '120 km', 'Baik', '2020'],
+  //             ]}
+  //           />
+  //         </div>
+  //       );
+  //     case 'kepadatan':
+  //       return (
+  //         <div className="p-3">
+  //           <DataTable
+  //             columns={['No', 'Kecamatan', 'Jumlah Penduduk', 'Luas (km²)', 'Kepadatan (jiwa/km²)']}
+  //             data={[
+  //               ['1', 'Kecamatan A', '50,000', '25', '2,000'],
+  //               ['2', 'Kecamatan B', '35,000', '30', '1,167'],
+  //               ['3', 'Kecamatan C', '60,000', '20', '3,000'],
+  //               ['4', 'Kecamatan D', '25,000', '40', '625'],
+  //               ['5', 'Kecamatan E', '45,000', '35', '1,286'],
+  //             ]}
+  //           />
+  //         </div>
+  //       );
+  //     default:
+  //       return null;
+  //   }
+  // };
 
   const renderBottomContent = () => {
     // Jika tidak ada layer yang aktif atau tidak ada tab
@@ -8873,42 +3758,17 @@ const Kerawanan = () => {
                     key={idx}
                     className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow cursor-pointer"
                     onClick={() => {
-                      // Navigate ke detail kejadian bencana
-                      navigate("/detailkejadian", {
-                        state: {
-                          incident: {
-                            id: kejadian.id,
-                            title: kejadian.title,
-                            image: kejadian.thumbnail_path
-                              ? `${API_URL}${kejadian.thumbnail_path}`
-                              : "https://images.unsplash.com/photo-1611273426858-450d8e3c9fce?w=400",
-                            location: kejadian.location,
-                            category: kejadian.category,
-                            type: kejadian.category
-                              .toLowerCase()
-                              .includes("banjir")
-                              ? "banjir"
-                              : kejadian.category
-                                    .toLowerCase()
-                                    .includes("longsor")
-                                ? "longsor"
-                                : "kebakaran",
-                            date: kejadian.date,
-                            das: kejadian.das,
-                            description: kejadian.description,
-                            thumbnail_path: kejadian.thumbnail_path,
-                            images_paths: kejadian.images_paths,
-                            coordinates: [
-                              kejadian.latitude,
-                              kejadian.longitude,
-                            ],
-                            latitude: kejadian.latitude,
-                            longitude: kejadian.longitude,
-                            featured: kejadian.featured || false,
-                            curah_hujan: kejadian.curah_hujan,
-                          },
-                        },
-                      });
+                      // Zoom to location on map
+                      if (
+                        mapInstanceRef.current &&
+                        kejadian.latitude &&
+                        kejadian.longitude
+                      ) {
+                        mapInstanceRef.current.setView(
+                          [kejadian.latitude, kejadian.longitude],
+                          15,
+                        );
+                      }
                     }}
                   >
                     <div className="flex gap-3">
@@ -8954,7 +3814,7 @@ const Kerawanan = () => {
                           </div>
                           <div className="flex items-center gap-1">
                             <span className="font-medium">🏷️</span>
-                            <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-[10px] font-medium">
+                            <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-[10px] font-medium">
                               {kejadian.category}
                             </span>
                           </div>
@@ -8966,18 +3826,18 @@ const Kerawanan = () => {
                               </span>
                             </div>
                           )}
-                          {kejadian.curah_hujan !== undefined &&
-                            kejadian.curah_hujan !== null && (
-                              <div className="flex items-center gap-1">
-                                <span className="font-medium">🌧️</span>
-                                <span className="text-blue-600">
-                                  {kejadian.curah_hujan} mm
-                                </span>
-                              </div>
-                            )}
                         </div>
                       </div>
                     </div>
+
+                    {/* Description preview */}
+                    {/* {kejadian.description && (
+                    <div className="mt-2 pt-2 border-t border-gray-100">
+                      <p className="text-xs text-gray-500 line-clamp-2">
+                        {kejadian.description}
+                      </p>
+                    </div>
+                  )} */}
                   </div>
                 ))}
               </div>
@@ -8998,33 +3858,25 @@ const Kerawanan = () => {
       case "tutupanLahan":
         if (activeLayers.has("tutupan_lahan") && tutupanLahanData.length > 0) {
           return (
-            <div className="p-3 h-full flex flex-col">
+            <div className="p-3">
+              {/* TAMBAH max-height dan overflow-y-auto */}
               <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
+                className="overflow-x-auto overflow-y-auto"
+                style={{ maxHeight: "400px" }}
               >
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 bg-white z-10">
                     <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         No
                       </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Warna Layer
                       </th>
                       <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Deskripsi Tutupan Lahan
                       </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "120px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Luas (Ha)
                       </th>
                     </tr>
@@ -9033,15 +3885,7 @@ const Kerawanan = () => {
                     {tutupanLahanData.map((item, idx) => (
                       <tr
                         key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            String(item.pl2024_id),
-                            "tutupan_lahan",
-                            item.color || "#999999",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
+                        className="border-b border-gray-100 hover:bg-gray-50"
                       >
                         <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                         <td className="py-2 px-2">
@@ -9050,7 +3894,7 @@ const Kerawanan = () => {
                             style={{ backgroundColor: item.color }}
                           ></div>
                         </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
+                        <td className="py-2 px-2 text-gray-700">
                           {item.deskripsi_domain || "-"}
                         </td>
                         <td className="py-2 px-2 text-gray-700">
@@ -9060,8 +3904,9 @@ const Kerawanan = () => {
                         </td>
                       </tr>
                     ))}
+                    {/* Tambahkan row kosong untuk padding bawah */}
                     <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
+                      <td colSpan={4} className="py-4"></td>
                     </tr>
                   </tbody>
                 </table>
@@ -9081,202 +3926,21 @@ const Kerawanan = () => {
         }
         break;
 
-      case "penutupanLahan2024":
-        if (
-          activeLayers.has("penutupan_lahan_2024") &&
-          penutupanLahan2024Data.length > 0
-        ) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
-                        Warna Layer
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Deskripsi Tutupan Lahan
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "120px" }}
-                      >
-                        Luas (Ha)
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {penutupanLahan2024Data.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            String(item.pl2024_id),
-                            "penutupan_lahan_2024",
-                            item.color || "#999999",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
-                          ></div>
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.deskripsi_domain || "-"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700">
-                          {item.luas_total
-                            ? parseFloat(item.luas_total.toString()).toFixed(2)
-                            : "0"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("penutupan_lahan_2024")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data tutupan lahan di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
-      case "pl2024":
-        if (activeLayers.has("pl2024") && pl2024Data.length > 0) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
-                        Warna Layer
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Deskripsi Tutupan Lahan
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "120px" }}
-                      >
-                        Luas (Ha)
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pl2024Data.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            String(item.pl2024_id),
-                            "pl2024",
-                            item.color || "#999999",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
-                          ></div>
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.deskripsi_domain || "-"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700">
-                          {item.luas_total
-                            ? parseFloat(item.luas_total.toString()).toFixed(2)
-                            : "0"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("pl2024")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data tutupan lahan di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
       case "jenisTanah":
         if (activeLayers.has("jenis_tanah") && jenisTanahData.length > 0) {
           return (
-            <div className="p-3 h-full flex flex-col">
+            <div className="p-3">
               <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
+                className="overflow-x-auto overflow-y-auto"
+                style={{ maxHeight: "400px" }}
               >
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 bg-white z-10">
                     <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         No
                       </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Warna Layer
                       </th>
                       <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
@@ -9288,15 +3952,7 @@ const Kerawanan = () => {
                     {jenisTanahData.map((item, idx) => (
                       <tr
                         key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.jntnh1,
-                            "jenis_tanah",
-                            item.color || "#8B4513",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
+                        className="border-b border-gray-100 hover:bg-gray-50"
                       >
                         <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                         <td className="py-2 px-2">
@@ -9305,13 +3961,14 @@ const Kerawanan = () => {
                             style={{ backgroundColor: item.color }}
                           ></div>
                         </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
+                        <td className="py-2 px-2 text-gray-700">
                           {item.jntnh1 || "-"}
                         </td>
                       </tr>
                     ))}
+                    {/* Padding bawah */}
                     <tr>
-                      <td colSpan={3} style={{ height: "80px" }}></td>
+                      <td colSpan={3} className="py-4"></td>
                     </tr>
                   </tbody>
                 </table>
@@ -9334,24 +3991,19 @@ const Kerawanan = () => {
       case "geologi":
         if (activeLayers.has("geologi") && geologiData.length > 0) {
           return (
-            <div className="p-3 h-full flex flex-col">
+            <div className="p-3">
+              {/* TAMBAH max-height dan overflow-y-auto */}
               <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
+                className="overflow-x-auto overflow-y-auto"
+                style={{ maxHeight: "400px" }}
               >
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 bg-white z-10">
                     <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         No
                       </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Warna Layer
                       </th>
                       <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
@@ -9360,10 +4012,7 @@ const Kerawanan = () => {
                       <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Umur Batuan
                       </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "120px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Keliling (m)
                       </th>
                     </tr>
@@ -9372,15 +4021,7 @@ const Kerawanan = () => {
                     {geologiData.map((item, idx) => (
                       <tr
                         key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            `${item.namobj}|${item.umurobj}`,
-                            "geologi",
-                            item.color || "#B45309",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
+                        className="border-b border-gray-100 hover:bg-gray-50"
                       >
                         <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                         <td className="py-2 px-2">
@@ -9389,10 +4030,10 @@ const Kerawanan = () => {
                             style={{ backgroundColor: item.color }}
                           ></div>
                         </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
+                        <td className="py-2 px-2 text-gray-700">
                           {item.namobj || "-"}
                         </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
+                        <td className="py-2 px-2 text-gray-700">
                           {item.umurobj || "-"}
                         </td>
                         <td className="py-2 px-2 text-gray-700">
@@ -9404,8 +4045,9 @@ const Kerawanan = () => {
                         </td>
                       </tr>
                     ))}
+                    {/* Tambahkan row kosong untuk padding bawah */}
                     <tr>
-                      <td colSpan={5} style={{ height: "80px" }}></td>
+                      <td colSpan={5} className="py-4"></td>
                     </tr>
                   </tbody>
                 </table>
@@ -9428,33 +4070,24 @@ const Kerawanan = () => {
       case "lahan_kritis":
         if (activeLayers.has("lahan_kritis") && lahanKritisData.length > 0) {
           return (
-            <div className="p-3 h-full flex flex-col">
+            <div className="p-3">
               <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
+                className="overflow-x-auto overflow-y-auto"
+                style={{ maxHeight: "400px" }}
               >
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 bg-white z-10">
                     <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         No
                       </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Warna Layer
                       </th>
                       <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Tingkat Kritis
                       </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "120px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Luas (Ha)
                       </th>
                     </tr>
@@ -9463,15 +4096,7 @@ const Kerawanan = () => {
                     {lahanKritisData.map((item, idx) => (
                       <tr
                         key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.kritis,
-                            "lahan_kritis",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
+                        className="border-b border-gray-100 hover:bg-gray-50"
                       >
                         <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                         <td className="py-2 px-2">
@@ -9480,16 +4105,16 @@ const Kerawanan = () => {
                             style={{ backgroundColor: item.color }}
                           ></div>
                         </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.kritis || "-"}
+                        <td className="py-2 px-2 text-gray-700">
+                          {item.kritis}
                         </td>
                         <td className="py-2 px-2 text-gray-700">
-                          {item.luas_ha ? item.luas_ha.toFixed(2) : "0"}
+                          {item.luas_ha.toFixed(2)}
                         </td>
                       </tr>
                     ))}
                     <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
+                      <td colSpan={4} className="py-4"></td>
                     </tr>
                   </tbody>
                 </table>
@@ -9512,33 +4137,24 @@ const Kerawanan = () => {
       case "rawan_erosi":
         if (activeLayers.has("rawan_erosi") && rawanErosiData.length > 0) {
           return (
-            <div className="p-3 h-full flex flex-col">
+            <div className="p-3">
               <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
+                className="overflow-x-auto overflow-y-auto"
+                style={{ maxHeight: "400px" }}
               >
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 bg-white z-10">
                     <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         No
                       </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Warna Layer
                       </th>
                       <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Tingkat Kerawanan
                       </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "120px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Luas (Ha)
                       </th>
                     </tr>
@@ -9547,15 +4163,7 @@ const Kerawanan = () => {
                     {rawanErosiData.map((item, idx) => (
                       <tr
                         key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.tingkat,
-                            "rawan_erosi",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
+                        className="border-b border-gray-100 hover:bg-gray-50"
                       >
                         <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                         <td className="py-2 px-2">
@@ -9564,16 +4172,16 @@ const Kerawanan = () => {
                             style={{ backgroundColor: item.color }}
                           ></div>
                         </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.tingkat || "-"}
+                        <td className="py-2 px-2 text-gray-700">
+                          {item.tingkat}
                         </td>
                         <td className="py-2 px-2 text-gray-700">
-                          {item.luas_ha ? item.luas_ha.toFixed(2) : "0"}
+                          {item.luas_ha.toFixed(2)}
                         </td>
                       </tr>
                     ))}
                     <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
+                      <td colSpan={4} className="py-4"></td>
                     </tr>
                   </tbody>
                 </table>
@@ -9596,33 +4204,24 @@ const Kerawanan = () => {
       case "rawan_longsor":
         if (activeLayers.has("rawan_longsor") && rawanLongsorData.length > 0) {
           return (
-            <div className="p-3 h-full flex flex-col">
+            <div className="p-3">
               <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
+                className="overflow-x-auto overflow-y-auto"
+                style={{ maxHeight: "400px" }}
               >
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 bg-white z-10">
                     <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         No
                       </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Warna Layer
                       </th>
                       <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Tingkat Kerawanan
                       </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "120px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Luas Wilayah
                       </th>
                     </tr>
@@ -9631,16 +4230,7 @@ const Kerawanan = () => {
                     {rawanLongsorData.map((item, idx) => (
                       <tr
                         key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.tingkat,
-                            "rawan_banjir",
-                            "rawan_longsor",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
+                        className="border-b border-gray-100 hover:bg-gray-50"
                       >
                         <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                         <td className="py-2 px-2">
@@ -9649,16 +4239,16 @@ const Kerawanan = () => {
                             style={{ backgroundColor: item.color }}
                           ></div>
                         </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.tingkat || "-"}
+                        <td className="py-2 px-2 text-gray-700">
+                          {item.tingkat}
                         </td>
                         <td className="py-2 px-2 text-gray-700">
-                          {item.luas_ha ? item.luas_ha.toFixed(6) : "0"}
+                          {item.luas_ha.toFixed(6)}
                         </td>
                       </tr>
                     ))}
                     <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
+                      <td colSpan={4} className="py-4"></td>
                     </tr>
                   </tbody>
                 </table>
@@ -9684,33 +4274,24 @@ const Kerawanan = () => {
           rawanLimpasanData.length > 0
         ) {
           return (
-            <div className="p-3 h-full flex flex-col">
+            <div className="p-3">
               <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
+                className="overflow-x-auto overflow-y-auto"
+                style={{ maxHeight: "400px" }}
               >
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 bg-white z-10">
                     <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         No
                       </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Warna Layer
                       </th>
                       <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Tingkat Limpasan
                       </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "120px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Luas (Ha)
                       </th>
                     </tr>
@@ -9719,15 +4300,7 @@ const Kerawanan = () => {
                     {rawanLimpasanData.map((item, idx) => (
                       <tr
                         key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.tingkat,
-                            "rawan_limpasan",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
+                        className="border-b border-gray-100 hover:bg-gray-50"
                       >
                         <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                         <td className="py-2 px-2">
@@ -9736,16 +4309,16 @@ const Kerawanan = () => {
                             style={{ backgroundColor: item.color }}
                           ></div>
                         </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.tingkat || "-"}
+                        <td className="py-2 px-2 text-gray-700">
+                          {item.tingkat}
                         </td>
                         <td className="py-2 px-2 text-gray-700">
-                          {item.luas_ha ? item.luas_ha.toFixed(2) : "0"}
+                          {item.luas_ha.toFixed(2)}
                         </td>
                       </tr>
                     ))}
                     <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
+                      <td colSpan={4} className="py-4"></td>
                     </tr>
                   </tbody>
                 </table>
@@ -9765,1191 +4338,30 @@ const Kerawanan = () => {
         }
         break;
 
-      case "bahaya_kekeringan":
-        if (
-          activeLayers.has("bahaya_kekeringan") &&
-          bahayaKekeringanData.length > 0
-        ) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
-                        Warna Layer
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Kelas
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "140px" }}
-                      >
-                        Luas (Shape Area)
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bahayaKekeringanData.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.kelas,
-                            "bahaya_kekeringan",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
-                          ></div>
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.kelas || "-"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700">
-                          {item.luas ? item.luas.toFixed(2) : "0"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("bahaya_kekeringan")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data bahaya kekeringan di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
-      case "bahaya_abrasi":
-        if (
-          activeLayers.has("bahaya_abrasi_dan_gelombang_ekstrim") &&
-          bahayaAbrasiData.length > 0
-        ) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
-                        Warna Layer
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Kelas
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "140px" }}
-                      >
-                        Luas (Shape Area)
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bahayaAbrasiData.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.kelas,
-                            "bahaya_abrasi_dan_gelombang_ekstrim",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
-                          ></div>
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.kelas || "-"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700">
-                          {item.luas ? item.luas.toFixed(2) : "0"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("bahaya_abrasi_dan_gelombang_ekstrim")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data bahaya abrasi di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
-      case "bahaya_banjir":
-        if (activeLayers.has("bahaya_banjir") && bahayaBanjirData.length > 0) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
-                        Warna Layer
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Kelas
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "140px" }}
-                      >
-                        Luas (Shape Area)
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bahayaBanjirData.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.kelas,
-                            "bahaya_banjir",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
-                          ></div>
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.kelas || "-"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700">
-                          {item.luas ? item.luas.toFixed(2) : "0"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("bahaya_banjir")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data bahaya banjir di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
-      case "bahaya_banjir_bandang":
-        if (
-          activeLayers.has("bahaya_banjir_bandang") &&
-          bahayaBanjirBandangData.length > 0
-        ) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
-                        Warna Layer
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Kelas
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "140px" }}
-                      >
-                        Luas (Shape Area)
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bahayaBanjirBandangData.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.kelas,
-                            "bahaya_banjir_bandang",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
-                          ></div>
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.kelas || "-"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700">
-                          {item.luas ? item.luas.toFixed(2) : "0"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("bahaya_banjir_bandang")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data bahaya banjir bandang di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
-      case "dta_danau":
-        if (activeLayers.has("dta_danau") && dtaDanauData.length > 0) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
-                        Warna Layer
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Tipe Danau
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "120px" }}
-                      >
-                        Luas (Ha)
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dtaDanauData.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.tipe_danau,
-                            "dta_danau",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
-                          ></div>
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.tipe_danau || "-"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700">
-                          {item.luas ? item.luas.toFixed(2) : "0"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("dta_danau")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data DTA Danau di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
-      case "rehabilitasi_das":
-        if (
-          activeLayers.has("rehabilitasi_das") &&
-          rehabilitasiDasData.length > 0
-        ) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
-                        Warna Layer
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        BPDAS
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "120px" }}
-                      >
-                        Luas RDAS
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rehabilitasiDasData.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.bpdas,
-                            "rehabilitasi_das",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
-                          ></div>
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.bpdas || "-"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700">
-                          {item.luas ? item.luas.toFixed(2) : "0"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("rehabilitasi_das")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data rehabilitasi DAS di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
-      case "rehabilitasi_hutan":
-        if (
-          activeLayers.has("rehabilitasi_hutan") &&
-          rehabilitasiHutanData.length > 0
-        ) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
-                        Warna Layer
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Jenis Tanaman
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "120px" }}
-                      >
-                        Luas (Ha)
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rehabilitasiHutanData.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.jenis_tana,
-                            "rehabilitasi_hutan",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
-                          ></div>
-                        </td>
-                        <td
-                          className="py-2 px-2 text-gray-700 break-words"
-                          style={{ maxWidth: "200px", wordBreak: "break-word" }}
-                        >
-                          {item.jenis_tana || "-"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700">
-                          {item.luas ? item.luas.toFixed(2) : "0"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("rehabilitasi_hutan")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data rehabilitasi hutan di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
-      case "restorasi_gambut":
-        if (
-          activeLayers.has("restorasi_gambut") &&
-          restorasiGambutData.length > 0
-        ) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Jenis
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Bahan
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {restorasiGambutData.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.jenis,
-                            "restorasi_gambut",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.jenis || "-"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.bahan || "-"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={3} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("restorasi_gambut")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data restorasi gambut di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
-      case "penerapan_teknik_kta":
-        if (
-          activeLayers.has("penerapan_teknik_kta") &&
-          penerapanTeknikKtaData.length > 0
-        ) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        DAS
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Sub DAS
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {penerapanTeknikKtaData.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.subdas,
-                            "penerapan_teknik_kta",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.das || "-"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.subdas || "-"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={3} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("penerapan_teknik_kta")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data penerapan teknik KTA di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
-      case "kebakaran_2021":
-        if (activeLayers.has("karhutla_2021") && kebakaran2021Data.length > 0) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
-                        Warna Layer
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Periode
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {kebakaran2021Data.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.periode,
-                            "karhutla_2021",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
-                          ></div>
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.periode || "-"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={3} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("karhutla_2021")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data kebakaran hutan 2021 di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
-      case "kebakaran_2022":
-        if (activeLayers.has("karhutla_2022") && kebakaran2022Data.length > 0) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
-                        Warna Layer
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Periode
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "120px" }}
-                      >
-                        Luas
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {kebakaran2022Data.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.periode,
-                            "karhutla_2022",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
-                          ></div>
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.periode || "-"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700">
-                          {item.luas ? item.luas.toFixed(2) : "0"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("karhutla_2022")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data kebakaran hutan 2022 di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
-      case "kebakaran_2023":
-        if (activeLayers.has("karhutla_2023") && kebakaran2023Data.length > 0) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
-                        Warna Layer
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Periode
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {kebakaran2023Data.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.periode,
-                            "karhutla_2023",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
-                          ></div>
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.periode || "-"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={3} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("karhutla_2023")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data kebakaran hutan 2023 di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
-      case "kebakaran_2024":
-        if (activeLayers.has("karhutla_2024") && kebakaran2024Data.length > 0) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
-                        Warna Layer
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Periode
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "120px" }}
-                      >
-                        Luas
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {kebakaran2024Data.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.periode,
-                            "karhutla_2024",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
-                          ></div>
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.periode || "-"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700">
-                          {item.luas ? item.luas.toFixed(2) : "0"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("karhutla_2024")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data kebakaran hutan 2024 di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
-      case "kebakaran_2025":
-        if (activeLayers.has("karhutla_2025") && kebakaran2025Data.length > 0) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
-                        Warna Layer
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Periode
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "120px" }}
-                      >
-                        Luas
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {kebakaran2025Data.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.periode,
-                            "karhutla_2025",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
-                          ></div>
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.periode || "-"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700">
-                          {item.luas ? item.luas.toFixed(2) : "0"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("karhutla_2025")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data kebakaran hutan 2025 di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
       case "rawan_karhutla":
         if (
           activeLayers.has("rawan_karhutla") &&
           rawanKarhutlaData.length > 0
         ) {
           return (
-            <div className="p-3 h-full flex flex-col">
+            <div className="p-3">
               <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
+                className="overflow-x-auto overflow-y-auto"
+                style={{ maxHeight: "400px" }}
               >
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 bg-white z-10">
                     <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         No
                       </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Warna Layer
                       </th>
                       <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Tingkat Kerawanan
                       </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "120px" }}
-                      >
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
                         Luas (Ha)
                       </th>
                     </tr>
@@ -10958,17 +4370,7 @@ const Kerawanan = () => {
                     {rawanKarhutlaData.map((item, idx) => (
                       <tr
                         key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() => {
-                          setHoveredLayerKey(item.tingkat);
-                          setHoveredLayerType("rawan_karhutla");
-                          setHoveredLayerColor(item.color || "#808080");
-                        }}
-                        onMouseLeave={() => {
-                          setHoveredLayerKey(null);
-                          setHoveredLayerType(null);
-                          setHoveredLayerColor(null);
-                        }}
+                        className="border-b border-gray-100 hover:bg-gray-50"
                       >
                         <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                         <td className="py-2 px-2">
@@ -10977,16 +4379,16 @@ const Kerawanan = () => {
                             style={{ backgroundColor: item.color }}
                           ></div>
                         </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.tingkat || "-"}
+                        <td className="py-2 px-2 text-gray-700">
+                          {item.tingkat}
                         </td>
                         <td className="py-2 px-2 text-gray-700">
-                          {item.luas_ha ? item.luas_ha.toFixed(2) : "0"}
+                          {item.luas_ha.toFixed(2)}
                         </td>
                       </tr>
                     ))}
                     <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
+                      <td colSpan={4} className="py-4"></td>
                     </tr>
                   </tbody>
                 </table>
@@ -11006,788 +4408,35 @@ const Kerawanan = () => {
         }
         break;
 
-      case "kawasan_hutan":
-        if (activeLayers.has("kawasan_hutan") || activeLayers.has("97")) {
-          const isSigapActive = Array.from(activeLayers).some((layerName) =>
-            isSigapKawasanHutanLayer(layerName),
-          );
+      default: {
+        // Layer Kerawanan lain (termasuk Rawan Banjir) tetap menampilkan legenda
+        // di panel bawah. Warna mengikuti warna yang dipakai style layer pada peta.
+        const kerawananLayer = [...(layerData.kerawanan || []), ...(availableLayers.kerawanan || [])]
+          .find((layer) => layer?.name === activeBottomTab);
 
-          if (isSigapActive) {
-            const normalizedSearch = sigapKawasanHutanSearch
-              .trim()
-              .toLowerCase();
-            const filteredSigapLegend = sigapKawasanHutanLegend.filter(
-              (item) =>
-                !normalizedSearch ||
-                item.label.toLowerCase().includes(normalizedSearch),
-            );
-            const selectedLabel = sigapKawasanHutanLegend.find(
-              (item) => item.values?.[0] === selectedSigapKawasanHutanClass,
-            )?.label;
-
-            return (
-              <div className="p-3 h-full flex flex-col">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="text-[10px] font-semibold text-slate-700">
-                      Kawasan Hutan — SIGAP Kementerian Kehutanan
-                    </div>
-                    <div className="text-[8px] text-slate-400">
-                      Klik baris untuk fokus kelas pada peta
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span className="rounded-full bg-emerald-50 px-2 py-1 text-[8px] font-medium text-emerald-700 border border-emerald-100">
-                      {sigapKawasanHutanLegend.length} kelas
-                    </span>
-                    {selectedSigapKawasanHutanClass && (
-                      <button
-                        type="button"
-                        onClick={() => void clearSigapKawasanHutanClassFilter()}
-                        className="rounded-full bg-slate-100 px-2 py-1 text-[8px] font-medium text-slate-600 hover:bg-slate-200 transition-colors"
-                      >
-                        Reset
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {selectedLabel && (
-                  <div className="mb-2 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-2">
-                    <div className="min-w-0">
-                      <div className="text-[8px] uppercase tracking-wide font-semibold text-emerald-600">
-                        Fokus kelas
-                      </div>
-                      <div className="truncate text-[10px] font-semibold text-emerald-800">
-                        {selectedLabel}
-                      </div>
-                    </div>
-                    <span className="ml-2 shrink-0 rounded-full bg-white px-2 py-1 text-[8px] text-emerald-700 border border-emerald-100">
-                      Aktif
-                    </span>
-                  </div>
-                )}
-
-                <div className="relative mb-2">
-                  <input
-                    value={sigapKawasanHutanSearch}
-                    onChange={(event) =>
-                      setSigapKawasanHutanSearch(event.target.value)
-                    }
-                    placeholder="Cari fungsi kawasan..."
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 pr-8 text-[10px] text-slate-700 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
-                  />
-                  {sigapKawasanHutanSearch && (
-                    <button
-                      type="button"
-                      onClick={() => setSigapKawasanHutanSearch("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-
-                <div
-                  className="overflow-auto flex-1 rounded-lg border border-slate-200"
-                  style={{ maxHeight: "calc(35vh - 190px)" }}
-                >
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-slate-50 z-10">
-                      <tr className="border-b border-slate-200">
-                        <th
-                          className="text-left py-2 px-2 font-semibold text-slate-600 bg-slate-50"
-                          style={{ width: "45px" }}
-                        >
-                          No
-                        </th>
-                        <th
-                          className="text-left py-2 px-2 font-semibold text-slate-600 bg-slate-50"
-                          style={{ width: "70px" }}
-                        >
-                          Warna
-                        </th>
-                        <th className="text-left py-2 px-2 font-semibold text-slate-600 bg-slate-50">
-                          Fungsi Kawasan
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredSigapLegend.length > 0 ? (
-                        filteredSigapLegend.map((item) => {
-                          const itemValue = item.values?.[0] || null;
-                          const isSelected =
-                            !!itemValue &&
-                            selectedSigapKawasanHutanClass === itemValue;
-                          return (
-                            <tr
-                              key={`${item.label}-${itemValue || "no-value"}`}
-                              onClick={() =>
-                                void handleSigapKawasanHutanClassClick(item)
-                              }
-                              className={`border-b border-slate-100 cursor-pointer transition-all ${isSelected ? "bg-emerald-100 ring-1 ring-inset ring-emerald-300" : "hover:bg-emerald-50/70"}`}
-                              title={
-                                itemValue
-                                  ? `Klik untuk fokus: ${item.label}`
-                                  : `Kelas ${item.label} belum memiliki kode filter dari renderer SIGAP`
-                              }
-                            >
-                              <td className="py-2 px-2 text-slate-500">
-                                {sigapKawasanHutanLegend.indexOf(item) + 1}
-                              </td>
-                              <td className="py-2 px-2">
-                                {item.imageData ? (
-                                  <img
-                                    src={`data:${item.contentType || "image/png"};base64,${item.imageData}`}
-                                    alt=""
-                                    className="w-10 h-5 rounded border border-slate-300 object-contain bg-white"
-                                  />
-                                ) : (
-                                  <span
-                                    className="block w-10 h-5 rounded border border-slate-300"
-                                    style={{
-                                      background: item.color || "#808080",
-                                    }}
-                                  />
-                                )}
-                              </td>
-                              <td className="py-2 px-2">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-slate-700 font-medium">
-                                    {item.label}
-                                  </span>
-                                  {isSelected && (
-                                    <span className="shrink-0 text-[8px] font-semibold text-emerald-700">
-                                      ● Fokus
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      ) : (
-                        <tr>
-                          <td
-                            colSpan={3}
-                            className="py-8 text-center text-[10px] text-slate-400"
-                          >
-                            Tidak ada kelas yang cocok.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            );
-          }
-
-          if (kawasanHutanData.length > 0) {
-            return (
-              <div className="p-3 h-full flex flex-col">
-                <div
-                  className="overflow-auto flex-1"
-                  style={{ maxHeight: "calc(35vh - 100px)" }}
-                >
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-white z-10">
-                      <tr className="border-b border-gray-200">
-                        <th
-                          className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                          style={{ width: "50px" }}
-                        >
-                          No
-                        </th>
-                        <th
-                          className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                          style={{ width: "100px" }}
-                        >
-                          Warna Layer
-                        </th>
-                        <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                          Fungsi Kawasan Hutan
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {kawasanHutanData.map((item, idx) => (
-                        <tr
-                          key={idx}
-                          className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                          onMouseEnter={() =>
-                            handleRowMouseEnter(
-                              item.fungsikws,
-                              "kawasan_hutan",
-                              item.color || "#808080",
-                            )
-                          }
-                          onMouseLeave={handleRowMouseLeave}
-                        >
-                          <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                          <td className="py-2 px-2">
-                            <div
-                              className="w-8 h-4 rounded border border-gray-300"
-                              style={{ backgroundColor: item.color }}
-                            ></div>
-                          </td>
-                          <td className="py-2 px-2 text-gray-700 break-words">
-                            {item.deskripsi_domain || "-"}
-                          </td>
-                        </tr>
-                      ))}
-                      <tr>
-                        <td colSpan={3} style={{ height: "80px" }}></td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            );
-          }
-
+        if (kerawananLayer && activeLayers.has(kerawananLayer.name)) {
+          const layerColor = getColorForTable(kerawananLayer.name);
           return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data kawasan hutan di area yang dipilih
-                </p>
+            <div className="h-full overflow-y-auto p-3">
+              <div className="text-xs font-semibold text-gray-700 mb-3">
+                Legenda {formatTableName(kerawananLayer.name)}
               </div>
-            </div>
-          );
-        }
-        break;
-
-      case "risiko_banjir":
-      case "risiko_banjir_bandang":
-      case "risiko_kekeringan":
-      case "risiko_abrasi":
-      case "risiko_longsor":
-      case "risiko_karhutla": {
-        const risikoLayerData =
-          risikoData[activeBottomTab as keyof typeof risikoData] || [];
-        const labelMap: Record<string, string> = {
-          risiko_banjir: "Risiko Banjir",
-          risiko_banjir_bandang: "Risiko Banjir Bandang",
-          risiko_kekeringan: "Risiko Kekeringan",
-          risiko_abrasi: "Risiko Abrasi",
-          risiko_longsor: "Risiko Longsor",
-          risiko_karhutla: "Risiko Karhutla",
-        };
-        if (activeLayers.has(activeBottomTab) && risikoLayerData.length > 0) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
-                        Warna Layer
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Kelas
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "140px" }}
-                      >
-                        Luas (Shape Area)
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {risikoLayerData.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.kelas,
-                            activeBottomTab,
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
-                          ></div>
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.kelas || "-"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700">
-                          {item.luas ? item.luas.toFixed(2) : "0"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={4} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 max-w-sm">
+                <span
+                  className="inline-block w-8 h-4 rounded-sm border border-gray-300 flex-shrink-0"
+                  style={{ backgroundColor: layerColor }}
+                />
+                <span className="text-xs text-gray-700">
+                  {formatTableName(kerawananLayer.name)}
+                </span>
               </div>
-            </div>
-          );
-        } else if (activeLayers.has(activeBottomTab)) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data {labelMap[activeBottomTab]} di area yang
-                  dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-      }
-
-      case "khdtk":
-        if (activeLayers.has("khdtk") && khdtkData.length > 0) {
-          return (
-            <div className="p-3 h-full flex flex-col">
-              <div
-                className="overflow-auto flex-1"
-                style={{ maxHeight: "calc(35vh - 100px)" }}
-              >
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-gray-200">
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "50px" }}
-                      >
-                        No
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "100px" }}
-                      >
-                        Warna Layer
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Nama KHDTK
-                      </th>
-                      <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "120px" }}
-                      >
-                        Luas
-                      </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
-                        Jenis KHDTK
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {khdtkData.map((item, idx) => (
-                      <tr
-                        key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(
-                            item.namobj,
-                            "khdtk",
-                            item.color || "#808080",
-                          )
-                        }
-                        onMouseLeave={handleRowMouseLeave}
-                      >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
-                          ></div>
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.namobj || "-"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700">
-                          {item.lsktap ? item.lsktap.toFixed(2) : "0"}
-                        </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
-                          {item.jnskhdtk || "-"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={5} style={{ height: "80px" }}></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        } else if (activeLayers.has("khdtk")) {
-          return (
-            <div className="p-3 flex items-center justify-center h-full">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">
-                  Tidak ada data KHDTK di area yang dipilih
-                </p>
-              </div>
-            </div>
-          );
-        }
-        break;
-
-      case "mitigasi_adaptasi": {
-        const activeInfra = INFRA_LAYERS.filter((l) => activeLayers.has(l.id));
-
-        if (activeInfra.length === 0) {
-          return (
-            <div
-              style={{
-                height: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                background: "#ffffff",
-              }}
-            >
-              <div style={{ textAlign: "center", color: "#9ca3af" }}>
-                <div
-                  style={{
-                    width: "42px",
-                    height: "42px",
-                    margin: "0 auto 10px",
-                    borderRadius: "12px",
-                    background: "#f3f4f6",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "20px",
-                  }}
-                >
-                  🏗️
-                </div>
-                <div style={{ fontSize: "13px", fontWeight: 500 }}>
-                  Belum ada data Mitigasi & Adaptasi
-                </div>
-                <div style={{ fontSize: "11px", marginTop: "4px" }}>
-                  Aktifkan layer infrastruktur untuk melihat data.
-                </div>
-              </div>
+              <p className="text-[10px] text-gray-400 mt-2">
+                Warna mengikuti simbolisasi layer pada peta.
+              </p>
             </div>
           );
         }
 
-        const renderConditionBadge = (value: any) => {
-          const textValue = String(value ?? "-").trim();
-
-          if (!textValue || textValue === "-") {
-            return <span style={{ color: "#9ca3af" }}>-</span>;
-          }
-
-          const lower = textValue.toLowerCase();
-
-          let background = "#FEF3C7";
-          let color = "#92400E";
-          let border = "#FDE68A";
-
-          if (
-            lower.includes("baik") ||
-            lower.includes("operasi") ||
-            lower.includes("normal")
-          ) {
-            background = "#ECFDF3";
-            color = "#166534";
-            border = "#BBF7D0";
-          } else if (
-            lower.includes("rusak") ||
-            lower.includes("buruk") ||
-            lower.includes("tidak")
-          ) {
-            background = "#FEF2F2";
-            color = "#B91C1C";
-            border = "#FECACA";
-          }
-
-          return (
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "5px",
-                maxWidth: "100%",
-                padding: "3px 8px",
-                borderRadius: "999px",
-                background,
-                color,
-                border: `1px solid ${border}`,
-                fontSize: "10px",
-                lineHeight: 1.2,
-                fontWeight: 600,
-                whiteSpace: "nowrap",
-              }}
-              title={textValue}
-            >
-              <span
-                style={{
-                  width: "5px",
-                  height: "5px",
-                  borderRadius: "50%",
-                  background: color,
-                  flexShrink: 0,
-                }}
-              />
-              {textValue}
-            </span>
-          );
-        };
-
-        return (
-          <div
-            style={{
-              height: "100%",
-              overflowY: "auto",
-              overflowX: "hidden",
-              background: "#ffffff",
-            }}
-          >
-            {activeInfra.map((layer, idx) => {
-              const rows = infraData[layer.id] || [];
-
-              return (
-                <section
-                  key={layer.id}
-                  style={{
-                    borderBottom:
-                      idx < activeInfra.length - 1
-                        ? "8px solid #f8fafc"
-                        : "none",
-                  }}
-                >
-                  {/* Header layer — dibuat seperti panel profesional pada mockup */}
-                  <div
-                    style={{
-                      minHeight: "42px",
-                      padding: "7px 12px",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      background: "#ffffff",
-                      borderBottom: "1px solid #e5e7eb",
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: "8px",
-                        height: "8px",
-                        borderRadius: "50%",
-                        background: layer.color,
-                        boxShadow: `0 0 0 3px ${layer.color}22`,
-                        flexShrink: 0,
-                      }}
-                    />
-
-                    <span
-                      style={{
-                        color: "#111827",
-                        fontSize: "13px",
-                        fontWeight: 650,
-                        letterSpacing: "-0.01em",
-                      }}
-                    >
-                      {layer.label}
-                    </span>
-
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        height: "20px",
-                        padding: "0 8px",
-                        borderRadius: "999px",
-                        background: "#f1f5f9",
-                        color: "#64748b",
-                        fontSize: "10px",
-                        fontWeight: 600,
-                      }}
-                    >
-                      {rows.length} data
-                    </span>
-                  </div>
-
-                  {rows.length === 0 ? (
-                    <div
-                      style={{
-                        padding: "26px 16px",
-                        textAlign: "center",
-                        color: "#9ca3af",
-                        fontSize: "11px",
-                      }}
-                    >
-                      Tidak ada data di area yang dipilih.
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        width: "100%",
-                        overflowX: "auto",
-                        overflowY: "auto",
-                        maxHeight: "calc(35vh - 96px)",
-                      }}
-                    >
-                      <table
-                        style={{
-                          width: "100%",
-                          minWidth: Math.max(760, 30 + layer.cols.length * 145),
-                          borderCollapse: "separate",
-                          borderSpacing: 0,
-                          tableLayout: "fixed",
-                          fontSize: "11px",
-                        }}
-                      >
-                        <thead>
-                          <tr>
-                            <th
-                              style={{
-                                position: "sticky",
-                                top: 0,
-                                zIndex: 3,
-                                width: "34px",
-                                padding: "7px 6px",
-                                textAlign: "left",
-                                color: "#64748b",
-                                background: "#f8fafc",
-                                borderBottom: "1px solid #e2e8f0",
-                                fontWeight: 600,
-                              }}
-                            >
-                              No
-                            </th>
-
-                            {layer.cols.map((col) => (
-                              <th
-                                key={col.k}
-                                style={{
-                                  position: "sticky",
-                                  top: 0,
-                                  zIndex: 3,
-                                  width:
-                                    col.h === "Nama" || col.h === "Sumber Air"
-                                      ? "190px"
-                                      : "145px",
-                                  padding: "7px 8px",
-                                  textAlign: "left",
-                                  color: "#64748b",
-                                  background: "#f8fafc",
-                                  borderBottom: "1px solid #e2e8f0",
-                                  fontWeight: 600,
-                                  whiteSpace: "nowrap",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                }}
-                                title={col.h}
-                              >
-                                {col.h}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-
-                        <tbody>
-                          {rows.map((row, i) => (
-                            <tr
-                              key={i}
-                              onMouseEnter={(event) => {
-                                event.currentTarget.style.background =
-                                  "#f8fbff";
-                                handleRowMouseEnter(
-                                  String(row[layer.cols[0].k] ?? ""),
-                                  layer.id,
-                                  layer.color,
-                                );
-                              }}
-                              onMouseLeave={(event) => {
-                                event.currentTarget.style.background =
-                                  "#ffffff";
-                                handleRowMouseLeave();
-                              }}
-                              style={{
-                                background: "#ffffff",
-                                transition: "background 120ms ease",
-                              }}
-                            >
-                              <td
-                                style={{
-                                  padding: "6px",
-                                  color: "#64748b",
-                                  borderBottom: "1px solid #f1f5f9",
-                                  verticalAlign: "middle",
-                                }}
-                              >
-                                {i + 1}
-                              </td>
-
-                              {layer.cols.map((col) => {
-                                const rawValue = row[col.k];
-                                const value =
-                                  rawValue === null ||
-                                  rawValue === undefined ||
-                                  rawValue === ""
-                                    ? "-"
-                                    : String(rawValue);
-
-                                const isCondition =
-                                  col.h === "Kondisi" ||
-                                  col.h === "Kondisi Teknis";
-
-                                return (
-                                  <td
-                                    key={col.k}
-                                    style={{
-                                      padding: "6px 8px",
-                                      color: "#334155",
-                                      borderBottom: "1px solid #f1f5f9",
-                                      verticalAlign: "middle",
-                                      whiteSpace: "nowrap",
-                                      overflow: "hidden",
-                                      textOverflow: "ellipsis",
-                                    }}
-                                    title={value}
-                                  >
-                                    {isCondition
-                                      ? renderConditionBadge(value)
-                                      : value}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </section>
-              );
-            })}
-
-            <div style={{ height: "60px" }} />
-          </div>
-        );
-      }
-
-      default:
         return (
           <div className="flex items-center justify-center h-full">
             <div className="text-center text-gray-400">
@@ -11795,5013 +4444,975 @@ const Kerawanan = () => {
             </div>
           </div>
         );
-    }
-  };
-
-  const showSelectedVillagePolygon = async (
-    latitude: number,
-    longitude: number,
-  ) => {
-    const map: any = mapInstanceRef.current;
-    if (!map || !window.L) return;
-
-    try {
-      const url =
-        `${API_URL}/api/admin/polygon-by-coordinates` +
-        `?lat=${encodeURIComponent(latitude)}` +
-        `&lon=${encodeURIComponent(longitude)}`;
-
-      const response = await fetch(url);
-      const result = await response.json();
-
-      if (!response.ok || !result?.success || !result?.data?.geom) {
-        const previous = selectedVillagePolygonRef.current;
-        if (previous && map.hasLayer(previous)) {
-          map.removeLayer(previous);
-        }
-        selectedVillagePolygonRef.current = null;
-
-        if (response.status !== 404) {
-          console.warn(
-            "SIMITI: polygon desa/kelurahan gagal dimuat:",
-            result?.error || response.statusText,
-          );
-        }
-        return;
-      }
-
-      // Hapus hanya polygon pilihan sebelumnya.
-      // Layer bencana/kerawanan lainnya tetap dipertahankan.
-      const previous = selectedVillagePolygonRef.current;
-      if (previous && map.hasLayer(previous)) {
-        map.removeLayer(previous);
-      }
-
-      const polygon = window.L.geoJSON(result.data.geom, {
-        style: () => ({
-          color: "#059669",
-          weight: 3,
-          opacity: 1,
-          fillColor: "#34d399",
-          fillOpacity: 0.18,
-        }),
-        interactive: true,
-        pane: "overlayPane",
-      });
-
-      polygon.addTo(map);
-      selectedVillagePolygonRef.current = polygon;
-
-      console.info("SIMITI: polygon desa/kelurahan terpilih", {
-        desa: result.data.kel_desa,
-        kecamatan: result.data.kecamatan,
-        kabupaten: result.data.kab_kota,
-        provinsi: result.data.provinsi,
-      });
-    } catch (error) {
-      console.error("SIMITI: gagal menampilkan polygon desa/kelurahan:", error);
-    }
-  };
-  const fetchMapWeather = async (latitude: number, longitude: number) => {
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
-
-    // Marker lokasi yang sedang dipilih, mengikuti mockup popup cuaca.
-    if (mapInstanceRef.current && window.L) {
-      try {
-        if (mapWeatherMarkerRef.current) {
-          mapWeatherMarkerRef.current.setLatLng([latitude, longitude]);
-        } else {
-          mapWeatherMarkerRef.current = window.L.marker([
-            latitude,
-            longitude,
-          ]).addTo(mapInstanceRef.current);
-        }
-      } catch (markerError) {
-        console.warn("Gagal memperbarui marker cuaca:", markerError);
       }
     }
-
-    setMapWeatherPopup((prev) => ({
-      ...prev,
-      open: true,
-      loading: true,
-      error: "",
-      latitude,
-      longitude,
-      locationName: "Mengidentifikasi wilayah...",
-      district: "",
-      province: "",
-      current: null,
-      dailyRain: null,
-    }));
-
-    try {
-      const weatherParams = new URLSearchParams({
-        latitude: String(latitude),
-        longitude: String(longitude),
-        current:
-          "temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m,surface_pressure",
-        daily: "precipitation_sum,rain_sum",
-        forecast_days: "1",
-        timezone: "Asia/Jakarta",
-      });
-
-      const [weatherResponse, reverseResponse] = await Promise.all([
-        fetch(
-          `https://api.open-meteo.com/v1/forecast?${weatherParams.toString()}`,
-          { headers: { Accept: "application/json" }, cache: "no-store" },
-        ),
-        fetch(
-          `${API_URL}/api/geocode/reverse?lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}`,
-          { headers: { Accept: "application/json" }, cache: "no-store" },
-        ),
-      ]);
-
-      if (!weatherResponse.ok) {
-        throw new Error(`Open-Meteo HTTP ${weatherResponse.status}`);
-      }
-
-      const weatherJson = await weatherResponse.json();
-      if (!weatherJson?.current) {
-        throw new Error("Data cuaca Open-Meteo kosong.");
-      }
-
-      let locationName = "Lokasi dipilih";
-      let district = "";
-      let province = "";
-
-      if (reverseResponse.ok) {
-        const reverseJson = await reverseResponse.json();
-        const address = reverseJson?.address || {};
-        province = address.state || address.province || address.region || "";
-        district =
-          address.city_district ||
-          address.state_district ||
-          address.county ||
-          address.municipality ||
-          address.city ||
-          address.town ||
-          "";
-        locationName =
-          address.village ||
-          address.suburb ||
-          address.quarter ||
-          address.hamlet ||
-          address.neighbourhood ||
-          address.town ||
-          address.city_district ||
-          address.city ||
-          address.municipality ||
-          address.county ||
-          reverseJson?.display_name?.split(",")[0] ||
-          "Wilayah belum teridentifikasi";
-      }
-
-      const dailyRain =
-        typeof weatherJson?.daily?.precipitation_sum?.[0] === "number"
-          ? weatherJson.daily.precipitation_sum[0]
-          : null;
-
-      setMapWeatherPopup({
-        open: true,
-        loading: false,
-        error: "",
-        latitude,
-        longitude,
-        locationName,
-        district,
-        province,
-        current: weatherJson.current,
-        dailyRain,
-        updatedAt: weatherJson.current.time || new Date().toISOString(),
-      });
-    } catch (error: any) {
-      console.error("Map weather fetch error:", error);
-      setMapWeatherPopup((prev) => ({
-        ...prev,
-        open: true,
-        loading: false,
-        error:
-          error?.message ||
-          "Gagal mengambil data cuaca untuk lokasi yang dipilih.",
-      }));
-    }
-  };
-
-  const closeMapWeatherPopup = () => {
-    setMapWeatherPopup((prev) => ({ ...prev, open: false }));
-  };
-
-  const weatherDescription = (code?: number) => {
-    const map: Record<number, string> = {
-      0: "Cerah",
-      1: "Cerah berawan",
-      2: "Sebagian berawan",
-      3: "Berawan",
-      45: "Berkabut",
-      48: "Kabut beku",
-      51: "Gerimis ringan",
-      53: "Gerimis",
-      55: "Gerimis lebat",
-      61: "Hujan ringan",
-      63: "Hujan",
-      65: "Hujan lebat",
-      71: "Salju ringan",
-      73: "Salju",
-      75: "Salju lebat",
-      80: "Hujan lokal ringan",
-      81: "Hujan lokal",
-      82: "Hujan lokal lebat",
-      95: "Badai petir",
-      96: "Badai petir + hujan es",
-      99: "Badai petir + hujan es lebat",
-    };
-    return map[Number(code)] || "Kondisi tidak diketahui";
-  };
-
-  const weatherIcon = (code?: number) => {
-    const value = Number(code);
-    if (value === 0) return "☀️";
-    if (value === 1 || value === 2) return "🌤️";
-    if (value === 3) return "☁️";
-    if (value === 45 || value === 48) return "🌫️";
-    if (value >= 51 && value <= 67) return "🌧️";
-    if (value >= 71 && value <= 86) return "🌨️";
-    if (value >= 95) return "⛈️";
-    return "";
-  };
-
-  const formatWeatherTime = (value?: string | null) => {
-    if (!value) return "—";
-    try {
-      return new Intl.DateTimeFormat("id-ID", {
-        hour: "2-digit",
-        minute: "2-digit",
-        timeZone: "Asia/Jakarta",
-      }).format(new Date(value));
-    } catch {
-      return value.replace("T", " ").slice(0, 16);
-    }
-  };
-
-  const fetchOpenMeteoWeather = async () => {
-    // Pertahankan default lokasi lama jika tidak ada koordinat dari env.
-    const latitude = Number(import.meta.env.VITE_WEATHER_LATITUDE ?? -6.2);
-    const longitude = Number(
-      import.meta.env.VITE_WEATHER_LONGITUDE ?? 106.816666,
-    );
-
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-      setOpenMeteoWeather((prev) => ({
-        ...prev,
-        loading: false,
-        error: "Koordinat Open-Meteo tidak valid.",
-      }));
-      return;
-    }
-
-    setOpenMeteoWeather((prev) => ({
-      ...prev,
-      loading: true,
-      error: "",
-      latitude,
-      longitude,
-    }));
-
-    try {
-      const params = new URLSearchParams({
-        latitude: String(latitude),
-        longitude: String(longitude),
-        current:
-          "temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m,surface_pressure",
-        daily: "precipitation_sum,rain_sum",
-        forecast_days: "1",
-        timezone: "Asia/Jakarta",
-      });
-
-      const response = await fetch(
-        `https://api.open-meteo.com/v1/forecast?${params.toString()}`,
-        { headers: { Accept: "application/json" }, cache: "no-store" },
-      );
-
-      if (!response.ok) {
-        throw new Error(`Open-Meteo HTTP ${response.status}`);
-      }
-
-      const json = await response.json();
-      if (!json?.current) {
-        throw new Error("Data cuaca Open-Meteo kosong.");
-      }
-
-      setOpenMeteoWeather({
-        loading: false,
-        error: "",
-        latitude,
-        longitude,
-        current: json.current,
-        daily: json.daily || null,
-        updatedAt: json.current.time || new Date().toISOString(),
-      });
-    } catch (error: any) {
-      console.error("Open-Meteo fetch error:", error);
-      setOpenMeteoWeather((prev) => ({
-        ...prev,
-        loading: false,
-        error: error?.message || "Gagal mengambil data cuaca Open-Meteo.",
-      }));
-    }
-  };
-
-  useEffect(() => {
-    fetchOpenMeteoWeather();
-
-    const interval = window.setInterval(fetchOpenMeteoWeather, 30 * 60 * 1000);
-
-    return () => window.clearInterval(interval);
-  }, []);
-
-  const [gpsLocation, setGpsLocation] = useState<GpsLocationState>({
-    loading: false,
-    error: "",
-    latitude: null,
-    longitude: null,
-    accuracy: null,
-    locationName: "Lokasi saat ini",
-    village: "",
-    district: "",
-    city: "",
-    province: "",
-    displayName: "",
-    updatedAt: null,
-  });
-  const [gpsPopupOpen, setGpsPopupOpen] = useState(true);
-  const [gpsThreats, setGpsThreats] = useState<GpsThreatState>({
-    loading: false,
-    error: "",
-    threats: [],
-    riskStatus: null,
-    riskScore: null,
-    updatedAt: null,
-  });
-
-  const fetchGpsThreats = async (latitude: number, longitude: number) => {
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
-
-    setGpsThreats((prev) => ({
-      ...prev,
-      loading: true,
-      error: "",
-    }));
-
-    try {
-      // Sumber ancaman = data kerawanan SIMITI/PostGIS melalui endpoint
-      // location-proximity. Frontend tidak menghitung point-in-polygon.
-      const params = new URLSearchParams({
-        latitude: String(latitude),
-        longitude: String(longitude),
-        threatLimit: "20",
-        mitigationLimit: "1",
-        incidentLimit: "1",
-      });
-
-      const response = await fetch(
-        `${API_URL}/api/location-proximity?${params.toString()}`,
-        {
-          headers: {
-            Accept: "application/json",
-            ...(getAuthToken()
-              ? { Authorization: `Bearer ${getAuthToken()}` }
-              : {}),
-          },
-          cache: "no-store",
-        },
-      );
-
-      const json = await response.json().catch(() => ({}));
-
-      if (!response.ok || json?.success === false) {
-        throw new Error(
-          json?.message || `Analisis ancaman HTTP ${response.status}`,
-        );
-      }
-
-      // Hanya tampilkan ancaman yang benar-benar mencakup titik GPS.
-      // Threat yang hanya "terdekat" tidak disebut sebagai ancaman di lokasi.
-      const threats = (Array.isArray(json?.threats) ? json.threats : [])
-        .filter((item: any) => item?.inside === true)
-        .map((item: any) => ({
-          key: String(item?.key || ""),
-          label: String(item?.label || item?.key || "Ancaman"),
-          status:
-            item?.status !== null && item?.status !== undefined
-              ? String(item.status)
-              : null,
-          score:
-            item?.score !== null &&
-            item?.score !== undefined &&
-            Number.isFinite(Number(item.score))
-              ? Number(item.score)
-              : null,
-          distanceMeters: 0,
-          inside: true,
-          source: String(item?.source || "data kerawanan"),
-        }))
-        .filter((item: GpsThreatItem) => item.key || item.label);
-
-      setGpsThreats({
-        loading: false,
-        error: "",
-        threats,
-        riskStatus: json?.risk?.status ?? null,
-        riskScore:
-          json?.risk?.score !== null && json?.risk?.score !== undefined
-            ? Number(json.risk.score)
-            : null,
-        updatedAt: new Date().toISOString(),
-      });
-    } catch (error: any) {
-      console.error(
-        "Gagal membaca ancaman bencana dari data kerawanan:",
-        error,
-      );
-      setGpsThreats((prev) => ({
-        ...prev,
-        loading: false,
-        error:
-          error?.message ||
-          "Data ancaman bencana untuk titik GPS gagal dimuat.",
-        updatedAt: new Date().toISOString(),
-      }));
-    }
-  };
-
-  const detectCurrentGpsLocation = () => {
-    if (!navigator.geolocation) {
-      setGpsLocation((prev) => ({
-        ...prev,
-        loading: false,
-        error: "Browser ini tidak mendukung GPS/geolocation.",
-      }));
-      setGpsPopupOpen(true);
-      return;
-    }
-
-    setGpsPopupOpen(true);
-    setGpsLocation((prev) => ({ ...prev, loading: true, error: "" }));
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const latitude = position.coords.latitude;
-        const longitude = position.coords.longitude;
-        const accuracy = position.coords.accuracy;
-
-        setGpsLocation((prev) => ({
-          ...prev,
-          loading: true,
-          error: "",
-          latitude,
-          longitude,
-          accuracy,
-          updatedAt: new Date().toISOString(),
-        }));
-
-        // Begitu GPS mendapatkan koordinat, langsung cek ancaman dari
-        // data kerawanan SIMITI/PostGIS untuk titik tersebut.
-        void fetchGpsThreats(latitude, longitude);
-
-        try {
-          const response = await fetch(
-            `${API_URL}/api/geocode/reverse?lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}`,
-            { headers: { Accept: "application/json" }, cache: "no-store" },
-          );
-          if (!response.ok)
-            throw new Error(`Reverse geocoding HTTP ${response.status}`);
-
-          const json = await response.json();
-          const address = json?.address || {};
-          const village =
-            address.village ||
-            address.suburb ||
-            address.neighbourhood ||
-            address.quarter ||
-            address.hamlet ||
-            "";
-          const district =
-            address.city_district ||
-            address.district ||
-            address.subdistrict ||
-            "";
-          const city =
-            address.city ||
-            address.town ||
-            address.municipality ||
-            address.county ||
-            "";
-          const province =
-            address.state || address.province || address.region || "";
-          const locationName =
-            village ||
-            district ||
-            city ||
-            province ||
-            json?.name ||
-            "Lokasi saat ini";
-
-          setGpsLocation({
-            loading: false,
-            error: "",
-            latitude,
-            longitude,
-            accuracy,
-            locationName,
-            village,
-            district,
-            city,
-            province,
-            displayName: json?.display_name || "",
-            updatedAt: new Date().toISOString(),
-          });
-
-          // Tampilkan posisi GPS tanpa mengubah viewport peta Indonesia.
-          // Render dipisahkan dari marker dan accuracy circle agar kegagalan
-          // renderer Circle tidak mengganggu marker/WebGIS lainnya.
-          if (
-            !Number.isFinite(latitude) ||
-            !Number.isFinite(longitude) ||
-            latitude < -90 ||
-            latitude > 90 ||
-            longitude < -180 ||
-            longitude > 180
-          ) {
-            console.warn("⚠️ Koordinat GPS tidak valid:", {
-              latitude,
-              longitude,
-              accuracy,
-            });
-          } else {
-            const gpsSeq = ++gpsRequestSeqRef.current;
-
-            if (gpsRenderFrameRef.current !== null) {
-              cancelAnimationFrame(gpsRenderFrameRef.current);
-            }
-
-            gpsRenderFrameRef.current = requestAnimationFrame(() => {
-              gpsRenderFrameRef.current = null;
-
-              try {
-                const map = mapInstanceRef.current;
-                const L = window.L;
-                if (!map || !L || !(map as any)._loaded) return;
-                if (gpsSeq !== gpsRequestSeqRef.current) return;
-
-                const latLng = L.latLng(Number(latitude), Number(longitude));
-
-                // GPS icon sengaja tidak dirender di peta.
-                // Posisi GPS tetap disimpan dan accuracy circle tetap ditampilkan.
-
-                // Accuracy circle: isolated so a Leaflet SVG bounds error cannot
-                // break the GPS marker or any existing WebGIS layer.
-                try {
-                  const radius = Math.max(
-                    Number.isFinite(Number(accuracy)) ? Number(accuracy) : 5,
-                    5,
-                  );
-
-                  if (
-                    gpsAccuracyCircleRef.current &&
-                    gpsAccuracyCircleRef.current._map !== map
-                  ) {
-                    try {
-                      gpsAccuracyCircleRef.current.remove();
-                    } catch {}
-                    gpsAccuracyCircleRef.current = null;
-                  }
-
-                  if (gpsAccuracyCircleRef.current) {
-                    gpsAccuracyCircleRef.current.setLatLng(latLng);
-                    gpsAccuracyCircleRef.current.setRadius(radius);
-                  } else {
-                    gpsAccuracyCircleRef.current = L.circle(latLng, {
-                      renderer: L.canvas({ padding: 0.5 }),
-                      radius,
-                      color: "#16a34a",
-                      weight: 1,
-                      opacity: 0.35,
-                      fillColor: "#22c55e",
-                      fillOpacity: 0.08,
-                      interactive: false,
-                    }).addTo(map);
-                  }
-                } catch (circleError) {
-                  console.warn(
-                    "⚠️ GPS accuracy circle gagal ditampilkan:",
-                    circleError,
-                  );
-                  gpsAccuracyCircleRef.current = null;
-                }
-              } catch (mapError) {
-                console.warn(
-                  "⚠️ Gagal merender lokasi GPS ke Leaflet:",
-                  mapError,
-                );
-              }
-            });
-          }
-        } catch (error: any) {
-          setGpsLocation((prev) => ({
-            ...prev,
-            loading: false,
-            error:
-              error?.message ||
-              "Koordinat ditemukan, tetapi nama wilayah gagal dimuat.",
-          }));
-        }
-      },
-      (error) => {
-        const message =
-          error.code === error.PERMISSION_DENIED
-            ? "Izin lokasi ditolak. Aktifkan izin Location/GPS pada browser."
-            : error.code === error.POSITION_UNAVAILABLE
-              ? "Lokasi GPS belum tersedia. Pastikan layanan lokasi perangkat aktif."
-              : error.code === error.TIMEOUT
-                ? "Pencarian lokasi GPS terlalu lama. Silakan coba lagi."
-                : "Gagal mendapatkan lokasi saat ini.";
-        setGpsLocation((prev) => ({ ...prev, loading: false, error: message }));
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
-    );
-  };
-
-  useEffect(() => {
-    detectCurrentGpsLocation();
-  }, []);
-
-  const selectedRegionName =
-    selectedAreas.length > 0 ? selectedAreas[0].label : "Indonesia";
-  const totalEvents =
-    kejadianListings.length || (kejadianPhotos ?? []).length || 0;
-  const activeLayerCount = activeLayers.size;
-
-  // ======================================================
-  // EXPORT PETA KE PDF — DOWNLOAD LANGSUNG
-  // Mengambil snapshot area peta yang sedang terlihat lalu
-  // memasukkannya ke PDF A4 landscape tanpa dialog Print.
-  // Library dimuat saat tombol pertama kali digunakan sehingga
-  // tidak perlu mengubah backend.
-  // ======================================================
-  const loadExternalScript = (
-    src: string,
-    globalName: string,
-  ): Promise<any> => {
-    const existing = (window as any)[globalName];
-    if (existing) return Promise.resolve(existing);
-
-    return new Promise((resolve, reject) => {
-      const found = document.querySelector(
-        `script[data-sikma-pdf="${globalName}"]`,
-      ) as HTMLScriptElement | null;
-      if (found) {
-        found.addEventListener("load", () =>
-          resolve((window as any)[globalName]),
-        );
-        found.addEventListener("error", () =>
-          reject(new Error(`Gagal memuat ${globalName}`)),
-        );
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.src = src;
-      script.async = true;
-      script.dataset.sikmaPdf = globalName;
-      script.onload = () => {
-        const lib = (window as any)[globalName];
-        if (lib) resolve(lib);
-        else
-          reject(
-            new Error(`${globalName} tidak tersedia setelah script dimuat`),
-          );
-      };
-      script.onerror = () =>
-        reject(new Error(`Gagal memuat library PDF: ${src}`));
-      document.head.appendChild(script);
-    });
-  };
-
-  const handleDownloadMapPdf = async () => {
-    const map = mapInstanceRef.current;
-    const mapElement = mapRef.current;
-
-    if (!map || !mapElement) {
-      alert("Peta belum siap. Silakan tunggu sampai peta selesai dimuat.");
-      return;
-    }
-
-    if (selectedAreas.length === 0 && selectedDas.length === 0) {
-      alert(
-        "Pilih wilayah administrasi atau DAS terlebih dahulu sebelum mengunduh peta PDF.",
-      );
-      return;
-    }
-
-    const areaNames = selectedAreas
-      .map((area: any) => area.label)
-      .filter(Boolean);
-    const dasNames = selectedDas
-      .map((das: any) => das.nama_das)
-      .filter(Boolean);
-    const exportName =
-      [...areaNames, ...dasNames].join(", ") || "Wilayah Terpilih";
-    const safeFileName =
-      exportName
-        .replace(/[^a-zA-Z0-9-\s_-]/g, "")
-        .replace(/\s+/g, "_")
-        .slice(0, 100) || "Wilayah_Terpilih";
-
-    const mapSection = mapElement.closest(
-      ".kerawanan-map",
-    ) as HTMLElement | null;
-    const titleOverlay = mapSection?.querySelector(
-      ".print-map-title",
-    ) as HTMLElement | null;
-    const controls = mapSection
-      ? (Array.from(
-          mapSection.querySelectorAll(".leaflet-control-container"),
-        ) as HTMLElement[])
-      : [];
-    const originalTitleDisplay = titleOverlay?.style.display || "";
-    const originalControlDisplays = controls.map((el) => el.style.display);
-    // Simpan posisi peta agar PDF bisa memusatkan wilayah terpilih,
-    // lalu kembalikan tampilan peta seperti semula setelah export.
-    const originalMapCenter =
-      typeof (map as any).getCenter === "function"
-        ? (map as any).getCenter()
-        : null;
-    const originalMapZoom =
-      typeof (map as any).getZoom === "function" ? (map as any).getZoom() : null;
-
-    try {
-      const button = document.activeElement as HTMLButtonElement | null;
-      if (button) button.blur();
-
-      // Jangan memanggil invalidateSize/pan saat export. Operasi tersebut dapat memaksa
-      // Leaflet merender ulang CircleMarker dan memicu crash bila ada feature lama yang invalid.
-      // Export memakai viewport yang sedang terlihat. Jangan memanggil fitBounds,
-      // panBy, invalidateSize, atau operasi animasi: ini memicu render ulang path
-      // Leaflet dan dapat menjatuhkan renderer bila ada layer legacy yang korup.
-      // Pusatkan wilayah terpilih hanya jika Leaflet benar-benar menerima
-      // bounds tersebut. Jika bounds dari API/state tidak cocok dengan format
-      // Leaflet, jangan gagalkan proses PDF: gunakan viewport yang sedang tampil.
-      const exportBounds = isValidMapBounds(currentBounds);
-      if (
-        exportBounds &&
-        typeof (map as any).fitBounds === "function" &&
-        typeof (map as any).getBounds === "function"
-      ) {
-        try {
-          const L = (window as any).L;
-          const boundsForExport =
-            typeof L?.latLngBounds === "function"
-              ? L.latLngBounds(exportBounds)
-              : null;
-
-          if (
-            boundsForExport &&
-            typeof boundsForExport.isValid === "function" &&
-            boundsForExport.isValid()
-          ) {
-            (map as any).fitBounds(boundsForExport, {
-              padding: [36, 36],
-              animate: false,
-              duration: 0,
-              maxZoom: Math.max(
-                5,
-                Number.isFinite(Number(originalMapZoom))
-                  ? Number(originalMapZoom)
-                  : 7,
-              ),
-            });
-            await new Promise((resolve) => window.setTimeout(resolve, 250));
-          } else {
-            console.warn(
-              "SIMITI: bounds export tidak valid untuk Leaflet; memakai viewport saat ini.",
-            );
-          }
-        } catch (boundsError) {
-          // Bounds tidak valid tidak boleh membatalkan download PDF.
-          console.warn(
-            "SIMITI: gagal memusatkan bounds saat export; memakai viewport saat ini.",
-            boundsError,
-          );
-        }
-      } else {
-        console.warn(
-          "SIMITI: bounds filter tidak valid; snapshot memakai viewport saat ini.",
-        );
-      }
-
-      // Pastikan overlay judul terlihat dan kontrol Leaflet tidak ikut masuk PDF.
-      if (titleOverlay) titleOverlay.style.display = "block";
-      controls.forEach((el) => {
-        el.style.display = "none";
-      });
-
-      // Tunggu render peta + tile selesai.
-      await new Promise((resolve) => window.setTimeout(resolve, 700));
-      if (document.fonts?.ready) await document.fonts.ready;
-
-      const html2canvas = await loadExternalScript(
-        "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js",
-        "html2canvas",
-      );
-      const jspdfNamespace = await loadExternalScript(
-        "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
-        "jspdf",
-      );
-
-      const canvas = await html2canvas(mapElement, {
-        useCORS: true,
-        allowTaint: false,
-        backgroundColor: "#eaf4f8",
-        scale: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
-        logging: false,
-        imageTimeout: 15000,
-        removeContainer: true,
-        // html2canvas 1.4.1 tidak mendukung fungsi warna oklch(). Di dokumen
-        // clone saja, salin properti warna dari computed style browser (RGB/RGBA),
-        // sehingga CSS aplikasi asli tidak berubah.
-        onclone: (clonedDocument: Document) => {
-          // html2canvas 1.4.1 gagal mem-parse fungsi warna CSS modern (oklch/oklab/color()).
-          // Sanitasi seluruh stylesheet pada dokumen clone, bukan hanya elemen peta, karena
-          // parser html2canvas membaca stylesheet global aplikasi meskipun node berada di luar peta.
-          const unsupportedColorFunction =
-            /(?:oklch|oklab|color)\(\s*[^)]*\)/gi;
-          // Vite production/development dapat memuat CSS lewat <link rel="stylesheet">.
-          // Salin CSSOM same-origin yang bisa dibaca ke style tag aman, lalu lepas link clone
-          // asalnya agar html2canvas tidak membaca ulang deklarasi oklch dari file CSS tersebut.
-          let copiedCss = "";
-          const sameOriginStylesheets = new Set<string>();
-          Array.from(document.styleSheets).forEach((sheet) => {
-            try {
-              const href = (sheet as CSSStyleSheet).href;
-              const rules = Array.from(sheet.cssRules || [])
-                .map((rule) => rule.cssText)
-                .join("\n");
-              copiedCss += rules + "\n";
-              if (
-                href &&
-                new URL(href, document.baseURI).origin ===
-                  window.location.origin
-              ) {
-                sameOriginStylesheets.add(new URL(href, document.baseURI).href);
-              }
-            } catch {
-              // Stylesheet lintas-origin (mis. CDN Leaflet) dibiarkan; biasanya tidak memakai oklch.
-            }
-          });
-          clonedDocument
-            .querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')
-            .forEach((link) => {
-              try {
-                const href = new URL(link.href, clonedDocument.baseURI).href;
-                if (sameOriginStylesheets.has(href)) link.remove();
-              } catch {
-                /* abaikan URL stylesheet yang tidak valid */
-              }
-            });
-          if (copiedCss) {
-            const safeStyle = clonedDocument.createElement("style");
-            safeStyle.textContent = copiedCss.replace(
-              unsupportedColorFunction,
-              "rgba(0, 0, 0, 0)",
-            );
-            clonedDocument.head.appendChild(safeStyle);
-          }
-          clonedDocument.querySelectorAll("style").forEach((styleNode) => {
-            styleNode.textContent = (styleNode.textContent || "").replace(
-              unsupportedColorFunction,
-              "rgba(0, 0, 0, 0)",
-            );
-          });
-          clonedDocument
-            .querySelectorAll<HTMLElement>("[style]")
-            .forEach((element) => {
-              const inlineStyle = element.getAttribute("style");
-              if (inlineStyle && unsupportedColorFunction.test(inlineStyle)) {
-                unsupportedColorFunction.lastIndex = 0;
-                element.setAttribute(
-                  "style",
-                  inlineStyle.replace(
-                    unsupportedColorFunction,
-                    "rgba(0, 0, 0, 0)",
-                  ),
-                );
-              }
-              unsupportedColorFunction.lastIndex = 0;
-            });
-
-          const clonedRoot = clonedDocument.querySelector(
-            ".leaflet-container",
-          ) as HTMLElement | null;
-          if (!clonedRoot) return;
-          const originalElements = [
-            mapElement,
-            ...Array.from(mapElement.querySelectorAll<HTMLElement>("*")),
-          ];
-          const clonedElements = [
-            clonedRoot,
-            ...Array.from(clonedRoot.querySelectorAll<HTMLElement>("*")),
-          ];
-          const colorProperties = [
-            "color",
-            "backgroundColor",
-            "borderTopColor",
-            "borderRightColor",
-            "borderBottomColor",
-            "borderLeftColor",
-            "outlineColor",
-            "textDecorationColor",
-            "fill",
-            "stroke",
-          ] as const;
-          originalElements.forEach((original, index) => {
-            const cloned = clonedElements[index];
-            if (!cloned) return;
-            const computed = window.getComputedStyle(original);
-            colorProperties.forEach((property) => {
-              const cssProperty = property.replace(
-                /[A-Z]/g,
-                (m) => `-${m.toLowerCase()}`,
-              );
-              const value = computed.getPropertyValue(cssProperty);
-              if (value && !/(?:oklch|oklab|color)\(/i.test(value)) {
-                (cloned.style as any)[property] = value;
-              }
-            });
-          });
-        },
-      });
-
-      const JsPDF = jspdfNamespace.jsPDF || (window as any).jspdf?.jsPDF;
-      if (!JsPDF) throw new Error("Library jsPDF tidak tersedia.");
-
-      const pdf = new JsPDF({
-        orientation: "landscape",
-        unit: "mm",
-        format: "a4",
-        compress: true,
-      });
-
-      const pageWidth = 297;
-      const pageHeight = 210;
-      const margin = 8;
-      const titleHeight = 18;
-      const availableWidth = pageWidth - margin * 2;
-      const availableHeight = pageHeight - margin * 2 - titleHeight;
-      const imageRatio = canvas.width / canvas.height;
-      let imageWidth = availableWidth;
-      let imageHeight = imageWidth / imageRatio;
-      if (imageHeight > availableHeight) {
-        imageHeight = availableHeight;
-        imageWidth = imageHeight * imageRatio;
-      }
-
-      const imageX = (pageWidth - imageWidth) / 2;
-      const imageY = margin + titleHeight;
-
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(13);
-      pdf.text("SIMITI • Peta Kawasan Rawan", margin, margin + 5);
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(8);
-      pdf.text(`Wilayah: ${exportName}`, margin, margin + 10, {
-        maxWidth: availableWidth,
-      });
-      pdf.setFontSize(7);
-      pdf.text(
-        `Dicetak dari SIMITI GIS • ${new Date().toLocaleString("id-ID")}`,
-        margin,
-        margin + 14,
-      );
-
-      pdf.addImage(
-        canvas.toDataURL("image/jpeg", 0.92),
-        "JPEG",
-        imageX,
-        imageY,
-        imageWidth,
-        imageHeight,
-        undefined,
-        "FAST",
-      );
-      pdf.save(`Peta_SIMITI_${safeFileName}.pdf`);
-    } catch (error: any) {
-      console.error("Gagal membuat PDF peta:", error);
-      alert(
-        error?.message ||
-          "Gagal membuat PDF. Pastikan peta sudah selesai dimuat dan koneksi internet tersedia.",
-      );
-    } finally {
-      // Kembalikan viewport asli setelah snapshot agar posisi peta di halaman
-      // tidak berubah akibat proses download.
-      if (
-        originalMapCenter &&
-        originalMapZoom !== null &&
-        typeof (map as any).setView === "function"
-      ) {
-        try {
-          (map as any).setView(originalMapCenter, originalMapZoom, {
-            animate: false,
-          });
-        } catch (restoreMapError) {
-          console.warn("SIMITI: posisi peta awal tidak dapat dipulihkan:", restoreMapError);
-        }
-      }
-      if (titleOverlay) titleOverlay.style.display = originalTitleDisplay;
-      controls.forEach((el, index) => {
-        el.style.display = originalControlDisplays[index] || "";
-      });
-    }
-  };
-
-  const bottomLegendRiskLayers = [
-    "risiko_banjir",
-    "risiko_banjir_bandang",
-    "risiko_kekeringan",
-    "risiko_abrasi",
-    "risiko_longsor",
-    "risiko_karhutla",
-  ] as const;
-
-  const bottomActiveRiskLayers = bottomLegendRiskLayers.filter((name) =>
-    activeLayers.has(name),
-  );
-  const bottomActiveInfraLayers = INFRA_LAYERS.filter((layer) =>
-    activeLayers.has(layer.id),
-  );
-
-  useEffect(() => {
-    if (bottomActiveInfraLayers.length === 0) {
-      setActiveInfraSummaryLayer(null);
-      return;
-    }
-    if (
-      !bottomActiveInfraLayers.some(
-        (layer) => layer.id === activeInfraSummaryLayer,
-      )
-    ) {
-      setActiveInfraSummaryLayer(bottomActiveInfraLayers[0].id);
-    }
-  }, [activeLayers, activeInfraSummaryLayer]);
-
-  const bottomValue = (v: any) => {
-    const textValue = String(v ?? "").trim();
-    return textValue || "-";
-  };
-
-  const bottomIncidentDate = (date: any) => {
-    if (!date) return "-";
-    const parsed = new Date(date);
-    if (Number.isNaN(parsed.getTime())) return String(date);
-    return parsed.toLocaleDateString("id-ID", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  };
-
-  const bottomIncidentTone = (category: any) => {
-    const lower = String(category ?? "").toLowerCase();
-    if (lower.includes("banjir")) {
-      return "border-blue-200 bg-blue-50 text-blue-700";
-    }
-    if (lower.includes("longsor")) {
-      return "border-amber-200 bg-amber-50 text-amber-700";
-    }
-    if (lower.includes("karhutla") || lower.includes("kebakaran")) {
-      return "border-orange-200 bg-orange-50 text-orange-700";
-    }
-    return "border-slate-200 bg-slate-50 text-slate-600";
   };
 
   return (
-    <div className={`kerawanan-root flex h-screen w-full overflow-hidden bg-[#f4f7f6] text-slate-800 ${isLoadingLayer || loadingLayerNames.size > 0 ? "simiti-data-loading" : ""}`}>
-      <style>{`
-        /* SIMITI: GLOBAL DATA LOADING CURSOR */
-        .kerawanan-root.simiti-data-loading,
-        .kerawanan-root.simiti-data-loading * {
-          cursor: progress !important;
+    <div className="flex h-screen w-screen overflow-hidden bg-gray-100">
+      <style>
+        {`
+        .custom-kejadian-marker {
+          background: none;
+          border: none;
         }
-
-        @media print {
-          @page {
-            size: A4 landscape;
-            margin: 8mm;
-          }
-
-          html, body {
-            width: 100% !important;
-            height: 100% !important;
-            overflow: visible !important;
-            background: #fff !important;
-          }
-
-          body * {
-            visibility: hidden !important;
-          }
-
-          .kerawanan-map,
-          .kerawanan-map * {
-            visibility: visible !important;
-          }
-
-          .kerawanan-map {
-            position: fixed !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100vw !important;
-            height: calc(100vh - 16mm) !important;
-            min-height: 0 !important;
-            max-height: none !important;
-            border: 0 !important;
-            border-radius: 0 !important;
-
-            overflow: hidden !important;
-            background: #fff !important;
-          }
-
-          .kerawanan-map .leaflet-control-container,
-          .kerawanan-map .leaflet-control,
-          .kerawanan-map button,
-          .kerawanan-map input,
-          .kerawanan-map .mockup-map-search {
-            display: none !important;
-          }
-
-          .kerawanan-map .leaflet-tile,
-          .kerawanan-map .leaflet-marker-icon,
-          .kerawanan-map .leaflet-overlay-pane,
-          .kerawanan-map .leaflet-shadow-pane,
-          .kerawanan-map .leaflet-marker-pane,
-          .kerawanan-map .leaflet-tooltip-pane,
-          .kerawanan-map .leaflet-popup-pane {
-            visibility: visible !important;
-          }
-
-          .kerawanan-map .leaflet-container {
-            background: #eaf4f8 !important;
-            width: 100% !important;
-            height: 100% !important;
-          }
-
-          .kerawanan-map .print-map-title {
-            display: block !important;
-          }
+        
+        .marker-container:hover .marker-bg {
+          fill: #ef4444 !important;
         }
-
-        /* Kontrol navigasi Leaflet: tersusun vertikal, tidak menutupi overlay atas. */
-        .kerawanan-map .leaflet-bottom.leaflet-right {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-          gap: 7px;
-          margin: 0 12px 12px 0;
+        
+        .custom-kejadian-popup .leaflet-popup-content-wrapper {
+          border-radius: 12px;
+          padding: 0;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.15);
         }
-
-        .kerawanan-map .leaflet-bottom.leaflet-right .leaflet-control {
+        
+        .custom-kejadian-popup .leaflet-popup-content {
           margin: 0;
+          width: 280px !important;
         }
-
-        .kerawanan-map .simiti-default-extent-control a {
-          display: block;
-          width: 30px;
-          height: 30px;
-          line-height: 30px;
-          text-align: center;
-          color: #334155;
-          background: #fff;
-          text-decoration: none;
-          cursor: pointer;
-        }
-
-        .kerawanan-map .simiti-default-extent-control a:hover {
-          background: #f1f5f9;
-          color: #047857;
-        }
-
-        .print-map-title {
+        
+        .custom-kejadian-popup .leaflet-popup-tip {
           display: none;
         }
-
-        .custom-kejadian-marker { background:none; border:none; }
-        .gps-location-tooltip {
-          border: 0 !important;
-          border-radius: 999px !important;
-          padding: 5px 9px !important;
-          background: #064e3b !important;
-          color: #fff !important;
-          font-size: 11px !important;
-          font-weight: 700 !important;
-          box-shadow: 0 5px 18px rgba(15,23,42,.18) !important;
-        }
-        .gps-location-tooltip:before { border-top-color: #064e3b !important; }
-        .marker-container:hover .marker-bg { fill:#ef4444 !important; }
-        .custom-kejadian-popup .leaflet-popup-content-wrapper { border-radius:12px; padding:0; box-shadow:0 8px 30px rgba(15,23,42,.16); }
-        .custom-kejadian-popup .leaflet-popup-content { margin:0; width:280px !important; }
-        .custom-kejadian-popup .leaflet-popup-tip { display:none; }
-        .dashboard-scroll::-webkit-scrollbar { width:6px; height:6px; }
-        .dashboard-scroll::-webkit-scrollbar-thumb { background:#b8c9c2; border-radius:999px; }
-        .mockup-map-search input::placeholder { color:#94a3b8; }
-        .mockup-chip { white-space:nowrap; }
-
-        /* Enterprise responsive shell */
-        .enterprise-sidebar { transition: transform .25s ease, box-shadow .25s ease; }
-        .mobile-topbar { display:none; }
-        .mobile-menu-button { border:0; background:#064238; color:#fff; width:38px; height:38px; border-radius:10px; align-items:center; justify-content:center; flex-direction:column; gap:4px; box-shadow:0 4px 14px rgba(6,66,56,.18); }
-        .mobile-menu-button span { display:block; width:16px; height:2px; border-radius:999px; background:currentColor; }
-        .mobile-page-title { font-size:11px; font-weight:800; color:#0f513f; letter-spacing:.02em; }
-        .mobile-page-title span { color:#94a3b8; font-weight:600; }
-        .admin-boundary-tooltip { border:0; border-radius:8px; box-shadow:0 6px 18px rgba(15,23,42,.16); font-size:11px; font-weight:700; }
-
-        /* =========================================================
-           SIMITI Enterprise Responsive UI — UI ONLY
-           No data/API/business logic is changed.
-           ========================================================= */
-        html, body, #root { min-height: 100%; }
-        .kerawanan-workspace { min-width: 0; min-height: 0; }
-        /* =====================================================
-           RIGHT LAYER PANEL — DESKTOP OVERLAY
-           Panel tidak mengambil kolom grid.
-           Map tetap full width dan panel mengambang di kanan.
-           ===================================================== */
-        /* Bottom Summary — clean enterprise */
-.kerawanan-bottom-summary {
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
-}
-
-.kerawanan-bottom-summary::before,
-.kerawanan-bottom-summary::after {
-  display: none !important;
-  content: none !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-@media (min-width: 1280px) {
-          .kerawanan-workspace {
-            grid-template-columns: minmax(0, 1fr) !important;
-            grid-template-rows: minmax(0, 1fr) 160px !important;
-            position: relative !important;
-            overflow: hidden !important;
-          }
-
-          .kerawanan-map {
-            grid-column: 1 !important;
-            grid-row: 1 !important;
-            width: 100% !important;
-            min-width: 0 !important;
-            min-height: 0 !important;
-          }
-
-          .kerawanan-layer-panel {
-            position: absolute !important;
-            top: 12px !important;
-            right: 12px !important;
-            bottom: 12px !important;
-            width: 350px !important;
-            min-width: 350px !important;
-            max-width: 350px !important;
-            height: auto !important;
-            min-height: 0 !important;
-            max-height: none !important;
-            grid-column: auto !important;
-            grid-row: auto !important;
-            z-index: 1300 !important;
-          }
-
-          .kerawanan-layer-panel > div {
-            height: 100% !important;
-          }
-
-          .kerawanan-bottom-summary {
-
-            grid-column: 1 !important;
-            grid-row: 2 !important;
-            width: 100% !important;
-            height: 160px !important;
-            min-height: 0 !important;
-            max-height: 160px !important;
-          }
-
-@media (min-width: 1280px) {
-  .kerawanan-bottom-summary {
-
-  }
-}
-        }
-        @media (min-width: 1280px) {
-          .kerawanan-workspace { height: 100%; }
-          .kerawanan-map { min-height: 0 !important; }
-          .kerawanan-bottom-summary {
-
-  outline: none !important; min-height: 0 !important; }
-        }
-        .kerawanan-map,
-        .kerawanan-layer-panel,
-        .kerawanan-bottom-summary {
-
-  outline: none !important; min-width: 0; }
-        /* Desktop: 3 panel tetap sejajar.
-           Kejadian dibuat lebih sempit, Legenda diperlebar,
-           Mitigasi & Adaptasi tetap berada di sisi kanan. */
-        .kerawanan-bottom-summary {
-
-          grid-template-columns: minmax(220px, 0.78fr) minmax(0, 1.32fr) minmax(0, 1.15fr) !important;
-          gap: 0;
-          min-height: 0 !important;
-          max-height: 200px;
-          height: 200px;
-        }
-        .kerawanan-bottom-summary > * {
-          min-width: 0 !important;
-          min-height: 0 !important;
-          height: 100%;
-          overflow: hidden;
-          border-left: 0 !important;
-          border-right: 0 !important;
-        }
-        .kerawanan-bottom-summary > * + * {
-          border-left: 1px solid #e2e8f0 !important;
-        }
-        .kerawanan-bottom-summary .dashboard-scroll {
-          min-height: 0;
-          scrollbar-gutter: stable;
-        }
-        .kerawanan-bottom-summary table {
-          table-layout: auto;
-        }
-
-/* Urutan panel bawah: Kejadian Terkini | Legenda | Mitigasi & Adaptasi */
-.kerawanan-bottom-summary > :nth-child(1) { order: 1; }
-.kerawanan-bottom-summary > :nth-child(2) { order: 2; }
-.kerawanan-bottom-summary > :nth-child(3) { order: 3; }
-        .kerawanan-layer-panel { position: relative; z-index: 20; }
-        .kerawanan-bottom-summary {
-
-  outline: none !important; position: relative; z-index: 10; }
-        .kerawanan-bottom-summary button { min-width: 0; }
-
-        /* Panel bawah enterprise: selalu 200px saat terbuka. */
-        /* =====================================================
-           RIGHT LAYER PANEL — DESKTOP OVERLAY
-           Panel tidak mengambil kolom grid.
-           Map tetap full width dan panel mengambang di kanan.
-           ===================================================== */
-        @media (min-width: 1280px) {
-          .kerawanan-workspace {
-            grid-template-columns: minmax(0, 1fr) !important;
-            grid-template-rows: minmax(0, 1fr) 160px !important;
-            position: relative !important;
-            overflow: hidden !important;
-          }
-
-          .kerawanan-map {
-            grid-column: 1 !important;
-            grid-row: 1 !important;
-            width: 100% !important;
-            min-width: 0 !important;
-            min-height: 0 !important;
-          }
-
-          .kerawanan-layer-panel {
-            position: absolute !important;
-            top: 12px !important;
-            right: 12px !important;
-            bottom: 12px !important;
-            width: 350px !important;
-            min-width: 350px !important;
-            max-width: 350px !important;
-            height: auto !important;
-            min-height: 0 !important;
-            max-height: none !important;
-            grid-column: auto !important;
-            grid-row: auto !important;
-            z-index: 1300 !important;
-          }
-
-          .kerawanan-layer-panel > div {
-            height: 100% !important;
-          }
-
-          .kerawanan-bottom-summary {
-
-            grid-column: 1 !important;
-            grid-row: 2 !important;
-            width: 100% !important;
-            height: 160px !important;
-            min-height: 0 !important;
-            max-height: 160px !important;
-          }
-        }
-        @media (min-width: 1280px) {
-          .kerawanan-workspace {
-            grid-template-rows: minmax(0, 1fr) 160px !important;
-            row-gap: 8px !important;
-          }
-          .kerawanan-bottom-summary {
-
-            height: 160px !important;
-            max-height: 160px !important;
-            min-height: 0 !important;
-          }
-        }
-
-        @media (max-width: 1279px) {
-          .kerawanan-workspace {
-            height: auto !important;
-            min-height: 100% !important;
-            grid-template-columns: minmax(0, 1fr) !important;
-            grid-template-rows: auto !important;
-            gap: 10px !important;
-          }
-          .kerawanan-map {
-            grid-column: 1 / -1 !important;
-            grid-row: auto !important;
-            height: clamp(460px, 62vh, 720px) !important;
-            min-height: 420px !important;
-          }
-          .kerawanan-layer-panel {
-            grid-column: 1 / -1 !important;
-            grid-row: auto !important;
-            min-height: 360px !important;
-            max-height: min(62vh, 620px) !important;
-          }
-          .kerawanan-bottom-summary {
-
-            grid-column: 1 / -1 !important;
-            grid-row: auto !important;
-            height: 160px !important;
-            max-height: 160px !important;
-            min-height: 0 !important;
-            overflow: hidden !important;
-            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-          }
-          .kerawanan-bottom-summary > * {
-            min-width: 0 !important;
-            min-height: 0 !important;
-            height: 160px !important;
-            max-height: 160px !important;
-          }
-        }
-
-        @media (max-width: 767px) {
-          .kerawanan-workspace { gap: 8px !important; }
-          .kerawanan-map {
-            height: clamp(420px, 64svh, 640px) !important;
-            min-height: 390px !important;
-            border-radius: 12px !important;
-          }
-          .kerawanan-layer-panel {
-            min-height: 320px !important;
-            max-height: 58svh !important;
-            border-radius: 12px !important;
-          }
-          .kerawanan-bottom-summary {
-
-            grid-template-columns: minmax(0, 1fr) !important;
-            gap: 8px !important;
-            height: auto !important;
-            max-height: none !important;
-            overflow: visible !important;
-          }
-          .kerawanan-bottom-summary > * {
-            min-height: 170px !important;
-            height: 240px;
-            border-radius: 12px !important;
-            border-left: 1px solid #e2e8f0 !important;
-          }
-          .kerawanan-map .mockup-map-search {
-            top: 10px !important;
-            left: 10px !important;
-            right: 10px !important;
-            width: auto !important;
-          }
-          .kerawanan-map .mockup-map-search > div:first-child {
-            height: 42px !important;
-            border-radius: 12px !important;
-          }
-          .kerawanan-map .mockup-map-search input {
-            font-size: 12px !important;
-            min-width: 0;
-          }
-          .kerawanan-map button[aria-controls="kerawanan-bottom-summary-panel"] {
-            width: 42px !important;
-            height: 30px !important;
-          }
-        }
-
-        @media (max-width: 479px) {
-          .kerawanan-map {
-            height: 56svh !important;
-            min-height: 360px !important;
-          }
-          .kerawanan-layer-panel { max-height: 54svh !important; }
-          .kerawanan-bottom-summary > * { min-height: 155px !important; height: 220px; }
-        }
-
-        @media (min-width: 1600px) {
-          .kerawanan-workspace { gap: 10px !important; }
-        }
-
-        @media (max-width: 1023px) and (orientation: landscape) {
-          .kerawanan-map { height: 72svh !important; min-height: 360px !important; }
-          .kerawanan-layer-panel { max-height: 70svh !important; }
-        }
-
-        @supports (padding: env(safe-area-inset-bottom)) {
-          .kerawanan-workspace { padding-bottom: max(0px, env(safe-area-inset-bottom)); }
-        }
-
-        .kerawanan-workspace * { min-width: 0; }
-        .kerawanan-workspace input,
-        .kerawanan-workspace select,
-        .kerawanan-workspace button { max-width: 100%; }
-
-        .kerawanan-workspace button:focus-visible,
-        .kerawanan-workspace input:focus-visible,
-        .kerawanan-workspace select:focus-visible {
-          outline: 2px solid rgba(16,185,129,.45);
-          outline-offset: 1px;
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .enterprise-sidebar,
-          .kerawanan-workspace *,
-          .kerawanan-workspace *::before,
-          .kerawanan-workspace *::after {
-            animation-duration: .01ms !important;
-            animation-iteration-count: 1 !important;
-            transition-duration: .01ms !important;
-            scroll-behavior: auto !important;
-          }
-        }
-        @media (max-width: 1279px) {
-          .enterprise-sidebar { position:fixed; inset:0 0 0 auto; width:270px; max-width:82vw; transform:translateX(105%); box-shadow:-16px 0 40px rgba(0,0,0,.22); }
-          .enterprise-sidebar.mobile-sidebar-open { transform:translateX(0); }
-          .mobile-topbar { display:flex; align-items:center; gap:10px; padding:8px 12px; min-height:52px; }
-          .mobile-topbar::after { content:""; position:fixed; inset:0; background:rgba(2,6,23,.42); z-index:-1; pointer-events:none; opacity:0; }
-          .enterprise-sidebar.mobile-sidebar-open ~ * { }
-        }
-        @media (max-width: 1279px) {
-          /* Tombol navigasi tetap terlihat di atas peta pada tablet dan ponsel. */
-          .mobile-menu-button {
-            display: flex !important;
-            position: fixed !important;
-            top: 10px !important;
-            left: 10px !important;
-            z-index: 10000 !important;
-            width: 42px !important;
-            height: 42px !important;
-            flex: 0 0 42px !important;
-            background: #064238 !important;
-            color: #fff !important;
-            border: 1px solid rgba(255,255,255,.75) !important;
-            box-shadow: 0 4px 16px rgba(2, 24, 20, .35) !important;
-          }
-          .enterprise-sidebar { z-index: 10010 !important; }
-          .mockup-map-search { padding-left: 48px !important; }
-        }
-        @media (max-width: 767px) {
-          .mobile-topbar { padding:7px 10px; min-height:48px; }
-          .mockup-map-search input { font-size:11px; }
-          .kerawanan-map { width:100% !important; overflow:hidden !important; }
-        }
-        /* =====================================================
-           RIGHT LAYER PANEL — DESKTOP OVERLAY
-           Panel tidak mengambil kolom grid.
-           Map tetap full width dan panel mengambang di kanan.
-           ===================================================== */
-        @media (min-width: 1280px) {
-          .kerawanan-workspace {
-            grid-template-columns: minmax(0, 1fr) !important;
-            grid-template-rows: minmax(0, 1fr) 160px !important;
-            position: relative !important;
-            overflow: hidden !important;
-          }
-
-          .kerawanan-map {
-            grid-column: 1 !important;
-            grid-row: 1 !important;
-            width: 100% !important;
-            min-width: 0 !important;
-            min-height: 0 !important;
-          }
-
-          .kerawanan-layer-panel {
-            position: absolute !important;
-            top: 12px !important;
-            right: 12px !important;
-            bottom: 12px !important;
-            width: 350px !important;
-            min-width: 350px !important;
-            max-width: 350px !important;
-            height: auto !important;
-            min-height: 0 !important;
-            max-height: none !important;
-            grid-column: auto !important;
-            grid-row: auto !important;
-            z-index: 1300 !important;
-          }
-
-          .kerawanan-layer-panel > div {
-            height: 100% !important;
-          }
-
-          .kerawanan-bottom-summary {
-
-            grid-column: 1 !important;
-            grid-row: 2 !important;
-            width: 100% !important;
-            height: 160px !important;
-            min-height: 0 !important;
-            max-height: 160px !important;
-          }
-        }
-        @media (min-width: 1280px) {
-          .mobile-menu-button { display:none !important; }
-        }
-
-        /* Tombol untuk memunculkan kembali panel layer kanan saat disembunyikan. */
-        .kerawanan-panel-reopen {
-          position: absolute;
-          top: 16px;
-          right: 14px;
-          z-index: 1400;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          min-height: 40px;
-          padding: 0 14px;
-          border: 1px solid #dbe4ee;
-          border-radius: 12px;
-          background: rgba(255,255,255,.96);
-          color: #0f172a;
-          box-shadow: 0 8px 24px rgba(15,23,42,.16);
-          font-size: 12px;
-          font-weight: 700;
-          cursor: pointer;
-          backdrop-filter: blur(8px);
-        }
-        .kerawanan-panel-reopen:hover {
-          background: #f8fafc;
-          border-color: #94a3b8;
-        }
-        .kerawanan-panel-reopen:focus-visible {
-          outline: 3px solid rgba(16,185,129,.35);
-          outline-offset: 2px;
-        }
-
-        /* =========================================================
-           SIMITI Enterprise Visual System — typography & density
-           UI presentation only; no API/data/business logic changes.
-           ========================================================= */
-        .kerawanan-workspace,
-        .kerawanan-workspace * {
-          -webkit-font-smoothing: antialiased;
-          -moz-osx-font-smoothing: grayscale;
-        }
-
-        /* Bring micro-copy up to a readable enterprise baseline. */
-        .kerawanan-workspace [class~="text-[7px]"] { font-size: 10px !important; line-height: 1.35 !important; }
-        .kerawanan-workspace [class~="text-[8px]"] { font-size: 10.5px !important; line-height: 1.4 !important; }
-        .kerawanan-workspace [class~="text-[9px]"] { font-size: 11px !important; line-height: 1.45 !important; }
-        .kerawanan-workspace [class~="text-[10px]"] { font-size: 12px !important; line-height: 1.45 !important; }
-        .kerawanan-workspace [class~="text-[11px]"] { font-size: 12.5px !important; line-height: 1.45 !important; }
-        .kerawanan-workspace [class~="text-xs"] { font-size: 12px !important; line-height: 1.45 !important; }
-        .kerawanan-workspace [class~="text-sm"] { font-size: 13px !important; line-height: 1.5 !important; }
-
-        /* Consistent controls: compact, but comfortable for desktop use. */
-        .kerawanan-workspace input,
-        .kerawanan-workspace select {
-          font-size: 12px;
-          line-height: 1.35;
-        }
-        .kerawanan-workspace input::placeholder {
-          font-size: 11.5px;
-        }
-        .kerawanan-workspace button {
-          letter-spacing: .005em;
-        }
-
-        /* Enterprise cards / panels. */
-        .kerawanan-workspace .rounded-lg,
-        .kerawanan-workspace .rounded-xl,
-        .kerawanan-workspace .rounded-2xl {
-          --tw-ring-offset-shadow: 0 0 #0000;
-        }
-        .kerawanan-workspace .shadow-sm {
-          box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 4px 14px rgba(15,23,42,.035) !important;
-        }
-        .kerawanan-workspace .border-slate-200 {
-          border-color: #dbe3e8 !important;
-        }
-
-        /* Better section headers without making the interface oversized. */
-        .kerawanan-workspace h3 {
-          line-height: 1.3;
-          letter-spacing: -.01em;
-        }
-        .kerawanan-workspace h4 {
-          line-height: 1.35;
-          letter-spacing: .01em;
-        }
-
-        /* Layer manager: readable density and clear hierarchy. */
-        .kerawanan-layer-panel {
-          font-size: 12px;
-        }
-        .kerawanan-layer-panel .font-extrabold,
-        .kerawanan-layer-panel .font-bold {
-          letter-spacing: .005em;
-        }
-
-        /* Search and toolbar surfaces. */
-        .mockup-map-search input {
-          font-size: 12px !important;
-          font-weight: 500;
-        }
-        .mockup-map-search {
-          filter: drop-shadow(0 6px 16px rgba(15,23,42,.08));
-        }
-
-        /* Data labels: avoid the old tiny “dashboard” look. */
-        .kerawanan-workspace .uppercase {
-          letter-spacing: .07em;
-        }
-
-        @media (max-width: 1279px) {
-          .kerawanan-workspace [class~="text-[7px]"] { font-size: 9.5px !important; }
-          .kerawanan-workspace [class~="text-[8px]"] { font-size: 10px !important; }
-          .kerawanan-workspace [class~="text-[9px]"] { font-size: 10.5px !important; }
-          .kerawanan-workspace [class~="text-[10px]"] { font-size: 11.5px !important; }
-        }
-
-        @media (max-width: 767px) {
-          .kerawanan-workspace [class~="text-[7px]"] { font-size: 9px !important; }
-          .kerawanan-workspace [class~="text-[8px]"] { font-size: 9.5px !important; }
-          .kerawanan-workspace [class~="text-[9px]"] { font-size: 10px !important; }
-          .kerawanan-workspace [class~="text-[10px]"] { font-size: 11px !important; }
-          .kerawanan-workspace input,
-          .kerawanan-workspace select { font-size: 11.5px; }
-        }
-
-        /* =========================================================
-           SIMITI FINAL — BOTTOM SUMMARY ENTERPRISE
-           Kejadian kecil | Legenda lebar | Mitigasi & Adaptasi kanan
-           ========================================================= */
-
-        .kerawanan-bottom-summary {
-          display: grid !important;
-          grid-template-columns:
-            minmax(170px, 0.68fr)
-            minmax(420px, 1.75fr)
-            minmax(240px, 1fr) !important;
-
-          width: 100% !important;
-          min-width: 0 !important;
-          max-width: 100% !important;
-
-          gap: 0 !important;
-          align-items: stretch !important;
-
-          overflow: hidden !important;
-        }
-
-        .kerawanan-bottom-summary > * {
-          min-width: 0 !important;
-          width: 100% !important;
-          max-width: 100% !important;
-          overflow: hidden !important;
-        }
-
-        .kerawanan-bottom-summary table {
-          width: 100% !important;
-          max-width: 100% !important;
-          table-layout: fixed !important;
-        }
-
-        .kerawanan-bottom-summary img,
-        .kerawanan-bottom-summary svg {
-          max-width: 100% !important;
-        }
-
-        /* Desktop */
-        @media (min-width: 1280px) {
-          .kerawanan-bottom-summary {
-            grid-template-columns:
-              minmax(170px, 0.68fr)
-              minmax(420px, 1.75fr)
-              minmax(240px, 1fr) !important;
-
-            grid-template-rows: minmax(0, 1fr) !important;
-
-            height: 200px !important;
-            min-height: 0 !important;
-            max-height: 200px !important;
-          }
-
-          .kerawanan-bottom-summary > * {
-            height: 100% !important;
-            min-height: 0 !important;
-            max-height: 200px !important;
-          }
-        }
-
-        /* Wide enterprise monitor */
-        @media (min-width: 1600px) {
-          .kerawanan-bottom-summary {
-            grid-template-columns:
-              minmax(190px, 0.68fr)
-              minmax(500px, 1.85fr)
-              minmax(270px, 1fr) !important;
-          }
-        }
-
-        /* Laptop */
-        @media (min-width: 1024px) and (max-width: 1279px) {
-          .kerawanan-bottom-summary {
-            grid-template-columns:
-              minmax(150px, 0.65fr)
-              minmax(330px, 1.55fr)
-              minmax(220px, 1fr) !important;
-
-            height: 185px !important;
-            max-height: 185px !important;
-          }
-        }
-      }
-
-        /* =========================================================
-           RESPONSIVE MAP FINAL — phone, tablet, laptop, desktop
-           Ukuran mengikuti viewport aktual; tidak mengubah API/layer.
-           ========================================================= */
-        .kerawanan-root {
-          width: 100%;
-          width: 100vw;
-          height: 100vh;
-          height: 100dvh;
-          min-height: 0;
-          min-width: 0;
-          overflow: hidden;
-        }
-        .kerawanan-root > .flex-1 {
-          min-width: 0;
-          min-height: 0;
-        }
-        .kerawanan-root main {
-          min-width: 0;
-          min-height: 0;
-        }
-        #simiti-map,
-        .kerawanan-map .leaflet-container {
-          width: 100% !important;
-          height: 100% !important;
-          min-width: 0 !important;
-          min-height: 0 !important;
-        }
-        .kerawanan-map {
-          width: 100%;
-          min-width: 0 !important;
-          max-width: 100%;
-          contain: layout paint;
-        }
-        .kerawanan-map .leaflet-control-container {
-          max-width: 100%;
-        }
-        .kerawanan-map .leaflet-top,
-        .kerawanan-map .leaflet-bottom {
-          z-index: 1200;
-        }
-        .kerawanan-map .leaflet-control-zoom a,
-        .kerawanan-map .simiti-default-extent-control a {
-          touch-action: manipulation;
-        }
-        .kerawanan-map .leaflet-bottom.leaflet-right {
-          display: flex !important;
-          flex-direction: column !important;
-          align-items: flex-end !important;
-          gap: 6px !important;
-          margin: 0 12px 12px 0 !important;
-        }
-        .kerawanan-map .leaflet-bottom.leaflet-right .leaflet-control {
-          float: none !important;
-          margin: 0 !important;
-        }
-        .kerawanan-map .leaflet-control-zoom,
-        .kerawanan-map .simiti-default-extent-control {
-          position: relative !important;
-          z-index: 1300 !important;
-          border: 1px solid rgba(148,163,184,.65) !important;
-          border-radius: 9px !important;
-          overflow: hidden !important;
-          background: #fff !important;
-          box-shadow: 0 3px 12px rgba(15,23,42,.24) !important;
-        }
-        .kerawanan-map .leaflet-control-zoom a {
-          display: flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-          width: 34px !important;
-          height: 34px !important;
-          font-size: 22px !important;
-          line-height: 1 !important;
-          color: #0f172a !important;
-          background: #fff !important;
-          opacity: 1 !important;
-        }
-        .kerawanan-map .simiti-default-extent-control a {
-          width: 34px !important;
-          height: 34px !important;
-          line-height: 34px !important;
-          color: #0f172a !important;
-          background: #fff !important;
-          opacity: 1 !important;
-        }
-
-        /* Tablet dan laptop kecil: peta menggunakan tinggi viewport, bukan tinggi tetap. */
-        @media (min-width: 768px) and (max-width: 1279px) {
-          .kerawanan-root main {
-            overflow-y: auto !important;
-            overflow-x: hidden !important;
-          }
-          .kerawanan-workspace {
-            flex: 0 0 auto !important;
-            height: auto !important;
-            min-height: 0 !important;
-            overflow: visible !important;
-            grid-template-rows: auto !important;
-          }
-          .kerawanan-map {
-            height: clamp(300px, 58dvh, 680px) !important;
-            min-height: 0 !important;
-          }
-          .kerawanan-layer-panel {
-            min-width: 0 !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            min-height: 280px !important;
-            max-height: 55dvh !important;
-          }
-          .kerawanan-bottom-summary {
-            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-            height: 180px !important;
-            max-height: 180px !important;
-          }
-        }
-
-        /* Smartphone portrait */
-        @media (max-width: 767px) {
-          .kerawanan-root {
-            height: 100vh;
-            height: 100dvh;
-          }
-          .kerawanan-root > .flex-1 {
-            width: 100%;
-            overflow: hidden;
-          }
-          .kerawanan-root main {
-            padding: 6px !important;
-            overflow-x: hidden !important;
-            overflow-y: auto !important;
-            overscroll-behavior-y: contain;
-          }
-          .kerawanan-workspace {
-            display: grid !important;
-            flex: 0 0 auto !important;
-            width: 100% !important;
-            height: auto !important;
-            min-height: 0 !important;
-            overflow: visible !important;
-            grid-template-columns: minmax(0, 1fr) !important;
-            grid-template-rows: auto !important;
-            gap: 8px !important;
-          }
-          .kerawanan-map {
-            grid-column: 1 / -1 !important;
-            width: 100% !important;
-            height: clamp(240px, 52dvh, 520px) !important;
-            min-height: 0 !important;
-            max-height: 65dvh !important;
-            border-radius: 10px !important;
-          }
-          .kerawanan-map .mockup-map-search {
-            left: 8px !important;
-            right: 8px !important;
-            top: 8px !important;
-            width: auto !important;
-            max-width: calc(100% - 16px) !important;
-          }
-          .kerawanan-map .mockup-map-search input {
-            width: 100% !important;
-            min-width: 0 !important;
-          }
-          .kerawanan-map .kerawanan-basemap-switcher {
-            top: 58px !important;
-            right: 8px !important;
-          }
-          .kerawanan-map .kerawanan-basemap-switcher button {
-            min-height: 34px !important;
-            padding: 6px 9px !important;
-            font-size: 10px !important;
-          }
-          .kerawanan-layer-panel {
-            grid-column: 1 / -1 !important;
-            width: 100% !important;
-            min-width: 0 !important;
-            max-width: 100% !important;
-            min-height: 260px !important;
-            max-height: 52dvh !important;
-          }
-          .kerawanan-bottom-summary {
-            grid-column: 1 / -1 !important;
-            grid-template-columns: minmax(0, 1fr) !important;
-            width: 100% !important;
-            height: auto !important;
-            max-height: none !important;
-            overflow: visible !important;
-            gap: 8px !important;
-          }
-          .kerawanan-bottom-summary > * {
-            width: 100% !important;
-            height: 200px !important;
-            min-height: 150px !important;
-            max-height: 240px !important;
-            border-left: 0 !important;
-          }
-          .kerawanan-bottom-summary > * + * {
-            border-top: 1px solid #e2e8f0 !important;
-          }
-          .kerawanan-map .leaflet-bottom.leaflet-right {
-            margin: 0 8px 8px 0 !important;
-            gap: 5px !important;
-          }
-          .kerawanan-map .leaflet-control-zoom a,
-          .kerawanan-map .simiti-default-extent-control a {
-            width: 28px !important;
-            height: 28px !important;
-            line-height: 28px !important;
-          }
-        }
-
-        /* =========================================================
-           FINAL MOBILE FIT PATCH — SIMITI
-           Sidebar menjadi overlay, workspace memakai lebar viewport penuh,
-           dan panel informasi tidak membuat halaman melebar ke samping.
-           UI only: tidak mengubah API, GIS layers, atau data.
-           ========================================================= */
-        html, body, #root {
-          width: 100%;
-          max-width: 100%;
-          overflow-x: clip !important;
-        }
-        @media (max-width: 767px) {
-          body { margin: 0 !important; }
-          #root { min-width: 0 !important; }
-          .mobile-topbar {
-            position: relative !important;
-            z-index: 1450 !important;
-            width: 100% !important;
-            max-width: 100vw !important;
-            box-sizing: border-box !important;
-            background: #fff !important;
-          }
-          .mobile-topbar > * { min-width: 0 !important; }
-          .mobile-page-title { min-width: 0 !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-          /* Pastikan sidebar tidak menyisakan kolom kosong di sisi peta. */
-          .enterprise-sidebar {
-            position: fixed !important;
-            top: 0 !important;
-            bottom: 0 !important;
-            left: 0 !important;
-            right: auto !important;
-            width: min(280px, 84vw) !important;
-            max-width: 84vw !important;
-            height: 100dvh !important;
-            z-index: 2000 !important;
-            transform: translateX(-110%) !important;
-            overflow-y: auto !important;
-          }
-          .enterprise-sidebar.mobile-sidebar-open { transform: translateX(0) !important; }
-          .kerawanan-workspace {
-            display: grid !important;
-            grid-template-columns: minmax(0, 1fr) !important;
-            grid-template-rows: auto minmax(0, 1fr) auto !important;
-            width: 100% !important;
-            max-width: 100vw !important;
-            margin-left: 0 !important;
-            padding-left: 8px !important;
-            padding-right: 8px !important;
-            box-sizing: border-box !important;
-            overflow: visible !important;
-          }
-          .kerawanan-map {
-            grid-column: 1 / -1 !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            height: clamp(390px, 61svh, 560px) !important;
-            min-height: 360px !important;
-            max-height: 68svh !important;
-            box-sizing: border-box !important;
-            overflow: hidden !important;
-          }
-          .kerawanan-map .leaflet-container { width: 100% !important; max-width: 100% !important; }
-          .kerawanan-layer-panel {
-            position: relative !important;
-            inset: auto !important;
-            grid-column: 1 / -1 !important;
-            width: 100% !important;
-            min-width: 0 !important;
-            max-width: 100% !important;
-            height: auto !important;
-            min-height: 0 !important;
-            max-height: 52svh !important;
-            overflow: auto !important;
-            box-sizing: border-box !important;
-          }
-          .kerawanan-bottom-summary {
-            grid-column: 1 / -1 !important;
-            display: grid !important;
-            grid-template-columns: minmax(0, 1fr) !important;
-            width: 100% !important;
-            min-width: 0 !important;
-            max-width: 100% !important;
-            height: auto !important;
-            max-height: none !important;
-            overflow: visible !important;
-            box-sizing: border-box !important;
-          }
-          .kerawanan-bottom-summary > * {
-            width: 100% !important;
-            min-width: 0 !important;
-            max-width: 100% !important;
-            min-height: 160px !important;
-            height: auto !important;
-            max-height: 280px !important;
-            box-sizing: border-box !important;
-            overflow: auto !important;
-            border-left: 0 !important;
-          }
-          .kerawanan-map .mockup-map-search {
-            left: 8px !important;
-            right: 8px !important;
-            top: 8px !important;
-            width: auto !important;
-            max-width: calc(100% - 16px) !important;
-          }
-          .kerawanan-map .mockup-map-search > div:first-child { width: 100% !important; max-width: 100% !important; }
-          .kerawanan-map .kerawanan-basemap-switcher { right: 8px !important; top: 58px !important; }
-          .kerawanan-map .leaflet-control-container { max-width: 100% !important; }
-        }
-        @media (max-width: 380px) {
-          .kerawanan-workspace { padding-left: 5px !important; padding-right: 5px !important; }
-          .kerawanan-map { height: 54svh !important; min-height: 330px !important; }
-          .mobile-menu-button { width: 34px !important; height: 34px !important; flex: 0 0 auto !important; }
-        }
-
-        /* Ponsel sangat pendek / mode landscape: hindari map lebih tinggi dari layar. */
-        @media (max-width: 767px) and (max-height: 500px) {
-          .kerawanan-map {
-            height: 68dvh !important;
-            min-height: 190px !important;
-            max-height: 72dvh !important;
-          }
-          .kerawanan-map .mockup-map-search {
-            top: 6px !important;
-          }
-          .kerawanan-map .kerawanan-basemap-switcher {
-            top: 54px !important;
-          }
-        }
-
-        /* FIX: tombol hide/unhide panel bawah harus menang dari aturan display:grid !important. */
-        .kerawanan-bottom-summary.kerawanan-bottom-summary-hidden {
-          display: none !important;
-          visibility: hidden !important;
-          pointer-events: none !important;
-        }
-        @media (min-width: 768px) {
-          .kerawanan-workspace.bottom-summary-closed {
-            grid-template-rows: minmax(0, 1fr) 0px !important;
-            row-gap: 0 !important;
-          }
-          .kerawanan-workspace.bottom-summary-open {
-            grid-template-rows: minmax(0, 1fr) 200px !important;
-            row-gap: 8px !important;
-          }
-        }
-
-                /* SIMITI RESPONSIVE SYSTEM — satu sumber aturan layout */
-        .kerawanan-root,
-        .kerawanan-root * {
-          box-sizing: border-box;
-        }
-
-        .kerawanan-root {
-          width: 100%;
-          max-width: 100%;
-          min-width: 0;
-          min-height: 0;
-        }
-
-        .kerawanan-workspace {
-          position: relative !important;
-          isolation: isolate;
-          min-width: 0 !important;
-          max-width: 100% !important;
-        }
-
-        .kerawanan-map {
-          position: relative;
-          min-width: 0 !important;
-          max-width: 100% !important;
-          overflow: hidden !important;
-        }
-
-        .kerawanan-map .leaflet-container {
-          width: 100% !important;
-          height: 100% !important;
-        }
-
-        .kerawanan-bottom-summary {
-          min-width: 0 !important;
-          max-width: 100% !important;
-          grid-template-columns:
-            minmax(0, 0.78fr)
-            minmax(0, 1.32fr)
-            minmax(0, 1.15fr) !important;
-        }
-
-        .kerawanan-bottom-summary > * {
-          min-width: 0 !important;
-          min-height: 0;
-          overflow-wrap: anywhere;
-        }
-
-        .kerawanan-bottom-summary.kerawanan-bottom-summary-hidden {
-          display: none !important;
-          visibility: hidden !important;
-          pointer-events: none !important;
-        }
-
-        .kerawanan-layer-panel,
-        .kerawanan-layer-panel * {
-          box-sizing: border-box;
-        }
-
-        .kerawanan-layer-panel {
-          display: flex !important;
-          flex-direction: column !important;
-          min-width: 0 !important;
-          min-height: 0 !important;
-        }
-
-        .kerawanan-layer-panel > div {
-          min-width: 0 !important;
-          min-height: 0 !important;
-        }
-
-        .kerawanan-layer-panel .dashboard-scroll {
-          flex: 1 1 auto !important;
-          min-width: 0 !important;
-          min-height: 0 !important;
-          overflow-x: hidden !important;
-          overflow-y: auto !important;
-          overscroll-behavior: contain;
-          -webkit-overflow-scrolling: touch;
-        }
-
-        .kerawanan-layer-panel input[type="checkbox"] {
-          flex: 0 0 auto;
-          accent-color: #059669;
-        }
-
-        .kerawanan-layer-panel label,
-        .kerawanan-layer-panel button {
-          min-width: 0;
-          overflow-wrap: anywhere;
-        }
-
-        .kerawanan-panel-reopen {
-          z-index: 1350 !important;
-          max-width: 100%;
-        }
-
-        .map-click-coordinate-card {
-          box-sizing: border-box !important;
-          max-width: 100%;
-          overflow-wrap: anywhere;
-        }
-
-        /* Desktop: map sebagai area utama, panel layer di kanan. */
-        @media (min-width: 1200px) {
-          .kerawanan-root main {
-            min-width: 0;
-            min-height: 0;
-            overflow: hidden;
-          }
-
-          .kerawanan-workspace {
-            height: 100%;
-            overflow: hidden !important;
-            grid-template-columns: minmax(0, 1fr) !important;
-          }
-
-          .kerawanan-workspace.bottom-summary-open {
-            grid-template-rows: minmax(0, 1fr) 200px !important;
-            row-gap: 8px !important;
-          }
-
-          .kerawanan-workspace.bottom-summary-closed {
-            grid-template-rows: minmax(0, 1fr) 0px !important;
-            row-gap: 0 !important;
-          }
-
-          .kerawanan-map {
-            grid-column: 1 !important;
-            grid-row: 1 !important;
-            width: 100% !important;
-            height: 100%;
-            min-height: 0 !important;
-          }
-
-          .kerawanan-layer-panel {
-            position: absolute !important;
-            top: 12px !important;
-            right: 12px !important;
-            bottom: 212px !important;
-            left: auto !important;
-            width: clamp(280px, 25vw, 350px) !important;
-            max-width: calc(100% - 24px) !important;
-            height: auto !important;
-            max-height: none !important;
-            z-index: 1300 !important;
-            overflow: hidden !important;
-          }
-
-          .kerawanan-workspace.bottom-summary-closed .kerawanan-layer-panel {
-            bottom: 12px !important;
-          }
-
-          .kerawanan-panel-reopen {
-            position: absolute !important;
-            top: 12px !important;
-            right: 12px !important;
-            bottom: auto !important;
-            left: auto !important;
-            width: auto;
-          }
-
-          .kerawanan-bottom-summary {
-            grid-column: 1 !important;
-            grid-row: 2 !important;
-            width: 100% !important;
-            height: 200px !important;
-            min-height: 0 !important;
-            max-height: 200px !important;
-            overflow: hidden !important;
-          }
-
-          .kerawanan-bottom-summary > * {
-            height: 100%;
-            max-height: 200px;
-            overflow: hidden;
-          }
-
-          .map-click-coordinate-card {
-            position: absolute !important;
-            top: 68px !important;
-            right: 12px !important;
-            left: auto !important;
-            z-index: 1450 !important;
-            width: clamp(250px, 23vw, 320px) !important;
-            max-width: calc(100% - 24px) !important;
-            max-height: min(360px, calc(100% - 230px)) !important;
-            margin: 0 !important;
-            overflow-y: auto !important;
-            box-shadow: 0 14px 35px rgba(15, 23, 42, 0.18) !important;
-          }
-        }
-
-        /* Tablet dan laptop kompak. */
-        @media (min-width: 768px) and (max-width: 1199px) {
-          .kerawanan-root main {
-            min-width: 0;
-            min-height: 0;
-            overflow-x: hidden !important;
-            overflow-y: auto !important;
-          }
-
-          .kerawanan-workspace {
-            flex: 1 1 auto !important;
-            height: 100% !important;
-            min-height: 0 !important;
-            overflow: hidden !important;
-          }
-
-          .kerawanan-workspace.bottom-summary-open {
-            grid-template-rows: minmax(340px, 1fr) 160px !important;
-            row-gap: 8px !important;
-          }
-
-          .kerawanan-workspace.bottom-summary-closed {
-            grid-template-rows: minmax(340px, 1fr) 0px !important;
-            row-gap: 0 !important;
-          }
-
-          .kerawanan-map {
-            grid-column: 1 !important;
-            grid-row: 1 !important;
-            height: 100% !important;
-            min-height: 0 !important;
-          }
-
-          .kerawanan-layer-panel {
-            position: absolute !important;
-            top: 10px !important;
-            right: 10px !important;
-            bottom: 172px !important;
-            left: auto !important;
-            width: clamp(240px, 28vw, 300px) !important;
-            max-width: calc(100% - 20px) !important;
-            height: auto !important;
-            max-height: none !important;
-            z-index: 1300 !important;
-            overflow: hidden !important;
-          }
-
-          .kerawanan-workspace.bottom-summary-closed .kerawanan-layer-panel {
-            bottom: 10px !important;
-          }
-
-          .kerawanan-panel-reopen {
-            position: absolute !important;
-            top: 10px !important;
-            right: 10px !important;
-            left: auto !important;
-            bottom: auto !important;
-          }
-
-          .kerawanan-bottom-summary {
-            grid-column: 1 !important;
-            grid-row: 2 !important;
-            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-            width: 100% !important;
-            height: 160px !important;
-            max-height: 160px !important;
-            min-height: 0 !important;
-            overflow: hidden !important;
-          }
-
-          .kerawanan-bottom-summary > * {
-            max-height: 160px;
-            overflow: hidden;
-          }
-
-          .map-click-coordinate-card {
-            position: absolute !important;
-            top: 64px !important;
-            right: 10px !important;
-            left: auto !important;
-            z-index: 1450 !important;
-            width: clamp(230px, 27vw, 290px) !important;
-            max-width: calc(100% - 20px) !important;
-            max-height: 260px !important;
-            overflow-y: auto !important;
-          }
-        }
-
-        /* HP: susun peta, panel layer, dan ringkasan secara vertikal. */
-        @media (max-width: 767px) {
-          .kerawanan-root {
-            width: 100% !important;
-            max-width: 100% !important;
-            min-width: 0 !important;
-            min-height: 100vh !important;
-            min-height: 100dvh !important;
-            overflow-x: hidden !important;
-          }
-
-          .kerawanan-root main {
-            min-width: 0 !important;
-            max-width: 100% !important;
-            padding: 6px !important;
-            overflow-x: hidden !important;
-            overflow-y: auto !important;
-            overscroll-behavior-y: contain;
-          }
-
-          .kerawanan-workspace {
-            display: grid !important;
-            position: relative !important;
-            isolation: auto;
-            flex: 0 0 auto !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            height: auto !important;
-            min-height: 0 !important;
-            grid-template-columns: minmax(0, 1fr) !important;
-            grid-template-rows: auto !important;
-            gap: 10px !important;
-            padding: 6px !important;
-            overflow: visible !important;
-          }
-
-          .kerawanan-map {
-            position: relative !important;
-            inset: auto !important;
-            grid-column: 1 !important;
-            grid-row: 1 !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            height: clamp(280px, 56dvh, 560px) !important;
-            min-height: 280px !important;
-            max-height: 65dvh !important;
-            border-radius: 12px !important;
-            overflow: hidden !important;
-          }
-
-          .kerawanan-map .leaflet-container {
-            width: 100% !important;
-            height: 100% !important;
-          }
-
-          .kerawanan-map .mockup-map-search {
-            top: 8px !important;
-            right: 8px !important;
-            left: 8px !important;
-            width: auto !important;
-            max-width: none !important;
-          }
-
-          .kerawanan-map .mockup-map-search input,
-          .kerawanan-map .mockup-map-search > div:first-child {
-            width: 100% !important;
-            min-width: 0 !important;
-            max-width: 100% !important;
-          }
-
-          .kerawanan-map .kerawanan-basemap-switcher {
-            top: 58px !important;
-            right: 8px !important;
-            max-width: calc(100% - 16px) !important;
-          }
-
-          .kerawanan-layer-panel {
-            position: relative !important;
-            inset: auto !important;
-            grid-column: 1 !important;
-            grid-row: auto !important;
-            width: 100% !important;
-            min-width: 0 !important;
-            max-width: 100% !important;
-            height: auto !important;
-            min-height: 0 !important;
-            max-height: min(58dvh, 520px) !important;
-            margin: 0 !important;
-            border-radius: 12px !important;
-            overflow: hidden !important;
-          }
-
-          .kerawanan-layer-panel > div {
-            width: 100% !important;
-            max-width: 100% !important;
-          }
-
-          .kerawanan-layer-panel .dashboard-scroll {
-            max-height: min(46dvh, 420px) !important;
-            padding-bottom: max(12px, env(safe-area-inset-bottom)) !important;
-            overflow-x: hidden !important;
-            overflow-y: auto !important;
-            -webkit-overflow-scrolling: touch;
-          }
-
-          .kerawanan-panel-reopen {
-            position: relative !important;
-            inset: auto !important;
-            grid-column: 1 !important;
-            grid-row: auto !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            min-height: 40px;
-          }
-
-          .kerawanan-bottom-summary:not(.kerawanan-bottom-summary-hidden) {
-            display: grid !important;
-            position: relative !important;
-            grid-column: 1 !important;
-            grid-row: auto !important;
-            grid-template-columns: minmax(0, 1fr) !important;
-            grid-template-rows: auto !important;
-            width: 100% !important;
-            min-width: 0 !important;
-            max-width: 100% !important;
-            height: auto !important;
-            min-height: 0 !important;
-            max-height: none !important;
-            overflow: visible !important;
-            border-radius: 12px !important;
-          }
-
-          .kerawanan-bottom-summary > * {
-            width: 100% !important;
-            min-width: 0 !important;
-            min-height: 120px !important;
-            height: auto !important;
-            max-height: 280px !important;
-            overflow: hidden !important;
-            border-left: 0 !important;
-            border-bottom: 1px solid #e2e8f0 !important;
-          }
-
-          .kerawanan-bottom-summary > * > div {
-            min-width: 0 !important;
-            max-width: 100% !important;
-            padding-top: 10px !important;
-            padding-bottom: 10px !important;
-          }
-
-          .kerawanan-bottom-summary .dashboard-scroll {
-            overflow-x: hidden !important;
-            overflow-y: auto !important;
-            -webkit-overflow-scrolling: touch;
-          }
-
-          .map-click-coordinate-card {
-            position: relative !important;
-            inset: auto !important;
-            width: 100% !important;
-            min-width: 0 !important;
-            max-width: 100% !important;
-            max-height: none !important;
-            margin: 8px 0 !important;
-            overflow-wrap: anywhere;
-          }
-
-          .kerawanan-root button,
-          .kerawanan-root input,
-          .kerawanan-root select,
-          .kerawanan-root textarea {
-            max-width: 100%;
-          }
-
-          .kerawanan-root input,
-          .kerawanan-root select,
-          .kerawanan-root textarea {
-            font-size: 16px;
-          }
-        }
-
-        /* HP kecil */
-        @media (max-width: 380px) {
-          .kerawanan-workspace {
-            padding: 4px !important;
-            gap: 8px !important;
-          }
-
-          .kerawanan-map {
-            height: 52dvh !important;
-            min-height: 260px !important;
-          }
-
-          .kerawanan-bottom-summary > * {
-            padding-left: 10px !important;
-            padding-right: 10px !important;
-          }
-        }
-
-        /* HP landscape: jaga area peta tetap bisa digunakan. */
-        @media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {
-          .kerawanan-root {
-            min-height: 100dvh !important;
-            overflow-y: auto !important;
-          }
-
-          .kerawanan-map {
-            height: 68dvh !important;
-            min-height: 200px !important;
-            max-height: none !important;
-          }
-        }
-              /* SIMITI: posisi switcher basemap dan judul peta. */
-        .kerawanan-map .kerawanan-basemap-switcher {
-          top: 12px !important;
-          left: 12px !important;
-          right: auto !important;
-          z-index: 3000 !important;
-          max-width: calc(100% - 24px) !important;
-        }
-
-        .kerawanan-map .print-map-title {
-          top: 12px !important;
-          right: 12px !important;
-          left: auto !important;
-          max-width: calc(100% - 180px) !important;
-          z-index: 1200 !important;
-        }
-
-        @media (max-width: 1199px) {
-          .kerawanan-map .kerawanan-basemap-switcher {
-            top: 58px !important;
-            left: 8px !important;
-            right: auto !important;
-            max-width: calc(100% - 16px) !important;
-          }
-
-          .kerawanan-map .print-map-title {
-            top: 100px !important;
-            left: 8px !important;
-            right: 8px !important;
-            max-width: calc(100% - 16px) !important;
-            z-index: 1200 !important;
-          }
-        }
-
-        @media (max-width: 767px) and (max-height: 500px) {
-          .kerawanan-map .kerawanan-basemap-switcher {
-            top: 54px !important;
-            left: 8px !important;
-            right: auto !important;
-          }
-        }
-
-
-        /* Saat panel bawah ditutup, hilangkan bingkai/ruang visual sisa agar peta terasa penuh. */
-        .kerawanan-workspace.bottom-summary-closed {
-          background: transparent !important;
-          padding-bottom: 0 !important;
-          row-gap: 0 !important;
-          grid-template-rows: minmax(0, 1fr) 0px !important;
-        }
-        .kerawanan-workspace.bottom-summary-closed > .kerawanan-map {
-          grid-row: 1 !important;
-          height: 100% !important;
-          min-height: 0 !important;
-          border: 0 !important;
-          border-radius: 0 !important;
-          box-shadow: none !important;
-          background: transparent !important;
-        }
-        .kerawanan-workspace.bottom-summary-closed > .kerawanan-bottom-summary {
-          display: none !important;
-          height: 0 !important;
-          min-height: 0 !important;
-          max-height: 0 !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          border: 0 !important;
-        }
-
-        /* HOTFIX: panel bawah ditutup tetap mempertahankan tinggi peta.
-           Override diletakkan paling akhir agar aturan responsive lama tidak
-           mengecilkan workspace/map menjadi area kosong pada viewport mobile. */
-        .kerawanan-workspace.bottom-summary-closed {
-          grid-template-rows: minmax(0, 1fr) 0px !important;
-          row-gap: 0 !important;
-          min-height: 0 !important;
-        }
-        .kerawanan-workspace.bottom-summary-closed > .kerawanan-map {
-          min-width: 0 !important;
-          min-height: 0 !important;
-          width: 100% !important;
-          max-width: 100% !important;
-          grid-row: 1 !important;
-        }
-        @media (max-width: 1279px) {
-          .kerawanan-root {
-            width: 100% !important;
-            max-width: 100vw !important;
-            overflow-x: hidden !important;
-          }
-          .kerawanan-root > .flex-1,
-          .kerawanan-root main {
-            width: 100% !important;
-            max-width: 100% !important;
-            min-width: 0 !important;
-          }
-          .kerawanan-workspace {
-            width: 100% !important;
-            max-width: 100% !important;
-            min-width: 0 !important;
-          }
-          .kerawanan-workspace.bottom-summary-closed {
-            display: grid !important;
-            height: auto !important;
-            grid-template-rows: minmax(420px, 1fr) 0px !important;
-            overflow: visible !important;
-          }
-          .kerawanan-workspace.bottom-summary-closed > .kerawanan-map {
-            height: clamp(420px, calc(100dvh - 80px), 900px) !important;
-            min-height: 420px !important;
-            max-height: none !important;
-            align-self: stretch !important;
-          }
-        }
-        @media (max-width: 767px) {
-          .kerawanan-root main {
-            padding: 0 !important;
-            overflow-x: hidden !important;
-          }
-          .kerawanan-workspace.bottom-summary-closed {
-            padding: 0 !important;
-            gap: 0 !important;
-            grid-template-rows: minmax(420px, 1fr) 0px !important;
-          }
-          .kerawanan-workspace.bottom-summary-closed > .kerawanan-map {
-            width: 100% !important;
-            height: clamp(420px, calc(100dvh - 56px), 900px) !important;
-            min-height: 420px !important;
-            border: 0 !important;
-            border-radius: 0 !important;
-            box-shadow: none !important;
-          }
-        }
-
-
-        /* SIMITI layout fix — panel layer memanjang, analytics bawah diringkas.
-           Hanya mengatur tampilan; tidak menyentuh state, API, atau logika GIS. */
-        @media (min-width: 1280px) {
-          .kerawanan-workspace.bottom-summary-open {
-            grid-template-rows: minmax(0, 1fr) 120px !important;
-            row-gap: 6px !important;
-          }
-          .kerawanan-workspace.bottom-summary-open > .kerawanan-layer-panel {
-            position: absolute !important;
-            top: 12px !important;
-            right: 12px !important;
-            bottom: 12px !important;
-            width: 350px !important;
-            min-width: 350px !important;
-            max-width: 350px !important;
-            height: auto !important;
-            max-height: none !important;
-            z-index: 1300 !important;
-          }
-          .kerawanan-workspace.bottom-summary-open > .kerawanan-bottom-summary {
-            height: 120px !important;
-            min-height: 120px !important;
-            max-height: 120px !important;
-            grid-row: 2 !important;
-            overflow: hidden !important;
-          }
-          .kerawanan-bottom-summary > * {
-            min-height: 0 !important;
-            height: 100% !important;
-            max-height: none !important;
-          }
-          .kerawanan-bottom-summary > * > div {
-            padding-top: 8px !important;
-            padding-bottom: 6px !important;
-          }
-        }
-        @media (min-width: 768px) and (max-width: 1279px) {
-          .kerawanan-workspace.bottom-summary-open {
-            grid-template-rows: minmax(360px, 1fr) 140px !important;
-          }
-          .kerawanan-workspace.bottom-summary-open > .kerawanan-bottom-summary {
-            height: 140px !important;
-            min-height: 140px !important;
-            max-height: 140px !important;
-          }
-        }
-        @media (max-width: 767px) {
-          .kerawanan-workspace.bottom-summary-open {
-            grid-template-rows: minmax(320px, 58dvh) auto !important;
-          }
-          .kerawanan-workspace.bottom-summary-open > .kerawanan-bottom-summary {
-            max-height: 280px !important;
-            overflow-y: auto !important;
-          }
-        }
-
-        `}</style>
-
-      {/* =========================================================
-          ENTERPRISE SIDEBAR
-          ========================================================= */}
-      <Sidebar
-        collapsed={sidebarCollapsed}
-        mobileOpen={mobileSidebarOpen}
-        onCloseMobile={() => setMobileSidebarOpen(false)}
-      />
-
-      {/* Desktop sidebar collapse / expand */}
-      <button
-        type="button"
-        className={`hidden md:flex fixed top-[20px] z-[4000] h-9 w-9 items-center justify-center rounded-lg border border-slate-700 bg-[#0F172A] text-slate-300 shadow-lg transition-all duration-300 hover:bg-slate-800 hover:text-white ${
-          sidebarCollapsed ? "left-[68px]" : "left-[270px]"
-        }`}
-        onClick={() => setSidebarCollapsed((v) => !v)}
-        aria-label={
-          sidebarCollapsed ? "Tampilkan sidebar" : "Sembunyikan sidebar"
-        }
-        title={sidebarCollapsed ? "Tampilkan sidebar" : "Sembunyikan sidebar"}
-      >
-        <span className="text-xl leading-none">
-          {sidebarCollapsed ? "›" : "‹"}
-        </span>
-      </button>
-
-      {/* Mobile menu trigger — hanya UI/sidebar, tidak menyentuh GIS */}
-      <button
-        type="button"
-        className="mobile-menu-button fixed left-3 top-3 z-[4000] md:hidden"
-        onClick={() => setMobileSidebarOpen(true)}
-        aria-label="Buka menu navigasi"
-        title="Buka menu navigasi"
-      >
-        <span />
-        <span />
-        <span />
-      </button>
-
-      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        {/* =========================================================
-            HEADER
-           ========================================================= */}
-        <div className="shrink-0 bg-white border-b border-slate-200 relative">
-          <Header currentPage="kerawanan" />
-          {isAuthenticated && (
-            <div className="px-4 py-1 bg-emerald-50 border-t border-emerald-100 flex items-center justify-between">
-              <span className="text-[10px] text-emerald-800 font-medium">
-                ● Logged in as Admin
-              </span>
+      `}
+      </style>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col">
+        {isAuthenticated && (
+          <div className="absolute top-0 left-0 right-0 bg-green-50 border-b border-green-200 px-6 py-2 z-[2100] shadow-md">
+            <div className="max-w-full flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#16a34a"
+                  strokeWidth="2"
+                >
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+                <span className="text-green-800 text-sm font-medium">
+                  Logged in as Admin
+                </span>
+              </div>
               <button
                 onClick={handleLogout}
-                className="text-[10px] font-semibold text-red-600"
+                className="px-4 py-1.5 bg-red-500 text-white text-sm rounded hover:bg-red-600 transition"
               >
                 Logout
               </button>
             </div>
-          )}
-        </div>
-
-        <main className="relative flex flex-1 min-h-0 flex-col p-2 md:p-3 overflow-y-auto xl:overflow-hidden">
-          {/* Toolbar aksi peta — sengaja di luar section Leaflet agar tombol tidak hilang/tertutup saat map rerender */}
-          <div className="mb-2 flex items-center justify-end gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
-            <span className="mr-auto text-[10px] text-slate-500">
-              {selectedAreas.length > 0 || selectedDas.length > 0
-                ? "Peta wilayah terpilih siap dicetak"
-                : "Pilih wilayah admin atau DAS terlebih dahulu"}
-            </span>
-            <button
-              type="button"
-              onClick={handleDownloadMapPdf}
-              disabled={selectedAreas.length === 0 && selectedDas.length === 0}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
-              title="Download peta wilayah terpilih sebagai PDF"
-            >
-              <span aria-hidden="true"></span>
-              Download Peta PDF
-            </button>
           </div>
-          <div
-            className={`kerawanan-workspace min-h-0 flex-1 grid grid-cols-1 gap-0 transition-[grid-template-rows] duration-300 ease-out ${isBottomSummaryOpen ? "bottom-summary-open" : "bottom-summary-closed"}`}
-            style={{
-              gridTemplateRows: isBottomSummaryOpen
-                ? "minmax(0, 1fr) 200px"
-                : "minmax(0, 1fr) 0px",
-              rowGap: isBottomSummaryOpen ? "8px" : "0px",
-            }}
-          >
-            {/* =====================================================
-                MAP — pusat visual seperti mockup
-               ===================================================== */}
-            <section className="kerawanan-map relative min-w-0 w-full min-h-0 xl:min-h-0 rounded-xl overflow-hidden bg-sky-100 border border-white shadow-sm">
-              <div ref={mapRef} id="simiti-map" className="absolute inset-0" />
+        )}
+        {/* Top Section: Map with Layer Panel - 65% height */}
+        <div className="relative flex" style={{ height: "65vh" }}>
+          {/* Map Container */}
+          <div className="flex-1 relative">
+            <div ref={mapRef} className="w-full h-full"></div>
+            {/* Coordinates Display */}
+            {/* <div className="absolute top-4 left-20 z-[1000] bg-white px-3 py-1.5 rounded shadow-lg">
+              <span className="font-mono text-xs">128.11, -11.78</span>
+            </div> */}
+          </div>
 
-              {/* BASEMAP SWITCHER */}
-              <div className="kerawanan-basemap-switcher absolute top-3 left-3 z-[3000] flex overflow-hidden rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-sm">
-                <button
-                  type="button"
-                  onClick={() => setBaseMapType("road")}
-                  className={`px-3 py-2 text-[11px] font-semibold transition-colors ${
-                    baseMapType === "road"
-                      ? "bg-emerald-600 text-white"
-                      : "text-slate-600 hover:bg-slate-50"
-                  }`}
-                  title="Peta Jalan"
-                >
-                  Road
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setBaseMapType("satellite")}
-                  className={`border-l border-slate-200 px-3 py-2 text-[11px] font-semibold transition-colors ${
-                    baseMapType === "satellite"
-                      ? "bg-emerald-600 text-white"
-                      : "text-slate-600 hover:bg-slate-50"
-                  }`}
-                  title="Citra Satelit"
-                >
-                  Satellite
-                </button>
-              </div>
-
-              <div className="print-map-title absolute top-3 right-3 z-[3000] max-w-[calc(100%-180px)] rounded-lg bg-white/95 border border-slate-200 px-3 py-2 shadow-sm">
-                <div className="text-[15px] font-bold text-slate-800">
-                  SIMITI • Peta Kawasan Rawan
+          {/* Layer Services Panel - Smaller width */}
+          {isLayerPanelOpen && (
+            <div
+              className="w-80 bg-slate-50 text-slate-800 shadow-2xl flex flex-col border-l border-emerald-200"
+              style={{ height: "65vh" }}
+            >
+              {/* Header - Smaller */}
+              <div className="bg-gradient-to-r from-white via-emerald-50 to-slate-50 text-slate-900 px-4 py-4 flex items-center gap-3 flex-shrink-0 border-b border-emerald-200 shadow-sm">
+                <div className="h-10 w-10 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-800 flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20V6.5Z" />
+                    <path d="M9 4v13.5M15 6.5V20" />
+                  </svg>
                 </div>
-                <div className="mt-0.5 text-[10px] text-slate-600">
-                  Wilayah:{" "}
-                  {selectedAreas.length > 0
-                    ? selectedAreas
-                        .map((area: any) => area.label)
-                        .filter(Boolean)
-                        .join(", ")
-                    : selectedDas
-                        .map((das: any) => das.nama_das)
-                        .filter(Boolean)
-                        .join(", ")}
-                </div>
-                <div className="mt-0.5 text-[9px] text-slate-400">
-                  Dicetak dari SIMITI GIS
+                <div className="min-w-0">
+                  <h2 className="text-base font-extrabold tracking-[0.04em] leading-tight text-slate-950">
+                    SIMITIGASI
+                  </h2>
+                  <p className="text-xs font-semibold tracking-wide text-slate-600 mt-1">Layer Services</p>
                 </div>
               </div>
 
-              {/* Toggle panel bawah — selalu menempel di garis bawah peta */}
-              <button
-                type="button"
-                onClick={() => setIsBottomSummaryOpen((open) => !open)}
-                className="absolute left-1/2 bottom-0 -translate-x-1/2 z-[9999] flex items-center justify-center w-9 h-7 rounded-t-lg border border-slate-200 bg-white text-slate-500 shadow-lg hover:text-emerald-600 hover:bg-slate-50 transition-colors"
-                aria-expanded={isBottomSummaryOpen}
-                aria-controls="kerawanan-bottom-summary-panel"
-                title={
-                  isBottomSummaryOpen
-                    ? "Sembunyikan panel bawah"
-                    : "Tampilkan panel bawah"
-                }
-              >
-                <svg
-                  className={`w-4 h-4 transition-transform duration-300 ${
-                    isBottomSummaryOpen ? "rotate-0" : "rotate-180"
-                  }`}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="m6 9 6 6 6-6" />
-                </svg>
-              </button>
+              {/* Loading Indicator */}
+              {isLoadingLayer && (
+                <div className="bg-blue-50 border-b-2 border-blue-500 p-2 flex items-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-500 border-t-transparent"></div>
+                  <span className="text-xs text-blue-700 font-medium">
+                    Memuat {loadingLayerNames.size} layer:{" "}
+                    {Array.from(loadingLayerNames)
+                      .map((name) => formatTableName(name))
+                      .join(", ")}
+                    ...
+                  </span>
+                </div>
+              )}
 
-              {/* Enterprise Search */}
-              <div className="absolute top-[58px] left-3 right-3 sm:right-auto z-[1900] w-auto sm:w-[390px] mockup-map-search">
-                {enterpriseSearchOpen &&
-                  enterpriseSearchQuery.trim().length >= 2 && (
-                    <div className="mt-1 bg-white rounded-xl border border-slate-200 shadow-[0_16px_45px_rgba(15,23,42,.2)] overflow-hidden">
-                      {enterpriseSearchResults.length > 0
-                        ? enterpriseSearchResults.map((result, idx) => (
-                            <button
-                              key={`${result.type}-${idx}`}
-                              onClick={() =>
-                                void handleEnterpriseSearchSelect(result)
-                              }
-                              className="w-full px-3 py-2.5 flex items-center gap-2 text-left hover:bg-emerald-50 border-b border-slate-100 last:border-0"
+              {/* Error/Warning/Info Message */}
+              {layerError && (
+                <div
+                  className={`border-b-2 p-2 ${
+                    layerError.includes("❌") ||
+                    layerError.includes("🔌")
+                      ? "bg-red-50 border-red-500"
+                      : layerError.includes("⚠️")
+                        ? "bg-yellow-50 border-yellow-500"
+                        : "bg-blue-50 border-blue-500"
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    <span
+                      className={`text-xs flex-1 ${
+                        layerError.includes("❌") ||
+                        layerError.includes("🔌")
+                          ? "text-red-700"
+                          : layerError.includes("⚠️")
+                            ? "text-yellow-700"
+                            : "text-blue-700"
+                      }`}
+                    >
+                      {layerError}
+                    </span>
+                    <button
+                      onClick={() => setLayerError("")}
+                      className="text-gray-500 hover:text-gray-700 font-bold text-sm"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Scrollable Content */}
+              <div className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50 to-emerald-50/60 text-slate-800">
+                <div className="p-3">
+                  {/* Tabs - Smaller */}
+                  <div className="flex gap-3 mb-4">
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="mainTab"
+                        checked={activeTab === "administrasi"}
+                        onChange={() => setActiveTab("administrasi")}
+                        className="w-3.5 h-3.5"
+                      />
+                      <span className="text-sm font-medium text-slate-800">Administrasi</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="mainTab"
+                        checked={activeTab === "das"}
+                        onChange={() => setActiveTab("das")}
+                        className="w-3.5 h-3.5"
+                      />
+                      <span className="text-sm font-medium text-slate-800">DAS</span>
+                    </label>
+                  </div>
+
+                  {/* Area Search Section - Only show when Administrasi tab is active */}
+                  {activeTab === "administrasi" && (
+                    <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200 text-slate-800">
+                      <h3 className="text-sm font-semibold text-slate-900 mb-2">
+                        Pilih Area
+                      </h3>
+
+                      {/* Info jika ada DAS terpilih */}
+                      {selectedDas.length > 0 && (
+                        <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded">
+                          <p className="text-xs text-yellow-700">
+                            ⚠️ Filter DAS aktif. Hapus filter DAS untuk
+                            menggunakan filter administrasi.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Level Selection - Diperkecil dan 2 baris */}
+                      <div className="mb-2 grid grid-cols-2 gap-1.5">
+                        <button
+                          onClick={() => setAdminLevel("provinsi")}
+                          className={`px-1.5 py-1 text-[10px] rounded ${
+                            adminLevel === "provinsi"
+                              ? "bg-blue-500 text-white"
+                              : "bg-white text-gray-700 border border-gray-300"
+                          }`}
+                          disabled={selectedDas.length > 0}
+                        >
+                          Provinsi
+                        </button>
+                        <button
+                          onClick={() => setAdminLevel("kabupaten")}
+                          className={`px-1.5 py-1 text-[10px] rounded ${
+                            adminLevel === "kabupaten"
+                              ? "bg-blue-500 text-white"
+                              : "bg-white text-gray-700 border border-gray-300"
+                          }`}
+                          disabled={selectedDas.length > 0}
+                        >
+                          Kabupaten
+                        </button>
+                        <button
+                          onClick={() => setAdminLevel("kecamatan")}
+                          className={`px-1.5 py-1 text-[10px] rounded ${
+                            adminLevel === "kecamatan"
+                              ? "bg-blue-500 text-white"
+                              : "bg-white text-gray-700 border border-gray-300"
+                          }`}
+                          disabled={selectedDas.length > 0}
+                        >
+                          Kecamatan
+                        </button>
+                        <button
+                          onClick={() => setAdminLevel("kelurahan")}
+                          className={`px-1.5 py-1 text-[10px] rounded ${
+                            adminLevel === "kelurahan"
+                              ? "bg-blue-500 text-white"
+                              : "bg-white text-gray-700 border border-gray-300"
+                          }`}
+                          disabled={selectedDas.length > 0}
+                        >
+                          Kelurahan
+                        </button>
+                      </div>
+
+                      {/* Selected Areas */}
+                      {selectedAreas.length > 0 && (
+                        <div className="mb-2 flex flex-wrap gap-1">
+                          {selectedAreas.map((area, index) => (
+                            <div
+                              key={index}
+                              className="bg-white px-2 py-1 rounded text-xs border border-blue-300 flex items-center gap-1"
                             >
-                              <span className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-sm">
-                                {result.icon}
+                              <span className="text-[10px] bg-blue-100 px-1 rounded">
+                                {area.level}
                               </span>
-                              <span className="min-w-0 flex-1">
-                                <span className="block text-[10px] font-bold text-slate-800 truncate">
-                                  {result.label}
-                                </span>
-                                <span className="block text-[8px] text-slate-400 truncate">
-                                  {result.sublabel ||
-                                    (result.type === "location"
-                                      ? "Lokasi"
-                                      : result.type === "layer"
-                                        ? "Layer"
-                                        : "Objek")}
-                                </span>
+                              <span
+                                className="truncate max-w-[150px]"
+                                title={area.label}
+                              >
+                                {area.label}
                               </span>
-                              <span className="text-[8px] text-emerald-600 font-semibold">
-                                {result.type === "object"
-                                  ? "IDENTIFY"
-                                  : "FLY TO"}
-                              </span>
-                            </button>
-                          ))
-                        : !enterpriseSearchLoading && (
-                            <div className="px-3 py-4 text-[9px] text-slate-400 text-center">
-                              Tidak ada hasil untuk “{enterpriseSearchQuery}”
+                              <button
+                                onClick={() => handleRemoveArea(index)}
+                                className="text-red-500 hover:text-red-700 font-bold"
+                              >
+                                ×
+                              </button>
                             </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Search Input */}
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={areaSearchQuery}
+                          onChange={(e) =>
+                            handleAreaSearchChange(e.target.value)
+                          }
+                          onFocus={() => setShowAreaSearchDropdown(true)}
+                          placeholder={`Cari ${adminLevel}...`}
+                          className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-blue-500"
+                          disabled={selectedDas.length > 0}
+                        />
+
+                        {/* Search Results Dropdown */}
+                        {showAreaSearchDropdown &&
+                          areaSearchResults.length > 0 &&
+                          selectedDas.length === 0 && (
+                            <>
+                              <div
+                                className="fixed inset-0 z-40"
+                                onClick={() => setShowAreaSearchDropdown(false)}
+                              />
+                              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 rounded shadow-lg max-h-48 overflow-y-auto z-50">
+                                {areaSearchResults.map((result, index) => (
+                                  <div
+                                    key={index}
+                                    onClick={() => handleAreaSelect(result)}
+                                    className="px-2 py-1.5 text-xs hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                  >
+                                    <span className="text-[10px] bg-gray-100 px-1 rounded mr-1">
+                                      {result.level}
+                                    </span>
+                                    {result.label}
+                                  </div>
+                                ))}
+                              </div>
+                            </>
                           )}
+                      </div>
+
+                      <div className="text-[10px] text-slate-600 mt-1">
+                        * Pilih level lalu cari area untuk membatasi tampilan
+                        layer
+                      </div>
                     </div>
                   )}
-              </div>
 
-              {enterpriseMetadataLayer && (
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[2100] w-[320px] max-w-[calc(100%-24px)]">
-                  <div className="rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
-                    <div className="bg-[#064238] text-white px-4 py-3 flex items-center justify-between">
-                      <div>
-                        <div className="text-[8px] uppercase tracking-wider text-emerald-200">
-                          Layer Metadata
+                  {/* DAS Search Section - Only show when DAS tab is active */}
+                  {activeTab === "das" && (
+                    <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200 text-slate-800">
+                      <h3 className="text-sm font-semibold text-slate-900 mb-2">
+                        Pilih DAS
+                      </h3>
+
+                      {/* Info jika ada Area terpilih */}
+                      {selectedAreas.length > 0 && (
+                        <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded">
+                          <p className="text-xs text-yellow-700">
+                            ⚠️ Filter administrasi aktif. Hapus filter
+                            administrasi untuk menggunakan filter DAS.
+                          </p>
                         </div>
-                        <div className="text-sm font-extrabold">
-                          {formatTableName(
-                            String(
-                              enterpriseMetadataLayer.name ||
-                                enterpriseMetadataLayer.id ||
-                                "Layer",
-                            ),
+                      )}
+
+                      {/* Selected DAS */}
+                      {selectedDas.length > 0 && (
+                        <div className="mb-2 flex flex-wrap gap-1">
+                          {selectedDas.map((das, index) => (
+                            <div
+                              key={index}
+                              className="bg-white px-2 py-1 rounded text-xs border border-green-300 flex items-center gap-1"
+                            >
+                              <span
+                                className="truncate max-w-[200px]"
+                                title={das.label}
+                              >
+                                {das.label}
+                              </span>
+                              <button
+                                onClick={() => handleRemoveDas(index)}
+                                className="text-red-500 hover:text-red-700 font-bold"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Search Input */}
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={dasSearchQuery}
+                          onChange={(e) =>
+                            handleDasSearchChange(e.target.value)
+                          }
+                          onFocus={() => setShowDasSearchDropdown(true)}
+                          placeholder="Cari DAS..."
+                          className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:border-green-500"
+                          disabled={selectedAreas.length > 0}
+                        />
+
+                        {/* Search Results Dropdown */}
+                        {showDasSearchDropdown &&
+                          dasSearchResults.length > 0 &&
+                          selectedAreas.length === 0 && (
+                            <>
+                              <div
+                                className="fixed inset-0 z-40"
+                                onClick={() => setShowDasSearchDropdown(false)}
+                              />
+                              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 rounded shadow-lg max-h-48 overflow-y-auto z-50">
+                                {dasSearchResults.map((result, index) => (
+                                  <div
+                                    key={index}
+                                    onClick={() => handleDasSelect(result)}
+                                    className="px-2 py-1.5 text-xs hover:bg-green-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                  >
+                                    {result.label}
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                      </div>
+
+                      <div className="text-[10px] text-slate-600 mt-1">
+                        * Cari dan pilih DAS untuk membatasi tampilan layer
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Kerawanan Section */}
+                  <div className="mb-4">
+                    <h3 className="text-sm font-semibold text-slate-900 mb-2 pb-1.5 border-b-2 border-green-600">
+                      Kerawanan
+                    </h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(currentBounds &&
+                      (selectedAreas.length > 0 || selectedDas.length > 0)
+                        ? availableLayers.kerawanan
+                        : layerData.kerawanan
+                      ).map((layer) => (
+                        <div
+                          key={layer.id}
+                          className={`flex items-center gap-1.5 bg-white text-slate-800 px-2 py-1.5 rounded-md border border-slate-200 shadow-sm ${loadingLayerNames.has(layer.name) ? "opacity-60 cursor-not-allowed" : ""}`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="w-3 h-3 flex-shrink-0 accent-green-600"
+                            checked={activeLayers.has(layer.name)}
+                            onChange={(e) =>
+                              handleLayerToggle(layer.name, e.target.checked)
+                            }
+                            disabled={loadingLayerNames.has(layer.name)}
+                          />
+                          <span
+                            className="text-xs font-medium text-slate-800 flex-1 truncate cursor-help flex items-center gap-1"
+                            title={formatTableName(layer.name)}
+                          >
+                            {loadingLayerNames.has(layer.name) && (
+                              <span className="inline-block animate-spin">
+                                ⏳
+                              </span>
+                            )}
+                            {formatTableName(layer.name)}
+                          </span>
+                          {isAuthenticated && (
+                            <button
+                              onClick={() =>
+                                handleDeleteClick(
+                                  "kerawanan",
+                                  layer.id,
+                                  layer.name,
+                                )
+                              }
+                              className="text-red-500 hover:text-red-700 font-bold text-base flex-shrink-0"
+                            >
+                              ×
+                            </button>
                           )}
                         </div>
-                      </div>
-                      <button
-                        onClick={() => setEnterpriseMetadataLayer(null)}
-                        className="text-white/70 hover:text-white text-lg"
-                      >
-                        ×
-                      </button>
+                      ))}
+
+                      {/* Tambah Data Button */}
+                      {isAuthenticated && (
+                        <button
+                          onClick={() => handleAddClick("kerawanan")}
+                          className="flex items-center gap-1 px-2 py-1 border-2 border-dashed border-blue-400 text-blue-500 rounded hover:bg-blue-50 transition-colors justify-center"
+                        >
+                          <span className="text-base font-bold">+</span>
+                          <span className="text-xs">Tambah Data</span>
+                        </button>
+                      )}
                     </div>
-                    <div className="p-4 space-y-2 text-[9px]">
-                      <div className="grid grid-cols-[72px_1fr] gap-2">
-                        <span className="text-slate-400">ID</span>
-                        <b className="text-slate-700 break-all">
-                          {enterpriseMetadataLayer.id || "—"}
-                        </b>
+                  </div>
+
+                  {/* Mitigasi dan Adaptasi Section */}
+                  <div className="mb-4">
+                    <h3 className="text-sm font-semibold text-slate-900 mb-2 pb-1.5 border-b-2 border-green-600">
+                      Mitigasi dan Adaptasi
+                    </h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(currentBounds &&
+                      (selectedAreas.length > 0 || selectedDas.length > 0)
+                        ? availableLayers.mitigasiAdaptasi
+                        : layerData.mitigasiAdaptasi
+                      ).map((layer) => (
+                        <div
+                          key={layer.id}
+                          className={`flex items-center gap-1.5 bg-white text-slate-800 px-2 py-1.5 rounded-md border border-slate-200 shadow-sm ${loadingLayerNames.has(layer.name) ? "opacity-60 cursor-not-allowed" : ""}`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="w-3 h-3 flex-shrink-0 accent-green-600"
+                            checked={activeLayers.has(layer.name)}
+                            onChange={(e) =>
+                              handleLayerToggle(layer.name, e.target.checked)
+                            }
+                            disabled={loadingLayerNames.has(layer.name)}
+                          />
+                          <span
+                            className="text-xs font-medium text-slate-800 flex-1 truncate cursor-help"
+                            title={formatTableName(layer.name)}
+                          >
+                            {formatTableName(layer.name)}
+                          </span>
+                          {isAuthenticated && (
+                            <button
+                              onClick={() =>
+                                handleDeleteClick(
+                                  "kerawanan",
+                                  layer.id,
+                                  layer.name,
+                                )
+                              }
+                              className="text-red-500 hover:text-red-700 font-bold text-base flex-shrink-0"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      ))}
+
+                      {/* Tambah Data Button */}
+                      {isAuthenticated && (
+                        <button
+                          onClick={() => handleAddClick("mitigasiAdaptasi")}
+                          className="flex items-center gap-1 px-2 py-1 border-2 border-dashed border-blue-400 text-blue-500 rounded hover:bg-blue-50 transition-colors justify-center"
+                        >
+                          <span className="text-base font-bold">+</span>
+                          <span className="text-xs">Tambah Data</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Lain lain Section */}
+                  <div className="mb-4">
+                    <h3 className="text-sm font-semibold text-slate-900 mb-2 pb-1.5 border-b-2 border-green-600">
+                      Lain lain
+                    </h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(currentBounds &&
+                      (selectedAreas.length > 0 || selectedDas.length > 0)
+                        ? availableLayers.lainnya
+                        : layerData.lainnya
+                      ).map((layer) => (
+                        <div
+                          key={layer.id}
+                          className={`flex items-center gap-1.5 bg-white text-slate-800 px-2 py-1.5 rounded-md border border-slate-200 shadow-sm ${loadingLayerNames.has(layer.name) ? "opacity-60 cursor-not-allowed" : ""}`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="w-3 h-3 flex-shrink-0 accent-green-600"
+                            checked={activeLayers.has(layer.name)}
+                            onChange={(e) =>
+                              handleLayerToggle(layer.name, e.target.checked)
+                            }
+                            disabled={loadingLayerNames.has(layer.name)}
+                          />
+                          <span
+                            className="text-xs font-medium text-slate-800 flex-1 truncate cursor-help"
+                            title={formatTableName(layer.name)}
+                          >
+                            {formatTableName(layer.name)}
+                          </span>
+                          {isAuthenticated && (
+                            <button
+                              onClick={() =>
+                                handleDeleteClick(
+                                  "kerawanan",
+                                  layer.id,
+                                  layer.name,
+                                )
+                              }
+                              className="text-red-500 hover:text-red-700 font-bold text-base flex-shrink-0"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      ))}
+
+                      {/* Tambah Data Button */}
+                      {isAuthenticated && (
+                        <button
+                          onClick={() => handleAddClick("lainnya")}
+                          className="flex items-center gap-1 px-2 py-1 border-2 border-dashed border-blue-400 text-blue-500 rounded hover:bg-blue-50 transition-colors justify-center"
+                        >
+                          <span className="text-base font-bold">+</span>
+                          <span className="text-xs">Tambah Data</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Kejadian Section */}
+                  <div className="mb-4">
+                    <h3 className="text-sm font-semibold text-slate-900 mb-2 pb-1.5 border-b-2 border-green-600">
+                      Kejadian
+                    </h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(() => {
+                        // Checkbox kejadian harus tetap tersedia setelah daerah dipilih.
+                        // `availableLayers.kejadian` hanya dipakai sebagai informasi availability,
+                        // bukan untuk menghilangkan katalog checkbox. Data aktual tetap difilter
+                        // saat `loadKejadianLayer()` dipanggil menggunakan currentBounds/adminFilter.
+                        const catalog = layerData.kejadian || [];
+                        const available = availableLayers.kejadian || [];
+                        const byId = new Map(
+                          available.map((item: any) => [item.id, item]),
+                        );
+                        const merged = catalog.map((item: any) => ({
+                          ...item,
+                          ...(byId.get(item.id) || {}),
+                        }));
+                        const catalogIds = new Set(
+                          merged.map((item: any) => item.id),
+                        );
+                        available.forEach((item: any) => {
+                          if (!catalogIds.has(item.id)) merged.push(item);
+                        });
+                        return merged;
+                      })().map((layer: any) => (
+                        <div
+                          key={layer.id}
+                          className={`flex items-center gap-1.5 bg-white text-slate-800 px-2 py-1.5 rounded-md border border-slate-200 shadow-sm ${loadingLayerNames.has(layer.name) ? "opacity-60 cursor-not-allowed" : ""}`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="w-3 h-3 flex-shrink-0 accent-green-600"
+                            checked={activeLayers.has(
+                              layer.isManual ? layer.name : layer.id,
+                            )}
+                            onChange={(e) =>
+                              handleLayerToggle(
+                                layer.isManual ? layer.name : layer.id,
+                                e.target.checked,
+                                layer.year,
+                                layer.category,
+                                layer.isShapefile,
+                              )
+                            }
+                            disabled={loadingLayerNames.has(layer.name)}
+                          />
+                          <span
+                            className="text-xs font-medium text-slate-800 flex-1 truncate cursor-help"
+                            title={formatTableName(layer.name)}
+                          >
+                            {formatTableName(layer.name)}
+                          </span>
+                          {/* {layer.count && (
+          <span className="text-[10px] text-gray-400 flex-shrink-0">
+            ({layer.count})
+          </span>
+        )} */}
+                          {/* Tombol delete hanya untuk layer manual upload */}
+                          {layer.isManual && isAuthenticated && (
+                            <button
+                              onClick={() => {
+                                setLayerToDelete({
+                                  section: "kejadian",
+                                  id: layer.id,
+                                  name: layer.name,
+                                });
+                                setShowDeleteModal(true);
+                              }}
+                              className="text-red-500 hover:text-red-700 font-bold text-base flex-shrink-0"
+                              title="Hapus layer"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      ))}
+
+                      {/* Tambah Data Button */}
+                      {isAuthenticated && (
+                        <button
+                          onClick={() => handleAddClick("kejadian")}
+                          className="flex items-center gap-1 px-2 py-1 border-2 border-dashed border-blue-400 text-blue-500 rounded hover:bg-blue-50 transition-colors justify-center"
+                        >
+                          <span className="text-base font-bold">+</span>
+                          <span className="text-xs">Tambah Data</span>
+                        </button>
+                      )}
+                    </div>
+                    {(layerData.kejadian?.length === 0 ||
+                      !layerData.kejadian) && (
+                      <div className="text-xs text-gray-500 italic mt-2">
+                        Belum ada data kejadian
                       </div>
-                      <div className="grid grid-cols-[72px_1fr] gap-2">
-                        <span className="text-slate-400">Nama</span>
-                        <b className="text-slate-700">
-                          {enterpriseMetadataLayer.name || "—"}
-                        </b>
-                      </div>
-                      <div className="grid grid-cols-[72px_1fr] gap-2">
-                        <span className="text-slate-400">Sumber</span>
-                        <b className="text-slate-700">
-                          {enterpriseMetadataLayer.source ||
-                            "Database / GIS Service"}
-                        </b>
-                      </div>
-                      {enterpriseMetadataLayer.url && (
-                        <div className="grid grid-cols-[72px_1fr] gap-2">
-                          <span className="text-slate-400">Endpoint</span>
-                          <span className="text-slate-600 break-all">
-                            {enterpriseMetadataLayer.url}
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Toggle Panel Button */}
+          <button
+            onClick={() => setIsLayerPanelOpen(!isLayerPanelOpen)}
+            className="absolute right-0 top-1/3 transform -translate-y-1/2 bg-green-600 text-white p-1.5 rounded-l-lg shadow-lg z-[1000] hover:bg-green-700"
+            style={{ right: isLayerPanelOpen ? "320px" : "0" }}
+          >
+            <span className="text-lg">
+              {isLayerPanelOpen ? "»" : "«"}
+            </span>
+          </button>
+        </div>
+
+        {/* Bottom Section: Charts and Photos - 35% height */}
+        <div
+          className="flex border-t-2 border-gray-300"
+          style={{ height: "35vh" }}
+        >
+          {/* Charts Section */}
+          <div className="flex-1 bg-white flex flex-col overflow-hidden">
+            {/* Bottom Tabs - Smaller */}
+            <div className="bg-gray-100 border-b border-gray-300 px-3 py-1.5 flex gap-1.5 overflow-x-auto flex-shrink-0">
+              {bottomTabs.map((tab) => {
+                // Check if this tab's layer is currently loading
+                const getLayerNameFromTabId = (tabId: string): string => {
+                  const mapping: Record<string, string> = {
+                    tutupanLahan: "tutupan_lahan",
+                    jenisTanah: "jenis_tanah",
+                    geologi: "geologi",
+                    lahan_kritis: "lahan_kritis",
+                    rawan_erosi: "rawan_erosi",
+                    rawan_longsor: "rawan_longsor",
+                    rawan_limpasan: "rawan_limpasan",
+                    rawan_karhutla: "rawan_karhutla",
+                  };
+                  return mapping[tabId] || "";
+                };
+
+                const layerName = getLayerNameFromTabId(tab.id);
+                const isTabLoading = loadingLayerNames.has(layerName);
+
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => !isTabLoading && setActiveBottomTab(tab.id)}
+                    disabled={isTabLoading}
+                    className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
+                      activeBottomTab === tab.id
+                        ? "border-b-2 border-blue-500 text-blue-600"
+                        : isTabLoading
+                          ? "text-gray-400 cursor-not-allowed"
+                          : "text-gray-600 hover:text-gray-800 cursor-pointer"
+                    }`}
+                  >
+                    {isTabLoading && (
+                      <span className="inline-block animate-spin mr-1">
+                        ⏳
+                      </span>
+                    )}
+                    {tab.icon} {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Chart Content - Smaller padding */}
+            <div className="flex-1 overflow-hidden p-3">
+              {renderBottomContent()}
+            </div>
+          </div>
+
+          {/* Photo Gallery Sidebar */}
+          <div
+            className="w-80 bg-gray-50 border-l border-gray-300 flex flex-col"
+            style={{ height: "35vh" }}
+          >
+            <div className="p-3 flex-shrink-0">
+              <h3 className="text-sm font-semibold text-gray-800">
+                Dokumentasi Foto Kejadian
+              </h3>
+              {/* {kejadianPhotos.length > 0 && (
+                <p className="text-xs text-gray-600 mt-1">
+                  {kejadianPhotos.length} foto dari kejadian yang ditampilkan
+                </p>
+              )} */}
+            </div>
+            <div className="flex-1 overflow-y-auto px-3 pb-3">
+              {kejadianPhotos.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2">
+                  {kejadianPhotos.slice(0, 4).map((photo, idx) => (
+                    <div
+                      key={idx}
+                      className="relative w-full h-22 overflow-hidden rounded cursor-pointer shadow-sm"
+                      style={{ position: "relative" }}
+                    >
+                      <img
+                        src={`${API_URL}${photo.path}`}
+                        alt={`${photo.incident_type} - ${new Date(photo.incident_date).toLocaleDateString()}`}
+                        className="w-full h-full object-cover transition-transform duration-200"
+                        onClick={() => setSelectedPhotoIndex(idx)}
+                        onError={(e) => {
+                          e.currentTarget.src =
+                            "https://via.placeholder.com/150?text=No+Image";
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.transform = "scale(1.1)";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = "scale(1)";
+                        }}
+                      />
+                      {idx === 3 && kejadianPhotos.length > 4 && (
+                        <div
+                          className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center rounded cursor-pointer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedPhotoIndex(idx);
+                          }}
+                          style={{
+                            zIndex: 10,
+                          }}
+                        >
+                          <span className="text-white text-4xl font-bold">
+                            +{kejadianPhotos.length - 4}
                           </span>
                         </div>
                       )}
                     </div>
-                  </div>
+                  ))}
                 </div>
-              )}
-            </section>
-
-            {/* TITIK KLIK PETA — floating card terpisah dari panel kerawanan */}
-                      {mapWeatherPopup.open &&
-                        mapWeatherPopup.latitude !== null &&
-                        mapWeatherPopup.longitude !== null && (
-                          <div
-                            className="map-click-coordinate-card rounded-xl border border-sky-200 bg-sky-50/95 p-3"
-                            style={{ transform: `translate(${mapInfoOffset.x}px, ${mapInfoOffset.y}px)` }}
-                          >
-                            <div
-                              className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wider text-sky-800"
-                              style={{ cursor: "grab", touchAction: "none", userSelect: "none" }}
-                              onPointerDown={(event) => {
-                                if ((event.target as HTMLElement).closest("button")) return;
-                                mapInfoDragRef.current = {
-                                  pointerId: event.pointerId,
-                                  startX: event.clientX,
-                                  startY: event.clientY,
-                                  originX: mapInfoOffset.x,
-                                  originY: mapInfoOffset.y,
-                                };
-                                event.currentTarget.setPointerCapture(event.pointerId);
-                              }}
-                              onPointerMove={(event) => {
-                                const drag = mapInfoDragRef.current;
-                                if (!drag || drag.pointerId !== event.pointerId) return;
-                                setMapInfoOffset({
-                                  x: drag.originX + event.clientX - drag.startX,
-                                  y: drag.originY + event.clientY - drag.startY,
-                                });
-                              }}
-                              onPointerUp={(event) => {
-                                if (mapInfoDragRef.current?.pointerId === event.pointerId) mapInfoDragRef.current = null;
-                              }}
-                              onPointerCancel={() => { mapInfoDragRef.current = null; }}
-                            >
-                              <span className="flex items-center gap-2"><span>📍</span> Informasi Titik Peta <span className="text-[9px] font-normal normal-case text-sky-600">· </span></span>
-                              <button
-                                type="button"
-                                aria-label="Tutup Informasi Titik Peta"
-                                title="Tutup"
-                                onPointerDown={(event) => event.stopPropagation()}
-                                onClick={closeMapWeatherPopup}
-                                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-sky-700 transition hover:bg-sky-200 hover:text-sky-950"
-                                style={{ cursor: "pointer" }}
-                              >
-                                <span aria-hidden="true" className="text-base leading-none">×</span>
-                              </button>
-                            </div>
-                            <div className="space-y-2">
-                              <div>
-                                <div className="text-[9px] text-slate-500">
-                                  Desa/Kelurahan atau wilayah terdekat
-                                </div>
-                                <div className="text-xs font-bold text-slate-800">
-                                  {mapWeatherPopup.locationName ||
-                                    "Mencari nama wilayah..."}
-                                </div>
-                              </div>
-                              {mapWeatherPopup.district && (
-                                <div>
-                                  <div className="text-[9px] text-slate-500">
-                                    Kecamatan/Kabupaten
-                                  </div>
-                                  <div className="text-[10px] font-medium text-slate-700">
-                                    {mapWeatherPopup.district}
-                                  </div>
-                                </div>
-                              )}
-                              {mapWeatherPopup.province && (
-                                <div>
-                                  <div className="text-[9px] text-slate-500">
-                                    Provinsi
-                                  </div>
-                                  <div className="text-[10px] font-medium text-slate-700">
-                                    {mapWeatherPopup.province}
-                                  </div>
-                                </div>
-                              )}
-                              <div className="grid grid-cols-2 gap-2">
-                                <div className="rounded-lg border border-slate-200 bg-white p-2">
-                                  <div className="text-[9px] text-slate-500">
-                                    Latitude
-                                  </div>
-                                  <div className="break-all font-mono text-[10px] font-bold text-slate-800">
-                                    {mapWeatherPopup.latitude.toFixed(6)}
-                                  </div>
-                                </div>
-                                <div className="rounded-lg border border-slate-200 bg-white p-2">
-                                  <div className="text-[9px] text-slate-500">
-                                    Longitude
-                                  </div>
-                                  <div className="break-all font-mono text-[10px] font-bold text-slate-800">
-                                    {mapWeatherPopup.longitude.toFixed(6)}
-                                  </div>
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void navigator.clipboard.writeText(
-                                    `${mapWeatherPopup.latitude!.toFixed(6)}, ${mapWeatherPopup.longitude!.toFixed(6)}`,
-                                  );
-                                }}
-                                className="w-full rounded-lg border border-sky-200 bg-white px-3 py-2 text-[10px] font-semibold text-sky-700 hover:bg-sky-100"
-                              >
-                                Salin koordinat
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-            {/* =====================================================
-                 RIGHT LAYER PANEL — SIMITI • Layer
-                 Panel layer dipindahkan dari floating drawer ke
-                 kolom kanan agar selalu tersedia seperti mockup.
-                ===================================================== */}
-
-            {!isRightLayerPanelOpen && (
-              <button
-                type="button"
-                className="kerawanan-panel-reopen"
-                onClick={() => {
-                  setShowLayerPanel(true);
-                  setIsRightLayerPanelOpen(true);
-                }}
-                aria-controls="kerawanan-right-layer-panel"
-                aria-expanded={false}
-                title="Tampilkan kembali panel layer"
-              >
-                <span aria-hidden="true">☰</span>
-                Tampilkan Panel Layer
-              </button>
-            )}
-
-            <aside
-              id="kerawanan-right-layer-panel"
-              className={`kerawanan-layer-panel min-h-[420px] xl:min-h-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col transition-all duration-300 ${
-                isRightLayerPanelOpen
-                  ? "opacity-100 translate-x-0"
-                  : "hidden opacity-0 pointer-events-none"
-              }`}
-            >
-              <div className="w-full h-full bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-                <div className="px-4 py-3 border-b border-slate-100 flex items-start justify-between">
-                  <div>
-                    <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">
-                      Layer Services
-                    </div>
-                    <div className="text-sm font-extrabold">SIMITI • Layer</div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setShowLayerPanel(false);
-                      setIsRightLayerPanelOpen(false);
-                    }}
-                    type="button"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 text-lg hover:bg-slate-100 hover:text-slate-800 transition-colors"
-                    aria-label="Sembunyikan panel layer"
-                    title="Sembunyikan panel layer"
-                  >
-                    ×
-                  </button>
-                </div>
-
-                {/* Enterprise filter mode switch */}
-                <div className="px-3 pt-3">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-1.5 shadow-sm">
-                    <div className="flex items-center justify-between px-1.5 pb-1.5">
-                      <span className="text-[8px] font-extrabold uppercase tracking-[0.12em] text-slate-400">
-                        Filter Wilayah
-                      </span>
-                      <span className="text-[9px] font-semibold text-slate-400">
-                        {activeTab === "administrasi" ? "Administrasi" : "DAS"}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1">
-                      <label
-                        className={`flex items-center justify-center gap-2 min-h-9 rounded-lg px-2.5 cursor-pointer transition-all ${activeTab === "administrasi" ? "bg-white border border-slate-200 shadow-sm text-slate-800" : "text-slate-500 hover:bg-white/70"}`}
-                      >
-                        <input
-                          type="radio"
-                          name="mainTab"
-                          checked={activeTab === "administrasi"}
-                          onChange={() => handleMainTabChange("administrasi")}
-                          className="w-3.5 h-3.5 accent-emerald-600"
-                        />
-                        <span className="text-[10px] font-bold">
-                          Administrasi
-                        </span>
-                      </label>
-                      <label
-                        className={`flex items-center justify-center gap-2 min-h-9 rounded-lg px-2.5 cursor-pointer transition-all ${activeTab === "das" ? "bg-white border border-slate-200 shadow-sm text-slate-800" : "text-slate-500 hover:bg-white/70"}`}
-                      >
-                        <input
-                          type="radio"
-                          name="mainTab"
-                          checked={activeTab === "das"}
-                          onChange={() => handleMainTabChange("das")}
-                          className="w-3.5 h-3.5 accent-emerald-600"
-                        />
-                        <span className="text-[10px] font-bold">DAS</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Enterprise geographic search — directly below mode selector */}
-                <div className="px-3 pt-3">
-                  <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-visible">
-                    <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
-                      <div>
-                        <div className="text-[8px] font-extrabold uppercase tracking-[0.12em] text-slate-400">
-                          Wilayah Analisis
-                        </div>
-                        <div className="text-[9px] font-semibold text-slate-700 mt-0.5">
-                          {activeTab === "administrasi"
-                            ? "Administrasi"
-                            : "Daerah Aliran Sungai"}
-                        </div>
-                      </div>
-                      <span
-                        className={`text-[7px] font-bold px-2 py-1 rounded-full ${activeTab === "administrasi" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}
-                      >
-                        {activeTab === "administrasi" ? "ADMIN" : "DAS"}
-                      </span>
-                    </div>
-                    <div className="p-2.5">
-                      {activeTab === "administrasi" ? (
-                        <>
-                          <div className="grid grid-cols-[105px_1fr] gap-2">
-                            <select
-                              value={adminLevel}
-                              onChange={(e) => {
-                                setAdminLevel(
-                                  e.target.value as typeof adminLevel,
-                                );
-                                setAreaSearchQuery("");
-                                setAreaSearchResults([]);
-                                setShowAreaSearchDropdown(false);
-                              }}
-                              className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[9px] outline-none focus:border-emerald-400"
-                              aria-label="Tingkat administrasi"
-                            >
-                              <option value="provinsi">Provinsi</option>
-                              <option value="kabupaten">Kabupaten/Kota</option>
-                              <option value="kecamatan">Kecamatan</option>
-                              <option value="kelurahan">Kelurahan/Desa</option>
-                            </select>
-                            <div className="relative">
-                              <input
-                                value={areaSearchQuery}
-                                onChange={(e) =>
-                                  handleAreaSearchChange(e.target.value)
-                                }
-                                onFocus={() => {
-                                  if (areaSearchResults.length > 0)
-                                    setShowAreaSearchDropdown(true);
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    e.preventDefault();
-                                    void searchAreas(areaSearchQuery);
-                                  }
-                                }}
-                                className="w-full h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[9px] outline-none focus:border-emerald-400"
-                                placeholder={`Cari ${adminLevel}...`}
-                                aria-label="Cari wilayah administrasi"
-                              />
-                              {showAreaSearchDropdown &&
-                                areaSearchResults.length > 0 && (
-                                  <div className="absolute left-0 right-0 top-9 z-[2400] max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
-                                    {areaSearchResults.map(
-                                      (area: any, index: number) => (
-                                        <button
-                                          key={`${area.id ?? area.kode ?? area.label ?? "area"}-${index}`}
-                                          type="button"
-                                          onClick={() => handleAreaSelect(area)}
-                                          className="w-full px-2.5 py-2 text-left text-[9px] hover:bg-emerald-50 border-b border-slate-100 last:border-0"
-                                        >
-                                          <span className="block font-semibold text-slate-700 truncate">
-                                            {area.label ||
-                                              area.nama ||
-                                              area.name ||
-                                              "Wilayah"}
-                                          </span>
-                                          <span className="block text-[7px] text-slate-400 mt-0.5">
-                                            {area.level || adminLevel}
-                                          </span>
-                                        </button>
-                                      ),
-                                    )}
-                                  </div>
-                                )}
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="relative">
-                          <div className="relative">
-                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">
-                              ⌕
-                            </span>
-                            <input
-                              value={dasSearchQuery}
-                              onChange={(e) =>
-                                handleDasSearchChange(e.target.value)
-                              }
-                              onFocus={() => {
-                                if (dasSearchResults.length > 0)
-                                  setShowDasSearchDropdown(true);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  void searchDas(dasSearchQuery);
-                                }
-                              }}
-                              className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 pl-7 pr-2.5 text-[9px] outline-none focus:border-blue-400 focus:bg-white"
-                              placeholder="Cari nama DAS..."
-                              aria-label="Cari DAS"
-                            />
-                          </div>
-                          {showDasSearchDropdown &&
-                            dasSearchResults.length > 0 && (
-                              <div className="absolute left-0 right-0 top-10 z-[2400] max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
-                                {dasSearchResults.map(
-                                  (das: any, index: number) => (
-                                    <button
-                                      key={`${das.id ?? das.kode ?? das.nama_das ?? "das"}-${index}`}
-                                      type="button"
-                                      onClick={() => handleDasSelect(das)}
-                                      className="w-full px-2.5 py-2 text-left text-[9px] hover:bg-blue-50 border-b border-slate-100 last:border-0"
-                                    >
-                                      <span className="block font-semibold text-slate-700 truncate">
-                                        {das.nama_das ||
-                                          das.label ||
-                                          das.nama ||
-                                          das.name ||
-                                          "DAS"}
-                                      </span>
-                                      <span className="block text-[7px] text-slate-400 mt-0.5">
-                                        Daerah Aliran Sungai
-                                      </span>
-                                    </button>
-                                  ),
-                                )}
-                              </div>
-                            )}
-                        </div>
-                      )}
-                      {(activeTab === "administrasi"
-                        ? selectedAreas.length > 0
-                        : selectedDas.length > 0) && (
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {activeTab === "administrasi"
-                            ? selectedAreas.map((area: any, index: number) => (
-                                <button
-                                  key={`${area.label}-${index}`}
-                                  type="button"
-                                  onClick={() => void handleRemoveArea(index)}
-                                  className="max-w-full rounded-full bg-emerald-50 border border-emerald-100 px-2 py-1 text-[7px] font-semibold text-emerald-700 truncate"
-                                  title="Hapus wilayah"
-                                >
-                                  {area.label || area.nama || area.name} ×
-                                </button>
-                              ))
-                            : selectedDas.map((das: any, index: number) => (
-                                <button
-                                  key={`${das.nama_das}-${index}`}
-                                  type="button"
-                                  onClick={() => void handleRemoveDas(index)}
-                                  className="max-w-full rounded-full bg-blue-50 border border-blue-100 px-2 py-1 text-[7px] font-semibold text-blue-700 truncate"
-                                  title="Hapus DAS"
-                                >
-                                  {das.nama_das ||
-                                    das.label ||
-                                    das.nama ||
-                                    das.name}{" "}
-                                  ×
-                                </button>
-                              ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {layerError && (
-                  <div className="mx-3 mt-3 rounded-lg bg-red-50 border border-red-100 p-2 text-[9px] text-red-700">
-                    {layerError}
-                  </div>
-                )}
-
-                <div className="flex-1 overflow-y-auto dashboard-scroll p-3">
-                  <div className="mb-4">
-                    <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-200">
-                      <button
-                        onClick={() => enterpriseToggleGroup("kerawanan")}
-                        className="text-[11px] font-bold text-slate-800 flex-1 text-left"
-                      >
-                        {enterpriseCollapsedGroups.has("kerawanan") ? "▸" : "▾"}{" "}
-                        Kerawanan
-                      </button>
-                      <button
-                        onClick={() => handleAddClick("kerawanan")}
-                        className="text-[9px] text-emerald-700"
-                      >
-                        + Data
-                      </button>
-                    </div>
-                    {!enterpriseCollapsedGroups.has("kerawanan") && (
-                      <div className="space-y-1">
-                        {(currentBounds &&
-                        (selectedAreas.length > 0 || selectedDas.length > 0)
-                          ? availableLayers.kerawanan
-                          : layerData.kerawanan
-                        )
-                          .filter(enterpriseMatchesLayer)
-                          .map((layer) => (
-                            <label
-                              key={layer.id}
-                              className="flex min-w-0 items-start gap-2.5 rounded-lg border border-transparent px-2.5 py-2 hover:border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
-                            >
-                              <input
-                                type="checkbox"
-                                className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-emerald-700"
-                                checked={activeLayers.has(layer.name)}
-                                onChange={(e) =>
-                                  handleLayerToggle(
-                                    layer.name,
-                                    e.target.checked,
-                                  )
-                                }
-                                disabled={loadingLayerNames.has(layer.name)}
-                              />
-                              <span className="min-w-0 flex-1 break-words text-[10px] leading-4 text-slate-700">
-                                {loadingLayerNames.has(layer.name) ? "⏳ " : ""}
-                                {formatTableName(layer.name)}
-                              </span>
-                            </label>
-                          ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {(["mitigasiAdaptasi", "lainnya", "kejadian"] as const).map(
-                    (section) => {
-                      const source: any =
-                        currentBounds &&
-                        (selectedAreas.length > 0 || selectedDas.length > 0)
-                          ? availableLayers[section]
-                          : layerData[section];
-                      const title =
-                        section === "mitigasiAdaptasi"
-                          ? "Mitigasi & Adaptasi"
-                          : section === "lainnya"
-                            ? "Lainnya"
-                            : "Kejadian";
-                      return (
-                        <div key={section} className="mb-4">
-                          <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-200">
-                            <h3 className="text-[11px] font-bold text-slate-800">
-                              {title}
-                            </h3>
-                            {section !== "kejadian" && (
-                              <button
-                                onClick={() => handleAddClick(section)}
-                                className="text-[9px] text-emerald-700"
-                              >
-                                + Data
-                              </button>
-                            )}
-                          </div>
-                          {!enterpriseCollapsedGroups.has(section) && (
-                            <div className="space-y-1">
-                              {(source || [])
-                                .filter(enterpriseMatchesLayer)
-                                .map((layer: any) => (
-                                  <label
-                                    key={layer.id}
-                                    className="flex min-w-0 items-start gap-2.5 rounded-lg border border-transparent px-2.5 py-2 hover:border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-emerald-700"
-                                      checked={
-                                        activeLayers.has(
-                                          String(
-                                            layer.isManual
-                                              ? layer.name
-                                              : layer.id,
-                                          ),
-                                        ) ||
-                                        activeLayers.has(String(layer.name))
-                                      }
-                                      onChange={(e) => {
-                                        console.log("🔎 CHECKBOX LAYER:", {
-                                          id: layer.id,
-                                          name: layer.name,
-                                          label: layer.label,
-                                          isManual: layer.isManual,
-                                          checked: e.target.checked,
-                                        });
-
-                                        handleLayerToggle(
-                                          layer.isManual
-                                            ? layer.name
-                                            : layer.id,
-                                          e.target.checked,
-                                          layer.year,
-                                          layer.category,
-                                          layer.isShapefile,
-                                        );
-                                      }}
-                                      disabled={loadingLayerNames.has(
-                                        layer.name,
-                                      )}
-                                    />
-                                    <span className="min-w-0 flex-1 break-words text-[10px] leading-4 text-slate-700">
-                                      {formatTableName(layer.name)}
-                                    </span>
-                                  </label>
-                                ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    },
-                  )}
-                </div>
-              </div>
-            </aside>
-
-            {/* =====================================================
-                BOTTOM ANALYTICS — KERAWANAN + MITIGASI & ADAPTASI
-                Tiga kolom sejajar: Kejadian Terkini | Legenda | Mitigasi & Adaptasi.
-                Tidak mengubah logic layer / API / map.
-               ===================================================== */}
-            <section
-              id="kerawanan-bottom-summary-panel"
-              className={`kerawanan-bottom-summary min-h-0 min-w-0 grid grid-cols-[minmax(240px,0.72fr)_minmax(0,1.38fr)_minmax(0,1.18fr)] overflow-hidden bg-white transition-opacity duration-200 ${
-                isBottomSummaryOpen ? "opacity-100" : "kerawanan-bottom-summary-hidden"
-              } xl:col-span-full`}
-            >
-              {/* =====================================================
-                  01 — KEJADIAN TERKINI
-                  Data tetap menggunakan kejadianListings/API existing.
-                 ===================================================== */}
-              <div className="min-w-0 min-h-0 overflow-hidden border-0 bg-white">
-                <div className="h-full min-h-0 flex flex-col px-4 py-3">
-                  <div className="shrink-0 border-b border-slate-200 pb-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-slate-800">
-                          Kejadian Terkini
-                        </div>
-                        <div className="mt-0.5 text-[7px] font-medium text-slate-400">
-                          Informasi kejadian pada area peta aktif
-                        </div>
-                      </div>
-                      <span className="shrink-0 text-[8px] font-bold tabular-nums text-slate-400">
-                        {kejadianListings.length} data
-                      </span>
-                    </div>
-                  </div>
-
-                  {(() => {
-                    const counts = kejadianListings.reduce((acc: Record<string, number>, item: any) => {
-                      const category = String(item.category || "Lainnya").trim() || "Lainnya";
-                      acc[category] = (acc[category] || 0) + 1;
-                      return acc;
-                    }, {});
-                    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-                    const colors = ["#0D9488", "#2563EB", "#F59E0B", "#DC2626", "#7C3AED", "#64748B", "#16A34A"];
-                    let cursor = 0;
-                    const total = kejadianListings.length;
-                    const gradient = entries.length ? entries.map(([label, value], index) => {
-                      const start = cursor;
-                      cursor += total ? (Number(value) / total) * 100 : 0;
-                      return `${colors[index % colors.length]} ${start}% ${cursor}%`;
-                    }).join(", ") : "#E2E8F0 0% 100%";
-                    return (
-                      <div className="my-2 flex items-center gap-3 rounded-lg border border-slate-100 bg-slate-50/80 p-2">
-                        <div className="h-14 w-14 shrink-0 rounded-full ring-1 ring-white shadow-sm" role="img" aria-label={`Grafik pie kategori kejadian, total ${total} data`} style={{ background: `conic-gradient(${gradient})` }} />
-                        <div className="min-w-0 flex-1">
-                          <div className="mb-1 text-[8px] font-extrabold uppercase tracking-wide text-slate-600">Komposisi kejadian</div>
-                          {entries.length ? <div className="flex flex-wrap gap-x-2 gap-y-1">
-                            {entries.slice(0, 6).map(([label, value], index) => (
-                              <span key={label} className="inline-flex items-center gap-1 text-[8px] text-slate-600">
-                                <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: colors[index % colors.length] }} />
-                                <span className="max-w-[90px] truncate">{label}</span>
-                                <strong className="tabular-nums">{value}</strong>
-                              </span>
-                            ))}
-                          </div> : <div className="text-[8px] text-slate-400">Belum ada data untuk wilayah/filter aktif.</div>}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  <div className="min-h-0 flex-1 overflow-y-auto pr-1 dashboard-scroll">
-                    {kejadianListings.length > 0 ? (
-                      <div className="divide-y divide-slate-100">
-                        {kejadianListings.slice(0, 50).map((kejadian, idx) => (
-                          <button
-                            key={kejadian.id ?? idx}
-                            type="button"
-                            onClick={() =>
-                              navigate("/detailkejadian", {
-                                state: {
-                                  incident: {
-                                    id: kejadian.id,
-                                    title: kejadian.title,
-                                    image: kejadian.thumbnail_path
-                                      ? `${API_URL}${kejadian.thumbnail_path}`
-                                      : "https://images.unsplash.com/photo-1611273426858-450d8e3c9fce?w=400",
-                                    location: kejadian.location,
-                                    category: kejadian.category,
-                                    type: String(kejadian.category ?? "")
-                                      .toLowerCase()
-                                      .includes("banjir")
-                                      ? "banjir"
-                                      : String(kejadian.category ?? "")
-                                            .toLowerCase()
-                                            .includes("longsor")
-                                        ? "longsor"
-                                        : "kebakaran",
-                                    date: kejadian.date,
-                                    das: kejadian.das,
-                                    description: kejadian.description,
-                                    thumbnail_path: kejadian.thumbnail_path,
-                                    images_paths: kejadian.images_paths,
-                                    coordinates: [
-                                      kejadian.latitude,
-                                      kejadian.longitude,
-                                    ],
-                                    latitude: kejadian.latitude,
-                                    longitude: kejadian.longitude,
-                                    featured: kejadian.featured || false,
-                                    curah_hujan: kejadian.curah_hujan,
-                                  },
-                                },
-                              })
-                            }
-                            className="group w-full py-2.5 text-left transition-colors hover:bg-slate-50"
-                          >
-                            <div className="flex min-w-0 items-start gap-2.5">
-                              {kejadian.thumbnail_path ? (
-                                <img
-                                  src={`${API_URL}${kejadian.thumbnail_path}`}
-                                  alt={kejadian.title || "Kejadian"}
-                                  className="h-9 w-9 shrink-0 rounded-md object-cover ring-1 ring-slate-200"
-                                />
-                              ) : (
-                                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-slate-100 text-sm">
-                                  ⚠️
-                                </span>
-                              )}
-
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-start justify-between gap-2">
-                                  <span className="min-w-0 truncate text-[8px] font-extrabold text-slate-800 group-hover:text-emerald-700">
-                                    {bottomValue(kejadian.title)}
-                                  </span>
-                                  <span className="shrink-0 text-[7px] font-semibold text-slate-400">
-                                    {bottomIncidentDate(kejadian.date)}
-                                  </span>
-                                </div>
-
-                                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[7px] text-slate-500">
-                                  <span className="truncate">
-                                    📍 {bottomValue(kejadian.location)}
-                                  </span>
-                                  <span
-                                    className={`inline-flex rounded-full border px-1.5 py-0.5 text-[6px] font-bold ${bottomIncidentTone(kejadian.category)}`}
-                                  >
-                                    {bottomValue(kejadian.category)}
-                                  </span>
-                                </div>
-
-                                <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[7px] text-slate-400">
-                                  {kejadian.das && (
-                                    <span>💧 {kejadian.das}</span>
-                                  )}
-                                  {kejadian.curah_hujan !== undefined &&
-                                    kejadian.curah_hujan !== null && (
-                                      <span>🌧️ {kejadian.curah_hujan} mm</span>
-                                    )}
-                                </div>
-                              </div>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="flex h-full min-h-[100px] items-center justify-center px-3 text-center">
-                        <div>
-                          <div className="text-[9px] font-bold text-slate-500">
-                            Belum ada kejadian terbaru
-                          </div>
-                          <div className="mt-1 text-[7px] text-slate-400">
-                            Data kejadian mengikuti area dan filter peta aktif.
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* =====================================================
-                  02 — LEGENDA
-                  Layer → kelas → warna → luas langsung vertikal di bawahnya.
-                 ===================================================== */}
-              <div className="min-w-0 min-h-0 overflow-hidden border-0 bg-white">
-                <div className="h-full min-h-0 flex flex-col px-4 py-3">
-                  <div className="shrink-0 border-b border-slate-200 pb-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-slate-800">
-                          Legenda
-                        </div>
-                        <div className="mt-0.5 text-[7px] font-medium text-slate-400">
-                          Warna dan kelas risiko layer aktif
-                        </div>
-                      </div>
-                      <span className="shrink-0 text-[8px] font-bold tabular-nums text-slate-400">
-                        {bottomActiveRiskLayers.length} layer
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="min-h-0 flex-1 overflow-y-auto pr-1 dashboard-scroll">
-                    {bottomActiveRiskLayers.length > 0 ? (
-                      <div className="flex flex-wrap items-start gap-x-5 gap-y-2">
-                        {bottomActiveRiskLayers.map((name) => {
-                          const items = risikoData[name] || [];
-                          const layerColor =
-                            BENCANA_LAYER_COLORS[name] || "#64748B";
-                          const expanded = expandedRiskLegendLayers.has(name);
-
-                          return (
-                            <div
-                              key={name}
-                              className="min-w-[150px] max-w-[260px] flex-1 py-1"
-                            >
-                              {/* Nama layer selalu tampil terlebih dahulu. */}
-                              <button
-                                type="button"
-                                onClick={() => toggleRiskLegendLayer(name)}
-                                className="flex w-full items-center gap-2 py-1 text-left hover:bg-slate-50 rounded-md transition-colors"
-                                aria-expanded={expanded}
-                              >
-                                <span
-                                  className="h-3 w-3 shrink-0 rounded-sm"
-                                  style={{ backgroundColor: layerColor }}
-                                />
-                                <span className="min-w-0 flex-1 truncate text-[8px] font-extrabold text-slate-800">
-                                  {expanded ? "▾" : "▸"} {formatTableName(name)}
-                                </span>
-                                <span className="shrink-0 text-[7px] font-semibold tabular-nums text-slate-400">
-                                  {items.length} kelas
-                                </span>
-                              </button>
-
-                              {/* Kelas + warna baru keluar setelah nama layer diklik. */}
-                              {expanded && (
-                                <div className="mt-1 ml-5">
-                                  {items.length > 0 ? (
-                                    <div className="space-y-0.5">
-                                      {items.map((item, idx) => (
-                                        <button
-                                          key={`${name}-${item.kelas}-${idx}`}
-                                          type="button"
-                                          onClick={() =>
-                                            handleLegendClick(
-                                              item.kelas,
-                                              name,
-                                              item.color || layerColor,
-                                            )
-                                          }
-                                          onMouseEnter={() =>
-                                            handleRowMouseEnter(
-                                              item.kelas,
-                                              name,
-                                              item.color || layerColor,
-                                            )
-                                          }
-                                          onMouseLeave={handleRowMouseLeave}
-                                          className={`grid w-full grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-1.5 py-1 text-left transition-colors hover:bg-slate-50 rounded-md ${
-                                            selectedLegendKey === item.kelas &&
-                                            selectedLegendType === name
-                                              ? "bg-emerald-50"
-                                              : ""
-                                          }`}
-                                        >
-                                          <span
-                                            className="h-3 w-3 rounded-sm"
-                                            style={{
-                                              backgroundColor:
-                                                item.color || layerColor,
-                                            }}
-                                          />
-                                          <span className="truncate text-[7px] font-semibold text-slate-600">
-                                            {bottomValue(item.kelas)}
-                                          </span>
-                                          <span className="text-right text-[7px] font-bold tabular-nums text-slate-400">
-                                            {(() => {
-                                              const raw =
-                                                Number(item.luas) || 0;
-                                              const ha =
-                                                raw > 100000
-                                                  ? raw / 10000
-                                                  : raw;
-                                              return `${ha.toLocaleString(
-                                                "id-ID",
-                                                {
-                                                  minimumFractionDigits: 2,
-                                                  maximumFractionDigits: 2,
-                                                },
-                                              )} ha`;
-                                            })()}
-                                          </span>
-                                        </button>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    <div className="py-1 text-[7px] text-slate-400">
-                                      Belum ada kelas data pada area peta.
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="flex h-full min-h-[100px] items-center justify-center px-3 text-center">
-                        <div>
-                          <div className="text-[9px] font-bold text-slate-500">
-                            Belum ada layer risiko aktif
-                          </div>
-                          <div className="mt-1 text-[7px] text-slate-400">
-                            Aktifkan layer risiko untuk melihat legenda.
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* =====================================================
-                  03 — MITIGASI & ADAPTASI
-                  Tampilan ringkas: tab layer di atas, satu tabel horizontal.
-                 ===================================================== */}
-              <div className="min-w-0 min-h-0 overflow-hidden border-0 bg-white">
-                <div className="h-full min-h-0 flex flex-col">
-                  {bottomActiveInfraLayers.length > 0 ? (
-                    (() => {
-                      const selectedLayer =
-                        bottomActiveInfraLayers.find(
-                          (layer) => layer.id === activeInfraSummaryLayer,
-                        ) || bottomActiveInfraLayers[0];
-                      const rows = infraData[selectedLayer.id] || [];
-                      const columns = [
-                        {
-                          h: "Nama",
-                          k: selectedLayer.cols?.[0]?.k || "nama_infra",
-                        },
-                        { h: "Kondisi", k: "kondisi_ba" },
-                        { h: "Kelurahan", k: "kelurahan" },
-                        { h: "Kecamatan", k: "kecamatan" },
-                        { h: "Kabupaten/Kota", k: "kabkot_nam" },
-                        { h: "Provinsi", k: "prov_name" },
-                        { h: "Daerah Aliran", k: "daerah_ali" },
-                      ];
-
-                      return (
-                        <>
-                          <div className="shrink-0 overflow-x-auto border-b border-slate-200 bg-white dashboard-scroll">
-                            <div className="flex min-w-max items-end px-2">
-                              {bottomActiveInfraLayers.map((layer) => {
-                                const active = layer.id === selectedLayer.id;
-                                const rowsCount = (infraData[layer.id] || [])
-                                  .length;
-                                return (
-                                  <button
-                                    key={layer.id}
-                                    type="button"
-                                    onClick={() =>
-                                      setActiveInfraSummaryLayer(layer.id)
-                                    }
-                                    className={`inline-flex shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-1.5 text-[9px] font-semibold transition-colors ${
-                                      active
-                                        ? "border-blue-500 text-blue-600"
-                                        : "border-transparent text-slate-700 hover:border-slate-300 hover:text-slate-900"
-                                    }`}
-                                  >
-                                    <span
-                                      className="h-3 w-3 shrink-0 rounded-full"
-                                      style={{
-                                        backgroundColor:
-                                          layer.color || "#64748B",
-                                      }}
-                                    />
-                                    <span>{layer.label}</span>
-                                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500">
-                                      {rowsCount} data
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          <div className="min-h-0 flex-1 min-w-0 overflow-auto dashboard-scroll">
-                            {rows.length > 0 ? (
-                              <table className="w-full min-w-[680px] border-collapse text-left">
-                                <thead className="sticky top-0 z-10 bg-slate-50">
-                                  <tr className="border-b border-slate-200">
-                                    <th className="w-10 px-3 py-2 text-[10px] font-semibold text-slate-500">
-                                      No
-                                    </th>
-                                    {columns.map((col) => (
-                                      <th
-                                        key={col.k}
-                                        className="whitespace-nowrap px-3 py-2 text-[10px] font-semibold text-slate-600"
-                                      >
-                                        {col.h}
-                                      </th>
-                                    ))}
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {rows.slice(0, 100).map((row, idx) => {
-                                    const primaryValue = bottomValue(
-                                      row[columns[0].k],
-                                    );
-                                    return (
-                                      <tr
-                                        key={`${selectedLayer.id}-${idx}`}
-                                        className="border-b border-slate-100 hover:bg-blue-50/50"
-                                        onMouseEnter={() =>
-                                          handleRowMouseEnter(
-                                            primaryValue,
-                                            selectedLayer.id,
-                                            selectedLayer.color || "#808080",
-                                          )
-                                        }
-                                        onMouseLeave={handleRowMouseLeave}
-                                      >
-                                        <td className="px-3 py-2 text-[10px] text-slate-500">
-                                          {idx + 1}
-                                        </td>
-                                        {columns.map((col) => (
-                                          <td
-                                            key={col.k}
-                                            className="whitespace-nowrap px-3 py-2 text-[10px] font-medium text-slate-600"
-                                            title={bottomValue(row[col.k])}
-                                          >
-                                            {bottomValue(row[col.k])}
-                                          </td>
-                                        ))}
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            ) : (
-                              <div className="flex h-full min-h-[100px] items-center justify-center px-4 text-center">
-                                <div className="text-[10px] text-slate-400">
-                                  Belum ada data{" "}
-                                  {String(
-                                    selectedLayer.label || "layer",
-                                  ).toLowerCase()}{" "}
-                                  di area peta.
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </>
-                      );
-                    })()
-                  ) : (
-                    <div className="flex h-full min-h-[100px] items-center justify-center px-4 text-center">
-                      <div>
-                        <div className="text-[10px] font-bold text-slate-500">
-                          Belum ada layer Mitigasi &amp; Adaptasi aktif
-                        </div>
-                        <div className="mt-1 text-[9px] text-slate-400">
-                          Aktifkan Bendungan, Embung, atau infrastruktur
-                          mitigasi lainnya.
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </section>
-          </div>
-        </main>
-      </div>
-
-      {/* Modal Tambah Data - Enterprise GIS Publisher */}
-      {showAddModal && (
-        <div
-          className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-3 sm:p-5"
-          onClick={() => !isUploading && setShowAddModal(false)}
-        >
-          <div
-            className="w-full max-w-3xl max-h-[92vh] overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* =========================================================
-          HEADER
-      ========================================================= */}
-            <div className="relative overflow-hidden border-b border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 px-5 py-5 sm:px-6">
-              <div className="absolute -right-16 -top-16 h-40 w-40 rounded-full bg-emerald-400/10 blur-2xl" />
-              <div className="absolute -bottom-20 left-1/3 h-36 w-36 rounded-full bg-cyan-400/10 blur-2xl" />
-
-              <div className="relative flex items-start justify-between gap-4">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/15 backdrop-blur">
-                    <svg
-                      className="h-5 w-5 text-emerald-300"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M12 4v16m8-8H4"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M7 20h10a2 2 0 002-2V6a2 2 0 00-2-2H7a2 2 0 00-2 2v12a2 2 0 002 2z"
-                      />
-                    </svg>
-                  </div>
-
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-base font-bold tracking-tight text-white sm:text-lg">
-                        Tambah Data Spasial
-                      </h3>
-
-                      <span className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-300">
-                        GIS Publisher
-                      </span>
-                    </div>
-
-                    <p className="mt-1 text-xs text-slate-300">
-                      Publikasikan layer baru ke SIMITI GIS
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center text-gray-400">
+                    <p className="text-sm">Tidak ada foto</p>
+                    <p className="text-xs mt-1">
+                      Aktifkan layer kejadian untuk melihat foto
                     </p>
                   </div>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => !isUploading && setShowAddModal(false)}
-                  disabled={isUploading}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-300 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                  aria-label="Tutup"
-                >
-                  <svg
-                    className="h-5 w-5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M6 6l12 12M18 6L6 18"
-                    />
-                  </svg>
-                </button>
-              </div>
-
-              {/* Context */}
-              <div className="relative mt-4 flex flex-wrap items-center gap-2">
-                <span className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">
-                  Modul
-                </span>
-
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                  {getSectionTitle(currentSection)}
-                </span>
-
-                <span className="text-[10px] text-slate-500">•</span>
-
-                <span className="text-[10px] text-slate-400">
-                  Administrator Publisher
-                </span>
-              </div>
+              )}
             </div>
+          </div>
+        </div>
+      </div>
 
-            {/* =========================================================
-          BODY
-      ========================================================= */}
-            <div className="max-h-[calc(92vh-190px)] overflow-y-auto bg-slate-50/70 p-4 sm:p-6">
-              <div className="space-y-5">
-                {/* =====================================================
-              01 INFORMASI LAYER
-          ===================================================== */}
-                <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                  <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900 text-xs font-bold text-white">
-                        01
-                      </div>
-
-                      <div>
-                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                          Informasi Layer
-                        </h4>
-                        <p className="mt-0.5 text-[10px] text-slate-400">
-                          Identitas dataset yang akan dipublikasikan
-                        </p>
-                      </div>
-                    </div>
-
-                    <span className="rounded-full bg-emerald-50 px-2 py-1 text-[9px] font-bold text-emerald-700">
-                      REQUIRED
-                    </span>
+      {/* Modal Tambah Data */}
+      {showAddModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[2000]"
+          onClick={() => !isUploading && setShowAddModal(false)}
+        >
+          <div
+            className="bg-white rounded-lg w-full max-w-md shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center p-4 border-b">
+              <h3 className="text-base font-semibold">
+                Tambah Data {getSectionTitle(currentSection)}
+              </h3>
+              <button
+                onClick={() => !isUploading && setShowAddModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+                disabled={isUploading}
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-4">
+              <input
+                type="text"
+                placeholder="Masukan nama tabel"
+                value={newLayerName}
+                onChange={(e) => setNewLayerName(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded mb-3 focus:outline-none focus:border-blue-500"
+                disabled={isUploading}
+              />
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center bg-gray-50">
+                <input
+                  type="file"
+                  id="shapefileInput"
+                  multiple
+                  accept=".shp,.shx,.dbf,.prj,.cpg,.sbn,.sbx"
+                  onChange={handleFileChange}
+                  className="hidden"
+                  disabled={isUploading}
+                />
+                <label
+                  htmlFor="shapefileInput"
+                  className={`cursor-pointer block ${isUploading ? "opacity-50 cursor-not-allowed" : ""}`}
+                >
+                  <div className="text-3xl text-gray-400 mb-1">☁️</div>
+                  <div className="text-gray-500 text-xs mb-2">
+                    {uploadedFiles.length > 0
+                      ? `${uploadedFiles.length} file dipilih`
+                      : "Upload file shapefile (.shp, .shx, .dbf, dll)"}
                   </div>
-
-                  <div className="space-y-4 p-4">
-                    <div>
-                      <div className="mb-1.5 flex items-center justify-between">
-                        <label className="text-[11px] font-semibold text-slate-700">
-                          Nama Layer / Tabel
-                          <span className="ml-1 text-rose-500">*</span>
-                        </label>
-
-                        <span className="text-[9px] text-slate-400">
-                          Digunakan sebagai nama tabel
-                        </span>
-                      </div>
-
-                      <div className="relative">
-                        <input
-                          type="text"
-                          placeholder="contoh: bahaya_banjir_kabupaten_bogor"
-                          value={newLayerName}
-                          onChange={(e) => setNewLayerName(e.target.value)}
-                          disabled={isUploading}
-                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 pr-10 text-xs text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 disabled:bg-slate-100 disabled:text-slate-400"
-                        />
-
-                        {newLayerName.trim() && (
-                          <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                            <svg
-                              className="h-4 w-4 text-emerald-500"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M5 13l4 4L19 7"
-                              />
-                            </svg>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
-                        <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                          Modul Tujuan
-                        </div>
-                        <div className="mt-1 text-xs font-semibold text-slate-700">
-                          {getSectionTitle(currentSection)}
-                        </div>
-                      </div>
-
-                      <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
-                        <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                          Publisher
-                        </div>
-                        <div className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                          Administrator
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                {/* =====================================================
-              02 DATA SPASIAL
-          ===================================================== */}
-                <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                  <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-xs font-bold text-white">
-                        02
-                      </div>
-
-                      <div>
-                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                          Data Spasial
-                        </h4>
-                        <p className="mt-0.5 text-[10px] text-slate-400">
-                          Upload paket Shapefile
-                        </p>
-                      </div>
-                    </div>
-
-                    {uploadedFiles.length > 0 && (
-                      <span className="rounded-full bg-emerald-50 px-2 py-1 text-[9px] font-bold text-emerald-700">
-                        {uploadedFiles.length} FILE
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="p-4">
-                    <input
-                      type="file"
-                      id="shapefileInput"
-                      multiple
-                      accept=".shp,.shx,.dbf,.prj,.cpg,.sbn,.sbx"
-                      onChange={handleFileChange}
-                      className="hidden"
-                      disabled={isUploading}
-                    />
-
-                    {uploadedFiles.length === 0 ? (
-                      <label
-                        htmlFor="shapefileInput"
-                        className={`group flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center transition ${
-                          isUploading
-                            ? "cursor-not-allowed opacity-60"
-                            : "hover:border-emerald-400 hover:bg-emerald-50/40"
-                        }`}
-                      >
-                        <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 transition group-hover:scale-105 group-hover:ring-emerald-200">
-                          <svg
-                            className="h-7 w-7 text-slate-400 transition group-hover:text-emerald-500"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth="1.6"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M12 16V4m0 0L7 9m5-5l5 5"
-                            />
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M5 20h14a2 2 0 002-2v-4a2 2 0 00-2-2h-1"
-                            />
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M7 12H5a2 2 0 00-2 2v4a2 2 0 002 2h1"
-                            />
-                          </svg>
-                        </div>
-
-                        <div className="text-sm font-bold text-slate-700">
-                          Upload Shapefile
-                        </div>
-
-                        <div className="mt-1 text-[11px] text-slate-400">
-                          Klik untuk memilih file dataset
-                        </div>
-
-                        <div className="mt-4 flex flex-wrap justify-center gap-1.5">
-                          {["SHP", "SHX", "DBF", "PRJ", "CPG"].map((ext) => (
-                            <span
-                              key={ext}
-                              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[8px] font-bold tracking-wider text-slate-500"
-                            >
-                              .{ext}
-                            </span>
-                          ))}
-                        </div>
-
-                        <div className="mt-3 text-[9px] text-slate-400">
-                          File <b className="text-slate-600">.SHP</b> wajib
-                          tersedia
-                        </div>
-                      </label>
-                    ) : (
-                      <div className="space-y-3">
-                        {/* File status header */}
-                        <div className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500">
-                              <svg
-                                className="h-4 w-4 text-white"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  d="M5 13l4 4L19 7"
-                                />
-                              </svg>
-                            </div>
-
-                            <div>
-                              <div className="text-[10px] font-bold text-emerald-800">
-                                Dataset terdeteksi
-                              </div>
-                              <div className="text-[9px] text-emerald-600">
-                                {uploadedFiles.length} file siap diproses
-                              </div>
-                            </div>
-                          </div>
-
-                          {!isUploading && (
-                            <label
-                              htmlFor="shapefileInput"
-                              className="cursor-pointer rounded-md bg-white px-2.5 py-1.5 text-[9px] font-bold text-emerald-700 shadow-sm ring-1 ring-emerald-100 transition hover:bg-emerald-50"
-                            >
-                              Ganti File
-                            </label>
-                          )}
-                        </div>
-
-                        {/* File list */}
-                        <div className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200 bg-white">
-                          {uploadedFiles.map((file, index) => {
-                            const extension =
-                              file.name.split(".").pop()?.toUpperCase() ||
-                              "FILE";
-
-                            const size =
-                              file.size < 1024 * 1024
-                                ? `${(file.size / 1024).toFixed(1)} KB`
-                                : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
-
-                            const isShp = extension === "SHP";
-                            const isRequired = ["SHP", "SHX", "DBF"].includes(
-                              extension,
-                            );
-
-                            return (
-                              <div
-                                key={`${file.name}-${index}`}
-                                className="flex items-center gap-3 px-3 py-2.5"
-                              >
-                                <div
-                                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[8px] font-black ${
-                                    isShp
-                                      ? "bg-emerald-100 text-emerald-700"
-                                      : "bg-slate-100 text-slate-600"
-                                  }`}
-                                >
-                                  {extension}
-                                </div>
-
-                                <div className="min-w-0 flex-1">
-                                  <div className="truncate text-[10px] font-semibold text-slate-700">
-                                    {file.name}
-                                  </div>
-                                  <div className="mt-0.5 text-[9px] text-slate-400">
-                                    {size}
-                                  </div>
-                                </div>
-
-                                <div className="flex shrink-0 items-center gap-1.5">
-                                  {isRequired && (
-                                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[7px] font-bold uppercase text-slate-500">
-                                      CORE
-                                    </span>
-                                  )}
-
-                                  <svg
-                                    className="h-4 w-4 text-emerald-500"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                  >
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      d="M5 13l4 4L19 7"
-                                    />
-                                  </svg>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        {/* Validation */}
-                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                          <div className="mb-2 flex items-center justify-between">
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
-                              Dataset Validation
-                            </span>
-
-                            {uploadedFiles.some((f) =>
-                              f.name.toLowerCase().endsWith(".shp"),
-                            ) ? (
-                              <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-600">
-                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                                VALID
-                              </span>
-                            ) : (
-                              <span className="text-[9px] font-bold text-rose-500">
-                                INCOMPLETE
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                            {["shp", "shx", "dbf", "prj"].map((requiredExt) => {
-                              const exists = uploadedFiles.some((f) =>
-                                f.name
-                                  .toLowerCase()
-                                  .endsWith(`.${requiredExt}`),
-                              );
-
-                              return (
-                                <div
-                                  key={requiredExt}
-                                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 ${
-                                    exists
-                                      ? "border-emerald-100 bg-white"
-                                      : "border-slate-200 bg-white"
-                                  }`}
-                                >
-                                  <span
-                                    className={`flex h-4 w-4 items-center justify-center rounded-full ${
-                                      exists
-                                        ? "bg-emerald-100 text-emerald-600"
-                                        : "bg-slate-100 text-slate-400"
-                                    }`}
-                                  >
-                                    {exists ? "✓" : "•"}
-                                  </span>
-
-                                  <span
-                                    className={`text-[8px] font-bold uppercase ${
-                                      exists
-                                        ? "text-slate-600"
-                                        : "text-slate-400"
-                                    }`}
-                                  >
-                                    .{requiredExt}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          {!uploadedFiles.some((f) =>
-                            f.name.toLowerCase().endsWith(".shp"),
-                          ) && (
-                            <div className="mt-2 flex items-center gap-1.5 text-[9px] text-rose-500">
-                              <span>⚠</span>
-                              File .shp wajib tersedia sebelum publikasi.
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </section>
-
-                {/* =====================================================
-              03 PROSES PUBLIKASI
-          ===================================================== */}
-                <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                  <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-800 text-xs font-bold text-white">
-                        03
-                      </div>
-
-                      <div>
-                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                          Proses Publikasi
-                        </h4>
-                        <p className="mt-0.5 text-[10px] text-slate-400">
-                          Status pipeline dataset
-                        </p>
-                      </div>
-                    </div>
-
-                    <span
-                      className={`rounded-full px-2 py-1 text-[9px] font-bold ${
-                        isUploading
-                          ? "bg-amber-50 text-amber-700"
-                          : uploadProgress === 100
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-slate-100 text-slate-500"
-                      }`}
-                    >
-                      {isUploading
-                        ? "PROCESSING"
-                        : uploadProgress === 100
-                          ? "COMPLETED"
-                          : "READY"}
-                    </span>
-                  </div>
-
-                  <div className="p-4">
-                    {/* Pipeline */}
-                    <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                      {[
-                        {
-                          number: "01",
-                          title: "Validasi",
-                          done:
-                            uploadedFiles.length > 0 &&
-                            uploadedFiles.some((f) =>
-                              f.name.toLowerCase().endsWith(".shp"),
-                            ),
-                        },
-                        {
-                          number: "02",
-                          title: "Upload",
-                          done: uploadProgress >= 100,
-                        },
-                        {
-                          number: "03",
-                          title: "Import GIS",
-                          done: insertProgress >= 100,
-                        },
-                        {
-                          number: "04",
-                          title: "Publish",
-                          done: insertProgress >= 100,
-                        },
-                      ].map((step) => (
-                        <div
-                          key={step.number}
-                          className={`rounded-lg border px-3 py-2.5 transition ${
-                            step.done
-                              ? "border-emerald-100 bg-emerald-50/60"
-                              : "border-slate-100 bg-slate-50"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span
-                              className={`text-[8px] font-black ${
-                                step.done
-                                  ? "text-emerald-500"
-                                  : "text-slate-400"
-                              }`}
-                            >
-                              {step.number}
-                            </span>
-
-                            {step.done && (
-                              <svg
-                                className="h-3.5 w-3.5 text-emerald-500"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  d="M5 13l4 4L19 7"
-                                />
-                              </svg>
-                            )}
-                          </div>
-
-                          <div
-                            className={`mt-1 text-[9px] font-bold ${
-                              step.done ? "text-emerald-700" : "text-slate-500"
-                            }`}
-                          >
-                            {step.title}
-                          </div>
-                        </div>
+                  {uploadedFiles.length > 0 && (
+                    <div className="text-[10px] text-gray-400 mt-2">
+                      {uploadedFiles.map((f, idx) => (
+                        <div key={idx}>{f.name}</div>
                       ))}
                     </div>
-
-                    {isUploading ? (
-                      <div className="space-y-4">
-                        {/* Upload */}
-                        <div>
-                          <div className="mb-1.5 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-semibold text-slate-700">
-                                Upload Dataset
-                              </span>
-
-                              {uploadProgress < 100 && (
-                                <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[8px] font-bold text-blue-600">
-                                  ACTIVE
-                                </span>
-                              )}
-                            </div>
-
-                            <span className="text-[10px] font-bold text-slate-600">
-                              {uploadProgress}%
-                            </span>
-                          </div>
-
-                          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                            <div
-                              className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-300"
-                              style={{ width: `${uploadProgress}%` }}
-                            />
-                          </div>
-
-                          <div className="mt-1 text-[9px] text-slate-400">
-                            {uploadProgress < 100
-                              ? "Mengirim dataset ke server..."
-                              : "Upload selesai. Memulai proses import GIS..."}
-                          </div>
-                        </div>
-
-                        {/* Import */}
-                        <div>
-                          <div className="mb-1.5 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-semibold text-slate-700">
-                                Import Features
-                              </span>
-
-                              {insertStatus && (
-                                <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[8px] font-bold text-emerald-600">
-                                  {insertStatus}
-                                </span>
-                              )}
-                            </div>
-
-                            <span className="text-[10px] font-bold text-slate-600">
-                              {insertProgress}%
-                            </span>
-                          </div>
-
-                          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                            <div
-                              className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-300"
-                              style={{ width: `${insertProgress}%` }}
-                            />
-                          </div>
-
-                          <div className="mt-1 text-[9px] text-slate-400">
-                            {insertProgress < 100
-                              ? "Memasukkan feature spasial ke database..."
-                              : "Seluruh feature berhasil diproses."}
-                          </div>
-                        </div>
-
-                        {/* Processing notice */}
-                        <div className="flex items-start gap-2.5 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2.5">
-                          <svg
-                            className="mt-0.5 h-4 w-4 shrink-0 text-amber-500"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M12 9v3.5m0 3h.01"
-                            />
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M10.3 4.7L2.9 17.5A2 2 0 004.6 20h14.8a2 2 0 001.7-2.5L13.7 4.7a2 2 0 00-3.4 0z"
-                            />
-                          </svg>
-
-                          <div>
-                            <div className="text-[10px] font-bold text-amber-800">
-                              Jangan tutup halaman
-                            </div>
-                            <div className="mt-0.5 text-[9px] leading-relaxed text-amber-700">
-                              Dataset sedang diproses. Tunggu sampai seluruh
-                              pipeline selesai.
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-200">
-                          <svg
-                            className="h-4 w-4 text-slate-400"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth="1.7"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M12 8v4l2.5 2.5"
-                            />
-                            <circle cx="12" cy="12" r="8.5" />
-                          </svg>
-                        </div>
-
-                        <div>
-                          <div className="text-[10px] font-semibold text-slate-600">
-                            Pipeline siap dijalankan
-                          </div>
-                          <div className="mt-0.5 text-[9px] text-slate-400">
-                            Lengkapi informasi layer dan dataset untuk memulai.
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </section>
+                  )}
+                </label>
               </div>
-            </div>
+              <div className="text-[10px] text-gray-500 mt-2">
+                * Wajib upload minimal file .shp, disarankan juga upload .shx,
+                .dbf, .prj
+              </div>
 
-            {/* =========================================================
-          FOOTER
-      ========================================================= */}
-            <div className="border-t border-slate-200 bg-white px-4 py-3 sm:px-6">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100">
-                    <svg
-                      className="h-3.5 w-3.5 text-slate-500"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth="1.7"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M12 11V8m0 8h.01"
-                      />
-                      <rect width="16" height="16" x="4" y="4" rx="3" />
-                    </svg>
-                  </div>
-
+              {/* Progress Bars */}
+              {isUploading && (
+                <div className="mt-4 space-y-3">
+                  {/* Upload Progress */}
                   <div>
-                    <div className="text-[9px] font-semibold text-slate-600">
-                      Administrator only
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs font-medium text-gray-700">
+                        Upload Files
+                      </span>
+                      <span className="text-xs text-gray-600">
+                        {uploadProgress}%
+                      </span>
                     </div>
-                    <div className="text-[8px] text-slate-400">
-                      Publikasi data akan tersimpan ke sistem GIS.
+                    <div className="w-full bg-gray-200 rounded-full h-2.5">
+                      <div
+                        className="bg-blue-500 h-2.5 rounded-full transition-all duration-300"
+                        style={{ width: `${uploadProgress}%` }}
+                      ></div>
                     </div>
                   </div>
+
+                  {/* Insert Progress */}
+                  {uploadProgress === 100 && (
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-xs font-medium text-gray-700">
+                          Inserting Features
+                          {insertStatus && (
+                            <span className="ml-2 text-gray-500">
+                              ({insertStatus})
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-xs text-gray-600">
+                          {insertProgress}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2.5">
+                        <div
+                          className="bg-green-500 h-2.5 rounded-full transition-all duration-300"
+                          style={{ width: `${insertProgress}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  )}
                 </div>
-
-                <div className="flex w-full gap-2 sm:w-auto">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddModal(false)}
-                    disabled={isUploading}
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-[10px] font-bold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none"
-                  >
-                    Batal
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleCreateLayer}
-                    disabled={
-                      isUploading ||
-                      !newLayerName.trim() ||
-                      uploadedFiles.length === 0 ||
-                      !uploadedFiles.some((f) =>
-                        f.name.toLowerCase().endsWith(".shp"),
-                      )
-                    }
-                    className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-900 px-5 py-2.5 text-[10px] font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none sm:flex-none"
-                  >
-                    {isUploading ? (
-                      <>
-                        <svg
-                          className="h-3.5 w-3.5 animate-spin"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                        >
-                          <circle
-                            className="opacity-25"
-                            cx="12"
-                            cy="12"
-                            r="10"
-                            stroke="currentColor"
-                            strokeWidth="3"
-                          />
-                          <path
-                            className="opacity-75"
-                            fill="currentColor"
-                            d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"
-                          />
-                        </svg>
-
-                        {uploadProgress < 100
-                          ? "Mengupload..."
-                          : "Memproses..."}
-                      </>
-                    ) : (
-                      <>
-                        <svg
-                          className="h-3.5 w-3.5"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M12 4v16m8-8H4"
-                          />
-                        </svg>
-                        Publikasikan Layer
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 p-4 border-t">
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isUploading}
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleCreateLayer}
+                className="px-3 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                disabled={isUploading}
+              >
+                {isUploading
+                  ? uploadProgress < 100
+                    ? "Mengupload..."
+                    : "Memproses..."
+                  : "Buat"}
+              </button>
             </div>
           </div>
         </div>
       )}
+
       {/* Modal Konfirmasi Hapus */}
       {showDeleteModal && (
         <div
@@ -16849,217 +5460,8 @@ const Kerawanan = () => {
         </div>
       )}
 
-      {/* GPS Current Location — info card di tengah area peta */}
-      {gpsPopupOpen && (
-        <div className="absolute left-1/2 top-1/2 z-[1900] w-[calc(100vw-2rem)] max-w-[360px] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-2xl">
-          <div className="flex items-start justify-between gap-3 bg-gradient-to-r from-emerald-700 to-teal-600 px-4 py-3 text-white">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-100">
-                <span className="grid h-6 w-6 place-items-center rounded-full bg-white/15 ring-1 ring-white/20">
-                  <span className="h-2.5 w-2.5 rounded-full bg-white shadow-[0_0_0_4px_rgba(255,255,255,.16)]" />
-                </span>
-                GPS • Lokasi Saat Ini
-              </div>
-              <div className="mt-1 truncate text-sm font-bold">
-                {gpsLocation.loading
-                  ? "Mendeteksi posisi perangkat..."
-                  : gpsLocation.locationName}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setGpsPopupOpen(false)}
-              className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-white/10 text-lg leading-none text-white hover:bg-white/20"
-              aria-label="Tutup informasi lokasi"
-            >
-              ×
-            </button>
-          </div>
-
-          <div className="p-4">
-            {gpsLocation.loading ? (
-              <div className="flex items-center gap-3 py-2 text-xs text-slate-600">
-                <span className="h-5 w-5 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
-                Meminta GPS dan membaca informasi wilayah...
-              </div>
-            ) : gpsLocation.error && gpsLocation.latitude === null ? (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
-                {gpsLocation.error}
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
-                    <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                      Latitude
-                    </div>
-                    <div className="mt-1 font-mono text-xs font-bold text-slate-800">
-                      {gpsLocation.latitude?.toFixed(6) ?? "-"}
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
-                    <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                      Longitude
-                    </div>
-                    <div className="mt-1 font-mono text-xs font-bold text-slate-800">
-                      {gpsLocation.longitude?.toFixed(6) ?? "-"}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-1.5 text-[11px]">
-                  {gpsLocation.village && (
-                    <div>
-                      <span className="font-semibold text-slate-500">
-                        Desa/Kelurahan:
-                      </span>{" "}
-                      <span className="text-slate-800">
-                        {gpsLocation.village}
-                      </span>
-                    </div>
-                  )}
-                  {gpsLocation.district && (
-                    <div>
-                      <span className="font-semibold text-slate-500">
-                        Kecamatan:
-                      </span>{" "}
-                      <span className="text-slate-800">
-                        {gpsLocation.district}
-                      </span>
-                    </div>
-                  )}
-                  {gpsLocation.city && (
-                    <div>
-                      <span className="font-semibold text-slate-500">
-                        Kab/Kota:
-                      </span>{" "}
-                      <span className="text-slate-800">{gpsLocation.city}</span>
-                    </div>
-                  )}
-                  {gpsLocation.province && (
-                    <div>
-                      <span className="font-semibold text-slate-500">
-                        Provinsi:
-                      </span>{" "}
-                      <span className="text-slate-800">
-                        {gpsLocation.province}
-                      </span>
-                    </div>
-                  )}
-                  {gpsLocation.accuracy !== null && (
-                    <div>
-                      <span className="font-semibold text-slate-500">
-                        Akurasi GPS:
-                      </span>{" "}
-                      <span className="text-slate-800">
-                        ± {Math.round(gpsLocation.accuracy)} meter
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {gpsLocation.error && (
-                  <div className="rounded-lg bg-amber-50 px-2.5 py-2 text-[10px] text-amber-700">
-                    {gpsLocation.error}
-                  </div>
-                )}
-
-                {/* Ancaman Bencana dari data Kerawanan SIMITI */}
-                <div className="rounded-xl border border-red-100 bg-gradient-to-b from-red-50 to-white p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-red-700">
-                        Ancaman Bencana di Lokasi
-                      </div>
-                      <div className="mt-0.5 text-[9px] text-slate-500">
-                        Berdasarkan data Kerawanan SIMITI/PostGIS
-                      </div>
-                    </div>
-                    {gpsThreats.riskStatus && (
-                      <span className="rounded-full bg-white px-2 py-1 text-[9px] font-bold text-red-700 ring-1 ring-red-100">
-                        {gpsThreats.riskStatus}
-                      </span>
-                    )}
-                  </div>
-
-                  {gpsThreats.loading ? (
-                    <div className="mt-3 flex items-center gap-2 text-[10px] text-slate-500">
-                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-red-500 border-t-transparent" />
-                      Memeriksa seluruh layer kerawanan pada titik GPS...
-                    </div>
-                  ) : gpsThreats.error ? (
-                    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] leading-4 text-amber-700">
-                      {gpsThreats.error}
-                    </div>
-                  ) : (gpsThreats.threats ?? []).length === 0 ? (
-                    <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50 px-2.5 py-2 text-[10px] leading-4 text-emerald-700">
-                      Tidak ditemukan ancaman bencana pada titik GPS berdasarkan
-                      data kerawanan yang tersedia.
-                    </div>
-                  ) : (
-                    <div className="mt-3 space-y-1.5">
-                      {(gpsThreats.threats ?? []).map((threat, index) => (
-                        <div
-                          key={`${threat.key}-${index}`}
-                          className="flex items-center justify-between gap-2 rounded-lg border border-white bg-white px-2.5 py-2 shadow-sm"
-                        >
-                          <div className="min-w-0">
-                            <div className="truncate text-[10px] font-bold text-slate-800">
-                              {threat.label}
-                            </div>
-                            <div className="mt-0.5 text-[9px] text-slate-500">
-                              Layer: {threat.source}
-                            </div>
-                          </div>
-                          <div className="shrink-0 text-right">
-                            <div className="text-[9px] font-extrabold text-red-700">
-                              {threat.status || "Terdeteksi"}
-                            </div>
-                            {threat.score !== null && (
-                              <div className="text-[8px] text-slate-400">
-                                Skor {threat.score}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {gpsThreats.riskScore !== null && (
-                    <div className="mt-2 border-t border-red-100 pt-2 text-[9px] text-slate-500">
-                      Skor risiko lokasi:{" "}
-                      <span className="font-bold text-slate-700">
-                        {gpsThreats.riskScore}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={() => {
-                detectCurrentGpsLocation();
-              }}
-              disabled={gpsLocation.loading}
-              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-3 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {gpsLocation.loading
-                ? "Mendeteksi GPS..."
-                : "Perbarui Lokasi GPS"}
-            </button>
-            <div className="mt-2 text-center text-[9px] leading-4 text-slate-400">
-              Posisi berasal dari GPS/geolocation perangkat dan membutuhkan izin
-              lokasi browser.
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Photo Lightbox */}
-      {selectedPhotoIndex !== null && (kejadianPhotos ?? []).length > 0 && (
+      {selectedPhotoIndex !== null && kejadianPhotos.length > 0 && (
         <div
           className="fixed inset-0 bg-black bg-opacity-90 z-[2000] flex items-center justify-center"
           onClick={() => setSelectedPhotoIndex(null)}
@@ -17132,8 +5534,7 @@ const Kerawanan = () => {
             {/* Photo Info */}
             <div className="text-white text-center mt-4 px-4">
               <p className="text-lg font-semibold">
-                Foto {selectedPhotoIndex + 1} dari{" "}
-                {(kejadianPhotos ?? []).length}
+                Foto {selectedPhotoIndex + 1} dari {kejadianPhotos.length}
               </p>
               <p className="text-sm mt-2">
                 {kejadianPhotos[selectedPhotoIndex].incident_type} -{" "}
@@ -17170,7 +5571,7 @@ const Kerawanan = () => {
                   style={{
                     border:
                       selectedPhotoIndex === idx
-                        ? "3px solid #f97316"
+                        ? "3px solid #16a34a"
                         : "2px solid transparent",
                     opacity: selectedPhotoIndex === idx ? 1 : 0.6,
                   }}
@@ -17184,12 +5585,12 @@ const Kerawanan = () => {
           </div>
 
           {/* Next Button */}
-          {selectedPhotoIndex < (kejadianPhotos ?? []).length - 1 && (
+          {selectedPhotoIndex < kejadianPhotos.length - 1 && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 setSelectedPhotoIndex((prev) =>
-                  prev < (kejadianPhotos ?? []).length - 1 ? prev + 1 : prev,
+                  prev < kejadianPhotos.length - 1 ? prev + 1 : prev,
                 );
               }}
               className="absolute right-4 text-white text-5xl hover:text-gray-300 bg-black bg-opacity-50 rounded-full w-12 h-12 flex items-center justify-center"
@@ -17213,8 +5614,6 @@ const Kerawanan = () => {
           )}
         </div>
       )}
-
-      {/* Header Trademark */}
     </div>
   );
 };
