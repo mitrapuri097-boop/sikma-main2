@@ -14672,6 +14672,15 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       columns.filter((c) => !excluded.has(c)).slice(0, 48)
     ).filter((c) => columns.includes(c) && isSafeSqlIdentifier(c));
 
+    // Kelas wajib ikut dikirim untuk simbolisasi Risiko Banjir Nasional,
+    // walaupun posisi kolom kelas berada setelah 48 kolom pertama.
+    if (
+      tableName === "risiko_banjir" &&
+      columns.includes("kelas") &&
+      !selectedCols.includes("kelas")
+    ) {
+      selectedCols.push("kelas");
+    }
     // Hindari query JSON_OBJECT kosong.
     if (selectedCols.length === 0) selectedCols = [];
 
