@@ -19217,6 +19217,11 @@ app.get("/api/location-proximity", async (req, res) => {
     20,
   );
 
+  const radiusMeters = Math.min(
+    Math.max(Number(req.query.radiusMeters) || 5000, 500),
+    50000,
+  );
+
   const startedAt = Date.now();
 
   console.log("==============================================");
@@ -19227,6 +19232,7 @@ app.get("/api/location-proximity", async (req, res) => {
     threatLimit,
     mitigationLimit,
     incidentLimit,
+    radiusMeters,
   });
 
   // ==========================================================
@@ -19449,7 +19455,9 @@ app.get("/api/location-proximity", async (req, res) => {
           // Nilai ini hanya membatasi kandidat spatial.
           // Urutan/output threats tetap sama.
           // ==================================================
-          const SEARCH_RADIUS_DEG = 0.25;
+          // BBox kandidat sekitar radius; ST_DWithin di bawah menjadi
+          // filter jarak final yang akurat dalam meter.
+          const SEARCH_RADIUS_DEG = Math.max(0.06, radiusMeters / 80000);
 
           const nearbyQuery = `
         SELECT
@@ -19531,6 +19539,13 @@ app.get("/api/location-proximity", async (req, res) => {
             )
           )
 
+          -- Jarak final dihitung secara geodesik dalam meter.
+          AND ST_DWithin(
+            ${normalizedGeometry}::geography,
+            ${point}::geography,
+            $3
+          )
+
         ORDER BY
           ST_Covers(
             ${normalizedGeometry},
@@ -19544,7 +19559,7 @@ app.get("/api/location-proximity", async (req, res) => {
         LIMIT 1
       `;
 
-          const result = await pool.query(nearbyQuery, [latitude, longitude]);
+          const result = await pool.query(nearbyQuery, [latitude, longitude, radiusMeters]);
 
           // ==================================================
           // IMPORTANT
@@ -19828,10 +19843,20 @@ app.get("/api/location-proximity", async (req, res) => {
             AND latitude IS NOT NULL
             AND longitude::double precision BETWEEN -180 AND 180
             AND latitude::double precision BETWEEN -90 AND 90
+            AND ST_DistanceSphere(
+              ST_SetSRID(
+                ST_MakePoint(
+                  longitude::double precision,
+                  latitude::double precision
+                ),
+                4326
+              ),
+              ST_SetSRID(ST_MakePoint($2, $1), 4326)
+            ) <= $3
           ORDER BY distance_meters ASC
-          LIMIT $3
+          LIMIT $4
         `,
-        [latitude, longitude, incidentLimit],
+        [latitude, longitude, radiusMeters, incidentLimit],
       );
 
       incidents = (incidentResult.rows || []).map((row) => ({
@@ -19892,6 +19917,8 @@ app.get("/api/location-proximity", async (req, res) => {
         latitude,
         longitude,
       },
+
+      radiusMeters,
 
       // ======================================================
       // RISK SUMMARY

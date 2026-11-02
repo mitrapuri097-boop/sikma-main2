@@ -1,12 +1,26 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "./api";
+import Sidebar from "./components/layouts/Sidebar";
 
 const Kerawanan = () => {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
+  const selectedAreaBoundaryRef = useRef<any>(null);
+  // Menyimpan wilayah hasil klik peta sebagai filter clipping khusus layer kerawanan.
+  const selectedMapAreaRef = useRef<any>(null);
+  const areaBoundaryRequestRef = useRef(0);
   const layerGroupsRef = useRef({});
   const navigate = useNavigate();
+  // Navigasi utama halaman Kerawanan: sidebar dapat di-collapse di desktop
+  // dan dibuka sebagai drawer pada perangkat mobile.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  // State panel harus dideklarasikan sebelum useEffect yang menggunakannya.
+  const [isLayerPanelOpen, setIsLayerPanelOpen] = useState(true);
+  // Panel grafik/tabel disembunyikan saat pertama kali halaman dibuka.
+  const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -57,6 +71,16 @@ const Kerawanan = () => {
     kejadian: [],
   });
   const [mapReady, setMapReady] = useState(false);
+
+  // MY LOKASI: popup awal, hasil GPS, dan analisis ancaman radius 5 km.
+  const [isMyLocationPopupOpen, setIsMyLocationPopupOpen] = useState(true);
+  const [myLocationStatus, setMyLocationStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [myLocationError, setMyLocationError] = useState("");
+  const [myLocationData, setMyLocationData] = useState<any>(null);
+  const [myLocationAnalysis, setMyLocationAnalysis] = useState<any>(null);
+  const myLocationLayersRef = useRef<any[]>([]);
+  const myLocationRequestRef = useRef(0);
+
   const [insertProgress, setInsertProgress] = useState(0);
   const [insertStatus, setInsertStatus] = useState("");
 
@@ -293,42 +317,39 @@ const Kerawanan = () => {
     Kritis: "#FFA500",
   };
 
-  // Warna untuk rawan erosi (berdasarkan tingkat)
-  const rawanErosiColors = {
-    "Sangat Tinggi": "#8B0000",
-    Tinggi: "#FF0000",
-    Sedang: "#FFA500",
-    Rendah: "#FFFF00",
-    "Sangat Rendah": "#90EE90",
+  // Warna kerawanan berdasarkan tingkat risiko
+  const rawanErosiColors: Record<string, string> = {
+    "15": "#90EE90",
+    "60": "#FFFF00",
+    "180": "#FFA500",
+    "480": "#FF4500",
+    ">480": "#8B0000",
   };
 
-  // Warna untuk rawan longsor
   const rawanLongsorColors = {
     Tinggi: "#FF4500",
-    "Sangat Rendah": "#90EE90",
     Menengah: "#FFA500",
     Rendah: "#FFFF00",
+    "Sangat Rendah": "#90EE90",
+    "Alur Aliran Bahan Rombakan": "#808080",
     Danau: "#1E90FF",
     "Danau Tapal Kuda": "#4169E1",
     "Danau/Situ": "#00BFFF",
     Waduk: "#4682B4",
-    "Alur Aliran Bahan Rombakan": "#8B4513",
   };
 
-  // Warna untuk rawan limpasan
   const rawanLimpasanColors = {
     Ekstrim: "#8B0000",
-    Tinggi: "#FF0000",
+    Tinggi: "#FF4500",
     Rendah: "#FFFF00",
     Normal: "#90EE90",
   };
 
-  // Warna untuk rawan karhutla
   const rawanKarhutlaColors = {
     "Sangat Tinggi": "#8B0000",
-    Tinggi: "#FF0000",
+    Tinggi: "#FF4500",
     Sedang: "#FFA500",
-    Rendah: "#FFFF00",
+    Rendah: "#90EE90",
   };
 
   const [kejadianPhotos, setKejadianPhotos] = useState<
@@ -592,9 +613,29 @@ const Kerawanan = () => {
       // Build URL dengan filter administrasi/DAS
       let url = `${API_URL}/api/layers/${tableName}/geojson?bounds=${boundsString}&zoom=${zoom}`;
 
-      // Gunakan pilihan daerah terbaru jika dikirim oleh updateMapBounds
-      const areasToUse = areasOverride ?? selectedAreas;
-      const dasToUse = areasOverride !== undefined ? [] : selectedDas;
+      // Gunakan wilayah hasil klik peta untuk MEMOTONG layer kerawanan saja.
+      // Layer lain tetap mengikuti filter administrasi/DAS yang sudah ada.
+      const isKerawananLayer = [
+        ...(layerData.kerawanan || []),
+        ...(availableLayers.kerawanan || []),
+      ].some((layer) => layer?.name === tableName);
+      const selectedMapArea = isKerawananLayer
+        ? selectedMapAreaRef.current
+        : null;
+      const mapAreaFilterKey = selectedMapArea
+        ? `${selectedMapArea.level}|${selectedMapArea.label}|${selectedMapArea.latitude}|${selectedMapArea.longitude}`
+        : "";
+
+      // Gunakan pilihan daerah terbaru jika dikirim oleh updateMapBounds.
+      // Pilihan dari klik peta hanya menjadi prioritas untuk layer kerawanan.
+      const areasToUse = selectedMapArea
+        ? [selectedMapArea]
+        : areasOverride ?? selectedAreas;
+      const dasToUse = selectedMapArea
+        ? []
+        : areasOverride !== undefined
+          ? []
+          : selectedDas;
 
       // Prioritas: DAS > Administrasi
       if (dasToUse.length > 0) {
@@ -628,6 +669,14 @@ const Kerawanan = () => {
 
         url += `&adminFilter=${encodeURIComponent(JSON.stringify(adminNames))}`;
         url += `&adminLevel=${adminLevel}`;
+
+        // Koordinat klik mengunci tepat satu polygon, termasuk jika nama
+        // kelurahan yang sama muncul di kecamatan/kabupaten berbeda.
+        if (selectedMapArea && Number.isFinite(selectedMapArea.latitude) && Number.isFinite(selectedMapArea.longitude)) {
+          url += `&clipLatitude=${encodeURIComponent(String(selectedMapArea.latitude))}`;
+          url += `&clipLongitude=${encodeURIComponent(String(selectedMapArea.longitude))}`;
+        }
+
         console.log(
           "🔄 Loading layer with admin filtering:",
           tableName,
@@ -649,6 +698,22 @@ const Kerawanan = () => {
       }
 
       const geojsonData = await response.json();
+
+      // Abaikan hasil request lama jika pengguna sudah memilih polygon lain
+      // saat request layer kerawanan sebelumnya masih berjalan.
+      if (isKerawananLayer) {
+        const currentMapArea = selectedMapAreaRef.current;
+        const currentMapAreaKey = currentMapArea
+          ? `${currentMapArea.level}|${currentMapArea.label}|${currentMapArea.latitude}|${currentMapArea.longitude}`
+          : "";
+        if (currentMapAreaKey !== mapAreaFilterKey) {
+          console.info(
+            `[SIMITI] Abaikan response ${tableName}: pilihan polygon berubah selama pemuatan.`,
+          );
+          return;
+        }
+      }
+
       console.log(
         "✅ GeoJSON data received for",
         tableName,
@@ -827,8 +892,8 @@ const Kerawanan = () => {
         const tingkatMap = new Map<string, number>();
 
         geojsonData.features.forEach((feature: any) => {
-          const tingkat = feature.properties.tingkat || "";
-          const luas = parseFloat(feature.properties.n_a) || 0;
+          const tingkat = String(feature.properties?.kls_a ?? "").trim();
+          const luas = parseFloat(feature.properties?.n_a) || 0;
 
           if (tingkat) {
             tingkatMap.set(tingkat, (tingkatMap.get(tingkat) || 0) + luas);
@@ -837,31 +902,23 @@ const Kerawanan = () => {
 
         const erosiArray = Array.from(tingkatMap.entries()).map(
           ([tingkat, luas_ha]) => ({
-            tingkat: tingkat,
-            luas_ha: luas_ha,
+            tingkat,
+            luas_ha,
             color: rawanErosiColors[tingkat] || "#808080",
           }),
         );
 
-        const tingkatOrder = [
-          "Sangat Tinggi",
-          "Tinggi",
-          "Sedang",
-          "Rendah",
-          "Sangat Rendah",
-        ];
-        erosiArray.sort((a, b) => {
-          return (
-            tingkatOrder.indexOf(a.tingkat) - tingkatOrder.indexOf(b.tingkat)
-          );
-        });
+        const tingkatOrder = [">480", "480", "180", "60", "15"];
+
+        erosiArray.sort((a, b) =>
+          tingkatOrder.indexOf(a.tingkat) - tingkatOrder.indexOf(b.tingkat)
+        );
 
         setRawanErosiData(erosiArray);
 
         erosiArray.forEach((item) => {
           colorMap.set(item.tingkat, item.color!);
-        });
-      } else if (tableName === "rawan_longsor") {
+        });} else if (tableName === "rawan_longsor") {
         const unsurMap = new Map<string, number>();
 
         geojsonData.features.forEach((feature: any) => {
@@ -1025,7 +1082,7 @@ const Kerawanan = () => {
         };
       } else if (tableName === "rawan_erosi") {
         styleFunction = function (feature: any) {
-          const tingkat = feature.properties.tingkat || "";
+          const tingkat = feature.properties.kls_a || "";
           const fillColor = colorMap.get(tingkat) || "#808080";
           return {
             color: fillColor,
@@ -1118,13 +1175,15 @@ const Kerawanan = () => {
       layerGroupsRef.current[tableName] = layerGroup;
 
       const filterType =
-        selectedDas.length > 0
-          ? "DAS filtering"
-          : selectedAreas.length > 0
-            ? "Admin filtering"
-            : currentBounds
-              ? "bounds filtering"
-              : "no filtering";
+        mapAreaFilterKey
+          ? `selected polygon clipping (${selectedMapArea?.label || "area"})`
+          : selectedDas.length > 0
+            ? "DAS filtering"
+            : selectedAreas.length > 0
+              ? "Admin filtering"
+              : currentBounds
+                ? "bounds filtering"
+                : "no filtering";
       console.log(
         `✅ Layer "${tableName}" berhasil dimuat dengan ${filterType} (${geojsonData.features.length} features)`,
       );
@@ -3129,6 +3188,239 @@ const Kerawanan = () => {
 
         // Simpan instance map ke ref
         mapInstanceRef.current = map;
+
+        // Klik peta: deteksi kelurahan dari koordinat dan tampilkan batas asli PostGIS.
+        // Layer khusus ini terpisah dari layer kerawanan/kejadian agar tidak mengganggu fitur lain.
+        const handleAdministrativeMapClick = async (event: any) => {
+          const requestId = ++areaBoundaryRequestRef.current;
+          const latitude = Number(event?.latlng?.lat);
+          const longitude = Number(event?.latlng?.lng);
+
+          if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+
+          map.closePopup();
+
+          if (selectedAreaBoundaryRef.current) {
+            map.removeLayer(selectedAreaBoundaryRef.current);
+            selectedAreaBoundaryRef.current = null;
+          }
+
+          try {
+            const response = await fetch(`${API_URL}/api/spatial/area-boundary`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ latitude, longitude }),
+            });
+
+            const result = await response.json();
+
+            // Abaikan respons lama jika pengguna sudah mengklik titik lain.
+            if (requestId !== areaBoundaryRequestRef.current) return;
+
+            if (!response.ok || !result?.success || !result?.data?.geom) {
+              console.info(
+                "[SIMITI] Tidak ditemukan batas administrasi pada titik ini:",
+                result?.message || response.statusText,
+              );
+              return;
+            }
+
+            const area = result.data;
+
+            // Simpan polygon administrasi yang benar-benar terdeteksi PostGIS.
+            // Bentuk ini sesuai kontrak adminFilter yang sudah didukung backend.
+            const areaLevel = String(area.level || "kelurahan").toLowerCase();
+            const areaFilter: any = {
+              label: area.label,
+              level: areaLevel,
+              latitude,
+              longitude,
+            };
+            if (areaLevel === "kelurahan") areaFilter.kel_desa = area.label;
+            else if (areaLevel === "kecamatan") areaFilter.kecamatan = area.label;
+            else if (areaLevel === "kabupaten") areaFilter.kab_kota = area.label;
+            else if (areaLevel === "provinsi") areaFilter.provinsi = area.label;
+
+            selectedMapAreaRef.current = areaFilter;
+
+            // Layer kerawanan yang sudah aktif harus dimuat ulang dengan
+            // adminFilter agar PostGIS memotong geometri tepat pada polygon ini.
+            const activeRiskLayers = Array.from(activeLayers).filter((name) =>
+              [
+                ...(layerData.kerawanan || []),
+                ...(availableLayers.kerawanan || []),
+              ].some((layer) => layer?.name === name),
+            );
+
+            const escapeHtml = (value: any) =>
+              String(value ?? "-").replace(/[&<>"']/g, (char) => {
+                const entities: Record<string, string> = {
+                  "&": "&amp;",
+                  "<": "&lt;",
+                  ">": "&gt;",
+                  '"': "&quot;",
+                  "'": "&#39;",
+                };
+                return entities[char];
+              });
+
+            const boundaryLayer = window.L.geoJSON(
+              {
+                type: "Feature",
+                properties: {},
+                geometry: area.geom,
+              },
+              {
+                interactive: false,
+                style: {
+                  color: "#F59E0B",
+                  weight: 3,
+                  opacity: 1,
+                  fillColor: "#FDE68A",
+                  fillOpacity: 0.28,
+                  dashArray: "7 4",
+                },
+              },
+            ).addTo(map);
+
+            selectedAreaBoundaryRef.current = boundaryLayer;
+            if (typeof boundaryLayer.bringToFront === "function") {
+              boundaryLayer.bringToFront();
+            }
+
+            const properties = [
+              ["Kelurahan / Desa", area.level === "kelurahan" ? area.label : "-"],
+              ["Kecamatan", area.kecamatan],
+              ["Kabupaten / Kota", area.kab_kota],
+              ["Provinsi", area.provinsi],
+            ].filter(([, value]) => value);
+
+            const detailRows = properties
+              .map(
+                ([label, value]) => `
+                  <div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid #eef2f7;">
+                    <span style="flex:0 0 112px;color:#64748b;font-size:12px;">${escapeHtml(label)}</span>
+                    <strong style="flex:1;color:#0f172a;font-size:12px;line-height:1.45;">${escapeHtml(value)}</strong>
+                  </div>
+                `,
+              )
+              .join("");
+
+            const popupContent = `
+              <div style="width:310px;max-width:calc(100vw - 90px);font-family:Arial,sans-serif;">
+                <div data-area-drag-handle="true" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:#0f3b5d;color:#fff;border-radius:10px 10px 0 0;cursor:grab;user-select:none;touch-action:none;">
+                  <div>
+                    <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;opacity:.78;">Wilayah terpilih</div>
+                    <div style="font-size:15px;font-weight:700;margin-top:3px;">${escapeHtml(area.label)}</div>
+                  </div>
+                  <button type="button" data-area-close="true" aria-label="Tutup informasi kelurahan" title="Tutup" style="flex:0 0 28px;width:28px;height:28px;border:0;border-radius:50%;background:rgba(255,255,255,.18);color:#fff;font-size:21px;line-height:1;cursor:pointer;">&times;</button>
+                </div>
+                <div style="padding:10px 14px 12px;background:#fff;">
+                  ${detailRows}
+                  <div style="padding-top:9px;color:#64748b;font-size:11px;line-height:1.5;">
+                    Titik klik: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}
+                  </div>
+                  <div style="padding-top:5px;color:#94a3b8;font-size:10px;">Geser bagian judul untuk memindahkan popup</div>
+                </div>
+              </div>
+            `;
+
+            const popup = window.L.popup({
+              className: "custom-area-popup",
+              closeButton: false,
+              autoClose: true,
+              closeOnClick: false,
+              autoPan: true,
+              maxWidth: 350,
+              minWidth: 280,
+              offset: [0, -8],
+            })
+              .setLatLng(boundaryLayer.getBounds().getCenter())
+              .setContent(popupContent)
+              .openOn(map);
+
+            // Popup langsung tampil; pemotongan layer kerawanan berjalan setelahnya.
+            // Jika ada klik baru, requestId mencegah hasil klik lama dipakai.
+            for (const riskLayerName of activeRiskLayers) {
+              if (requestId !== areaBoundaryRequestRef.current) return;
+              await loadLayerInBounds(riskLayerName);
+            }
+
+            // Popup sudah dibuka di atas, jadi ambil elemennya langsung.
+            // Jangan menunggu event "add" karena openOn(map) dapat memicunya
+            // secara sinkron sebelum listener sempat didaftarkan.
+            const popupElement = popup.getElement();
+            const dragHandle = popupElement?.querySelector(
+              "[data-area-drag-handle]",
+            ) as HTMLElement | null;
+            const closeButton = popupElement?.querySelector(
+              "[data-area-close]",
+            ) as HTMLButtonElement | null;
+
+            if (popupElement && dragHandle && closeButton) {
+              // Hindari klik/geser popup diteruskan sebagai interaksi peta.
+              window.L.DomEvent.disableClickPropagation(popupElement);
+              window.L.DomEvent.disableScrollPropagation(popupElement);
+
+              let isDraggingPopup = false;
+              let mapWasDraggable = false;
+
+              const onPointerMove = (pointerEvent: PointerEvent) => {
+                if (!isDraggingPopup) return;
+                const point = map.mouseEventToContainerPoint(pointerEvent);
+                popup.setLatLng(
+                  map.containerPointToLatLng([point.x, point.y + 18]),
+                );
+              };
+
+              const onPointerUp = () => {
+                if (!isDraggingPopup) return;
+                isDraggingPopup = false;
+                window.removeEventListener("pointermove", onPointerMove);
+                window.removeEventListener("pointerup", onPointerUp);
+                if (mapWasDraggable) map.dragging.enable();
+                dragHandle.style.cursor = "grab";
+              };
+
+              const onPointerDown = (pointerEvent: PointerEvent) => {
+                if ((pointerEvent.target as HTMLElement)?.closest("[data-area-close]")) {
+                  return;
+                }
+                pointerEvent.preventDefault();
+                pointerEvent.stopPropagation();
+                isDraggingPopup = true;
+                mapWasDraggable = map.dragging.enabled();
+                map.dragging.disable();
+                dragHandle.style.cursor = "grabbing";
+                window.addEventListener("pointermove", onPointerMove);
+                window.addEventListener("pointerup", onPointerUp);
+              };
+
+              const onClose = (pointerEvent: Event) => {
+                pointerEvent.preventDefault();
+                pointerEvent.stopPropagation();
+                onPointerUp();
+                map.closePopup(popup);
+              };
+
+              dragHandle.addEventListener("pointerdown", onPointerDown);
+              closeButton.addEventListener("click", onClose);
+
+              popup.once("remove", () => {
+                onPointerUp();
+                dragHandle.removeEventListener("pointerdown", onPointerDown);
+                closeButton.removeEventListener("click", onClose);
+              });
+            }
+
+          } catch (error) {
+            if (requestId === areaBoundaryRequestRef.current) {
+              console.error("[SIMITI] Gagal mendeteksi kelurahan dari titik peta:", error);
+            }
+          }
+        };
+
+        map.on("click", handleAdministrativeMapClick);
         setMapReady(true);
 
         // Tambahkan event listener untuk moveend (setelah pan/zoom selesai)
@@ -3166,6 +3458,230 @@ const Kerawanan = () => {
       }
     };
   }, []);
+
+  // ============================================================
+  // MY LOKASI - DETEKSI GPS + ANALISIS 5 PARAMETER DALAM RADIUS 5 KM
+  // Berjalan otomatis sekali ketika peta siap.
+  // ============================================================
+  useEffect(() => {
+    if (!mapReady || !mapInstanceRef.current) return;
+
+    let cancelled = false;
+    const requestId = ++myLocationRequestRef.current;
+    setMyLocationStatus("loading");
+    setMyLocationError("");
+    setMyLocationData(null);
+    setMyLocationAnalysis(null);
+
+    const analyzePosition = async (
+      latitude: number,
+      longitude: number,
+      accuracy: number | null = null,
+    ) => {
+      if (cancelled || requestId !== myLocationRequestRef.current) return;
+
+      setMyLocationData({
+        latitude,
+        longitude,
+        accuracy,
+        administrative: null,
+      });
+
+      const map = mapInstanceRef.current as any;
+      if (map && window.L) {
+        myLocationLayersRef.current.forEach((layer) => {
+          try { map.removeLayer(layer); } catch { /* layer sudah dilepas */ }
+        });
+        myLocationLayersRef.current = [];
+
+        const marker = window.L.circleMarker([latitude, longitude], {
+          radius: 9,
+          color: "#ffffff",
+          weight: 3,
+          fillColor: "#2563eb",
+          fillOpacity: 1,
+        }).addTo(map);
+        marker.bindTooltip("Posisi Saya", { direction: "top", offset: [0, -8] });
+
+        const radiusCircle = window.L.circle([latitude, longitude], {
+          radius: 5000,
+          color: "#2563eb",
+          weight: 2,
+          opacity: 0.85,
+          dashArray: "7 6",
+          fillColor: "#60a5fa",
+          fillOpacity: 0.07,
+          interactive: false,
+        }).addTo(map);
+
+        myLocationLayersRef.current = [radiusCircle, marker];
+        // Jangan menggeser atau memperbesar peta saat GPS diperbarui.
+        // Tampilan peta Indonesia tetap mengikuti extent awal aplikasi.
+      }
+
+      try {
+        // Jalankan lookup administrasi di latar belakang agar tidak menahan
+        // analisis ancaman. Keduanya memakai koordinat GPS yang sama.
+        void (async () => {
+          try {
+            const adminResponse = await fetch(`${API_URL}/api/spatial/detect-location`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ latitude, longitude }),
+              signal: AbortSignal.timeout(10000),
+            });
+            const adminResult = await adminResponse.json();
+            if (adminResponse.ok && adminResult?.success && !cancelled && requestId === myLocationRequestRef.current) {
+              setMyLocationData((previous: any) => ({
+                ...previous,
+                administrative: adminResult.data || null,
+              }));
+            }
+          } catch (adminError) {
+            console.warn("[MY LOKASI] Deteksi administrasi PostGIS gagal:", adminError);
+          }
+        })();
+
+        // Analisis ancaman dimulai langsung, tanpa menunggu lookup administrasi.
+        const params = new URLSearchParams({
+          latitude: String(latitude),
+          longitude: String(longitude),
+          radiusMeters: "5000",
+          threatLimit: "20",
+          mitigationLimit: "1",
+          incidentLimit: "5",
+        });
+        const response = await fetch(
+          `${API_URL}/api/location-proximity?${params.toString()}`,
+          { signal: AbortSignal.timeout(30000) },
+        );
+        const result = await response.json();
+        if (cancelled || requestId !== myLocationRequestRef.current) return;
+        if (!response.ok || !result?.success) {
+          throw new Error(result?.message || `Analisis lokasi gagal (${response.status})`);
+        }
+
+        const threats = Array.isArray(result.threats) ? result.threats : [];
+        const definitions = [
+          { key: "longsor", label: "Longsor", match: (v: string) => /longsor|gerakan.?tanah/.test(v) },
+          { key: "banjir", label: "Banjir", match: (v: string) => /banjir/.test(v) && !/bandang/.test(v) },
+          { key: "banjir_bandang", label: "Banjir Bandang", match: (v: string) => /banjir.?bandang/.test(v) },
+          { key: "kekeringan", label: "Kekeringan", match: (v: string) => /kekeringan|kering/.test(v) },
+          { key: "karhutla", label: "Karhutla", match: (v: string) => /karhutla|kebakaran.?hutan|kebakaran.?lahan/.test(v) },
+        ];
+
+        const parameters = definitions.map((definition) => {
+          const found = threats.find((item: any) => {
+            const searchable = `${item?.key || ""} ${item?.label || ""} ${item?.source || ""}`
+              .toLowerCase().replace(/[_-]+/g, " ");
+            return definition.match(searchable);
+          });
+          const rawClass = String(found?.status || "").trim().toLowerCase();
+          const weight = rawClass === "tinggi" ? 3 : rawClass === "sedang" ? 2 : rawClass === "rendah" ? 1 : null;
+          return {
+            key: definition.key,
+            label: definition.label,
+            status: found?.status || null,
+            score: weight,
+            distanceMeters: found?.distanceMeters ?? null,
+            inside: Boolean(found?.inside),
+          };
+        });
+
+        const complete = parameters.every((item) => item.score !== null);
+        const score = complete
+          ? parameters.reduce((total, item) => total + Number(item.score), 0)
+          : null;
+        let status = "Data Belum Lengkap";
+        let color = "#64748b";
+        let interpretation = "Belum semua parameter bencana memiliki data dalam radius 5 km. Status lokasi belum dapat ditetapkan.";
+        if (score !== null) {
+          if (score <= 7) {
+            status = "Aman"; color = "#16a34a";
+            interpretation = "Seluruh atau sebagian besar ancaman rendah.";
+          } else if (score <= 10) {
+            status = "Siaga"; color = "#eab308";
+            interpretation = "Mulai terdapat beberapa ancaman sedang, perlu pemantauan.";
+          } else if (score <= 13) {
+            status = "Waspada"; color = "#f97316";
+            interpretation = "Ancaman tinggi mulai mendominasi, perlu kesiapsiagaan.";
+          } else {
+            status = "Bahaya"; color = "#dc2626";
+            interpretation = "Hampir seluruh ancaman berada pada tingkat tinggi, perlu tindakan mitigasi segera.";
+          }
+        }
+
+        setMyLocationAnalysis({
+          success: true,
+          radiusMeters: 5000,
+          parameters,
+          complete,
+          score,
+          status,
+          color,
+          interpretation,
+          threats,
+          incidents: Array.isArray(result.incidents) ? result.incidents : [],
+          processingTimeMs: result.processingTimeMs,
+        });
+        setMyLocationStatus("success");
+      } catch (error: any) {
+        if (cancelled || requestId !== myLocationRequestRef.current) return;
+        setMyLocationError(error?.message || "Gagal mengambil analisis ancaman di sekitar lokasi.");
+        setMyLocationStatus("error");
+      }
+    };
+
+    if (!navigator.geolocation) {
+      setMyLocationError("Browser ini tidak mendukung deteksi GPS.");
+      setMyLocationStatus("error");
+      return () => { cancelled = true; };
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        analyzePosition(
+          position.coords.latitude,
+          position.coords.longitude,
+          Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
+        );
+      },
+      (error) => {
+        if (cancelled || requestId !== myLocationRequestRef.current) return;
+        const messages: Record<number, string> = {
+          1: "Izin lokasi ditolak. Aktifkan izin lokasi untuk situs SIMITI, lalu tekan Coba Lagi.",
+          2: "Posisi tidak dapat ditentukan. Periksa GPS atau koneksi perangkat.",
+          3: "Permintaan lokasi melewati batas waktu. Silakan coba lagi.",
+        };
+        setMyLocationError(messages[error.code] || "Tidak dapat mendeteksi lokasi perangkat.");
+        setMyLocationStatus("error");
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 300000 },
+    );
+
+    return () => { cancelled = true; };
+  }, [mapReady]);
+
+  const retryMyLocation = () => {
+    // Memicu ulang proses geolocation tanpa mengubah route atau layer lain.
+    setMyLocationStatus("idle");
+    setMyLocationError("");
+    setMapReady(false);
+    window.setTimeout(() => setMapReady(true), 0);
+  };
+
+  // Sinkronkan ukuran Leaflet setiap kali layout panel/sidebar berubah.
+  // Ini mencegah area abu-abu/tiles kosong setelah panel kanan atau bawah disembunyikan.
+  useEffect(() => {
+    const map = mapInstanceRef.current as any;
+    if (!map) return;
+
+    const resizeTimer = window.setTimeout(() => {
+      map.invalidateSize({ pan: false, animate: false });
+    }, 180);
+
+    return () => window.clearTimeout(resizeTimer);
+  }, [isLayerPanelOpen, isBottomPanelOpen, sidebarCollapsed, mapReady]);
 
   useEffect(() => {
     // Auto-fetch photos dan listings ketika ada perubahan pada activeLayers kejadian
@@ -3237,8 +3753,6 @@ const Kerawanan = () => {
       geologi: false,
     },
   });
-
-  const [isLayerPanelOpen, setIsLayerPanelOpen] = useState(true);
 
   const handleFilterChange = (category, key) => {
     setFilters((prev) => ({
@@ -4450,6 +4964,168 @@ const Kerawanan = () => {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-gray-100">
+      {!isMyLocationPopupOpen && (
+        <button
+          type="button"
+          onClick={() => setIsMyLocationPopupOpen(true)}
+          className="fixed z-[1200] bottom-5 right-5 flex items-center gap-2 rounded-full bg-blue-700 px-4 py-3 text-sm font-bold text-white shadow-xl hover:bg-blue-800"
+          title="Buka analisis lokasi saya"
+        >
+          <span aria-hidden="true">◎</span> MY LOKASI
+        </button>
+      )}
+
+      {isMyLocationPopupOpen && (
+        <div className="fixed inset-0 z-[1300] flex items-center justify-center bg-slate-950/25 p-2 sm:p-3">
+          <section className="w-full max-w-[360px] max-h-[82vh] overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_18px_55px_rgba(15,23,42,0.24)]">
+            <header className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z" />
+                      <circle cx="12" cy="10" r="2.5" />
+                    </svg>
+                  </span>
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">MY LOKASI • SIMITI</div>
+                </div>
+                <h2 className="mt-1.5 truncate text-lg font-extrabold tracking-tight text-slate-900">
+                  {myLocationData?.administrative?.desa_kelurahan || myLocationData?.administrative?.kelurahan || "Lokasi Saya"}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMyLocationPopupOpen(false)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-2xl leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
+                aria-label="Tutup popup lokasi"
+                title="Tutup"
+              >×</button>
+            </header>
+
+            <div className="max-h-[calc(82vh-64px)] space-y-3 overflow-y-auto px-4 py-3">
+              {myLocationStatus === "loading" && !myLocationData && (
+                <div className="flex items-center gap-3 rounded-xl bg-blue-50 px-3 py-3 text-sm text-blue-900">
+                  <span className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-blue-200 border-t-blue-700" />
+                  <div><strong>Mendeteksi posisi GPS...</strong><p className="mt-0.5 text-xs text-blue-700">Izinkan akses lokasi pada browser.</p></div>
+                </div>
+              )}
+
+              {myLocationData && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Latitude</div>
+                      <div className="mt-1 font-mono text-sm font-bold tabular-nums text-slate-900">{myLocationData.latitude.toFixed(6)}</div>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Longitude</div>
+                      <div className="mt-1 font-mono text-sm font-bold tabular-nums text-slate-900">{myLocationData.longitude.toFixed(6)}</div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 rounded-xl border border-slate-100 px-3 py-3">
+                    <div className="flex items-start justify-between gap-3 text-sm">
+                      <span className="text-slate-500">Desa/Kelurahan:</span>
+                      <strong className="text-right text-slate-900">{myLocationData.administrative?.desa_kelurahan || myLocationData.administrative?.kelurahan || "—"}</strong>
+                    </div>
+                    <div className="flex items-start justify-between gap-3 text-sm">
+                      <span className="text-slate-500">Kab/Kota:</span>
+                      <strong className="text-right text-slate-900">{myLocationData.administrative?.kabupaten_kota || myLocationData.administrative?.kabupaten || "—"}</strong>
+                    </div>
+                    <div className="flex items-start justify-between gap-3 text-sm">
+                      <span className="text-slate-500">Provinsi:</span>
+                      <strong className="text-right text-slate-900">{myLocationData.administrative?.provinsi || "—"}</strong>
+                    </div>
+                    <div className="flex items-start justify-between gap-3 border-t border-slate-100 pt-2 text-sm">
+                      <span className="text-slate-500">Akurasi GPS:</span>
+                      <strong className="text-right text-slate-900">{myLocationData.accuracy != null ? `± ${Math.round(myLocationData.accuracy).toLocaleString("id-ID")} meter` : "Tidak tersedia"}</strong>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="border-t border-slate-100 pt-4">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-blue-600" />
+                  <h3 className="text-sm font-extrabold text-slate-900">Ancaman Bencana di Lokasi</h3>
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-500">Berdasarkan data Kerawanan SIMITI/PostGIS</p>
+
+                {myLocationStatus === "loading" && !myLocationData && (
+                  <div className="mt-3 flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-3 text-xs font-medium text-blue-800">
+                    <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-blue-200 border-t-blue-700" />
+                    Mendapatkan koordinat GPS perangkat...
+                  </div>
+                )}
+
+                {myLocationStatus === "loading" && myLocationData && (
+                  <div className="mt-3 flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-3 text-xs font-medium text-blue-800">
+                    <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-blue-200 border-t-blue-700" />
+                    Koordinat ditemukan. Memeriksa layer kerawanan SIMITI...
+                  </div>
+                )}
+
+                {myLocationStatus === "error" && (
+                  <div className="mt-3 rounded-lg bg-amber-50 px-3 py-3 text-xs leading-relaxed text-amber-900">
+                    {myLocationError}
+                  </div>
+                )}
+
+                {myLocationAnalysis && myLocationStatus === "success" && (
+                  <div className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-100">
+                    {myLocationAnalysis.parameters.map((item: any) => (
+                      <div key={item.key} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold text-slate-800">{item.label}</div>
+                          <div className="mt-0.5 text-[10px] text-slate-500">
+                            {item.distanceMeters == null ? "Tidak ada data dalam radius 5 km" : item.inside ? "Titik GPS berada di dalam area ancaman" : `Area terdekat ${Math.round(item.distanceMeters).toLocaleString("id-ID")} meter`}
+                          </div>
+                        </div>
+                        <span className={`shrink-0 rounded-md px-2 py-1 text-[10px] font-bold ${item.status ? "bg-slate-100 text-slate-700" : "bg-amber-50 text-amber-700"}`}>
+                          {item.status || "Tidak tersedia"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {myLocationAnalysis?.incidents?.length > 0 && myLocationStatus === "success" && (
+                  <div className="mt-3">
+                    <div className="mb-2 text-xs font-bold text-slate-800">Kejadian bencana di sekitar</div>
+                    <div className="space-y-2">
+                      {myLocationAnalysis.incidents.slice(0, 5).map((incident: any, index: number) => (
+                        <div key={incident.id || index} className="rounded-lg bg-slate-50 px-3 py-2">
+                          <div className="text-xs font-semibold text-slate-800">{incident.title || incident.category || "Kejadian bencana"}</div>
+                          <div className="mt-0.5 text-[10px] text-slate-500">{incident.location || "Lokasi tidak dicantumkan"}{incident.distanceMeters != null ? ` • ${Math.round(incident.distanceMeters).toLocaleString("id-ID")} m` : ""}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={retryMyLocation}
+                disabled={myLocationStatus === "loading"}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-3 py-2.5 text-xs font-bold text-white shadow-lg shadow-blue-700/15 transition hover:bg-blue-800 disabled:cursor-wait disabled:opacity-60"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M20 7v5h-5M4 17v-5h5" /><path d="M5.6 9A7 7 0 0 1 18 6l2 6M4 12l2 6a7 7 0 0 0 12.4-3" />
+                </svg>
+                {myLocationStatus === "loading" ? "Memperbarui Lokasi..." : "Perbarui Lokasi GPS"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        mobileOpen={mobileSidebarOpen}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
+        onToggle={() => setSidebarCollapsed((prev) => !prev)}
+      />
       <style>
         {`
         .custom-kejadian-marker {
@@ -4475,11 +5151,43 @@ const Kerawanan = () => {
         .custom-kejadian-popup .leaflet-popup-tip {
           display: none;
         }
+
+        .custom-area-popup .leaflet-popup-content-wrapper {
+          padding: 0;
+          overflow: hidden;
+          border-radius: 10px;
+          box-shadow: 0 12px 34px rgba(15, 23, 42, 0.24);
+        }
+
+        .custom-area-popup .leaflet-popup-content {
+          width: auto !important;
+          margin: 0;
+        }
+
+        .custom-area-popup .leaflet-popup-tip-container {
+          display: none;
+        }
+
+        .custom-area-popup {
+          cursor: default;
+        }
       `}
       </style>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col">
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Tombol menu untuk membuka sidebar pada layar mobile */}
+        <button
+          type="button"
+          onClick={() => setMobileSidebarOpen(true)}
+          aria-label="Buka menu navigasi"
+          title="Buka menu navigasi"
+          className="fixed left-3 top-3 z-[2200] flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white/95 text-slate-700 shadow-lg backdrop-blur transition hover:bg-slate-50 md:hidden"
+        >
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
         {isAuthenticated && (
           <div className="absolute top-0 left-0 right-0 bg-green-50 border-b border-green-200 px-6 py-2 z-[2100] shadow-md">
             <div className="max-w-full flex justify-between items-center">
@@ -4509,9 +5217,9 @@ const Kerawanan = () => {
           </div>
         )}
         {/* Top Section: Map with Layer Panel - 65% height */}
-        <div className="relative flex" style={{ height: "65vh" }}>
+        <div className="relative flex min-h-0" style={{ height: isBottomPanelOpen ? "65vh" : "100vh" }}>
           {/* Map Container */}
-          <div className="flex-1 relative">
+          <div className="flex-1 relative min-w-0" style={{ marginRight: isLayerPanelOpen ? "320px" : "0" }}>
             <div ref={mapRef} className="w-full h-full"></div>
             {/* Coordinates Display */}
             {/* <div className="absolute top-4 left-20 z-[1000] bg-white px-3 py-1.5 rounded shadow-lg">
@@ -4522,8 +5230,8 @@ const Kerawanan = () => {
           {/* Layer Services Panel - Smaller width */}
           {isLayerPanelOpen && (
             <div
-              className="w-80 bg-slate-50 text-slate-800 shadow-2xl flex flex-col border-l border-emerald-200"
-              style={{ height: "65vh" }}
+              className="absolute right-0 top-0 z-[1050] w-80 bg-white text-slate-800 shadow-2xl flex flex-col border-l border-emerald-200"
+              style={{ height: "100vh" }}
             >
               {/* Header - Smaller */}
               <div className="bg-gradient-to-r from-white via-emerald-50 to-slate-50 text-slate-900 px-4 py-4 flex items-center gap-3 flex-shrink-0 border-b border-emerald-200 shadow-sm">
@@ -5135,7 +5843,7 @@ const Kerawanan = () => {
           {/* Toggle Panel Button */}
           <button
             onClick={() => setIsLayerPanelOpen(!isLayerPanelOpen)}
-            className="absolute right-0 top-1/3 transform -translate-y-1/2 bg-green-600 text-white p-1.5 rounded-l-lg shadow-lg z-[1000] hover:bg-green-700"
+            className="absolute top-1/3 transform -translate-y-1/2 bg-green-600 text-white p-1.5 rounded-l-lg shadow-lg z-[1100] hover:bg-green-700"
             style={{ right: isLayerPanelOpen ? "320px" : "0" }}
           >
             <span className="text-lg">
@@ -5144,136 +5852,71 @@ const Kerawanan = () => {
           </button>
         </div>
 
-        {/* Bottom Section: Charts and Photos - 35% height */}
-        <div
-          className="flex border-t-2 border-gray-300"
-          style={{ height: "35vh" }}
-        >
-          {/* Charts Section */}
-          <div className="flex-1 bg-white flex flex-col overflow-hidden">
-            {/* Bottom Tabs - Smaller */}
-            <div className="bg-gray-100 border-b border-gray-300 px-3 py-1.5 flex gap-1.5 overflow-x-auto flex-shrink-0">
-              {bottomTabs.map((tab) => {
-                // Check if this tab's layer is currently loading
-                const getLayerNameFromTabId = (tabId: string): string => {
-                  const mapping: Record<string, string> = {
-                    tutupanLahan: "tutupan_lahan",
-                    jenisTanah: "jenis_tanah",
-                    geologi: "geologi",
-                    lahan_kritis: "lahan_kritis",
-                    rawan_erosi: "rawan_erosi",
-                    rawan_longsor: "rawan_longsor",
-                    rawan_limpasan: "rawan_limpasan",
-                    rawan_karhutla: "rawan_karhutla",
-                  };
-                  return mapping[tabId] || "";
-                };
-
-                const layerName = getLayerNameFromTabId(tab.id);
-                const isTabLoading = loadingLayerNames.has(layerName);
-
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => !isTabLoading && setActiveBottomTab(tab.id)}
-                    disabled={isTabLoading}
-                    className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
-                      activeBottomTab === tab.id
-                        ? "border-b-2 border-blue-500 text-blue-600"
-                        : isTabLoading
-                          ? "text-gray-400 cursor-not-allowed"
-                          : "text-gray-600 hover:text-gray-800 cursor-pointer"
-                    }`}
-                  >
-                    {isTabLoading && (
-                      <span className="inline-block animate-spin mr-1">
-                        ⏳
-                      </span>
-                    )}
-                    {tab.icon} {tab.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Chart Content - Smaller padding */}
-            <div className="flex-1 overflow-hidden p-3">
-              {renderBottomContent()}
-            </div>
-          </div>
-
-          {/* Photo Gallery Sidebar */}
+        {/* Bottom Section: Charts / Tables - dapat disembunyikan */}
+        {isBottomPanelOpen && (
           <div
-            className="w-80 bg-gray-50 border-l border-gray-300 flex flex-col"
-            style={{ height: "35vh" }}
+            className="absolute bottom-0 left-0 z-[900] flex border-t border-slate-200 bg-white shadow-lg overflow-hidden"
+            style={{
+              height: "35vh",
+              right: isLayerPanelOpen ? "320px" : "0",
+            }}
           >
-            <div className="p-3 flex-shrink-0">
-              <h3 className="text-sm font-semibold text-gray-800">
-                Dokumentasi Foto Kejadian
-              </h3>
-              {/* {kejadianPhotos.length > 0 && (
-                <p className="text-xs text-gray-600 mt-1">
-                  {kejadianPhotos.length} foto dari kejadian yang ditampilkan
-                </p>
-              )} */}
-            </div>
-            <div className="flex-1 overflow-y-auto px-3 pb-3">
-              {kejadianPhotos.length > 0 ? (
-                <div className="grid grid-cols-2 gap-2">
-                  {kejadianPhotos.slice(0, 4).map((photo, idx) => (
-                    <div
-                      key={idx}
-                      className="relative w-full h-22 overflow-hidden rounded cursor-pointer shadow-sm"
-                      style={{ position: "relative" }}
+            <div className="flex-1 min-w-0 bg-white flex flex-col overflow-hidden">
+              {/* Bottom Tabs */}
+              <div className="bg-slate-50 border-b border-slate-200 px-3 py-1.5 flex gap-1.5 overflow-x-auto flex-shrink-0">
+                {bottomTabs.map((tab) => {
+                  const getLayerNameFromTabId = (tabId: string): string => {
+                    const mapping: Record<string, string> = {
+                      tutupanLahan: "tutupan_lahan",
+                      jenisTanah: "jenis_tanah",
+                      geologi: "geologi",
+                      lahan_kritis: "lahan_kritis",
+                      rawan_erosi: "rawan_erosi",
+                      rawan_longsor: "rawan_longsor",
+                      rawan_limpasan: "rawan_limpasan",
+                      rawan_karhutla: "rawan_karhutla",
+                    };
+                    return mapping[tabId] || "";
+                  };
+                  const layerName = getLayerNameFromTabId(tab.id);
+                  const isTabLoading = loadingLayerNames.has(layerName);
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => !isTabLoading && setActiveBottomTab(tab.id)}
+                      disabled={isTabLoading}
+                      className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
+                        activeBottomTab === tab.id
+                          ? "border-b-2 border-blue-500 text-blue-600"
+                          : isTabLoading
+                            ? "text-gray-400 cursor-not-allowed"
+                            : "text-gray-600 hover:text-gray-800 cursor-pointer"
+                      }`}
                     >
-                      <img
-                        src={`${API_URL}${photo.path}`}
-                        alt={`${photo.incident_type} - ${new Date(photo.incident_date).toLocaleDateString()}`}
-                        className="w-full h-full object-cover transition-transform duration-200"
-                        onClick={() => setSelectedPhotoIndex(idx)}
-                        onError={(e) => {
-                          e.currentTarget.src =
-                            "https://via.placeholder.com/150?text=No+Image";
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.transform = "scale(1.1)";
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.transform = "scale(1)";
-                        }}
-                      />
-                      {idx === 3 && kejadianPhotos.length > 4 && (
-                        <div
-                          className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center rounded cursor-pointer"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedPhotoIndex(idx);
-                          }}
-                          style={{
-                            zIndex: 10,
-                          }}
-                        >
-                          <span className="text-white text-4xl font-bold">
-                            +{kejadianPhotos.length - 4}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex items-center justify-center h-full">
-                  <div className="text-center text-gray-400">
-                    <p className="text-sm">Tidak ada foto</p>
-                    <p className="text-xs mt-1">
-                      Aktifkan layer kejadian untuk melihat foto
-                    </p>
-                  </div>
-                </div>
-              )}
+                      {isTabLoading && <span className="inline-block animate-spin mr-1">⏳</span>}
+                      {tab.icon} {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex-1 min-h-0 overflow-hidden p-3">
+                {renderBottomContent()}
+              </div>
             </div>
           </div>
-        </div>
+        )}
+
+        {/* Toggle panel bawah — selalu tersedia */}
+        <button
+          type="button"
+          onClick={() => setIsBottomPanelOpen((open) => !open)}
+          aria-label={isBottomPanelOpen ? "Sembunyikan panel bawah" : "Tampilkan panel bawah"}
+          title={isBottomPanelOpen ? "Sembunyikan panel bawah" : "Tampilkan panel bawah"}
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[1200] rounded-lg bg-slate-800 px-4 py-2 text-xs font-semibold text-white shadow-lg hover:bg-slate-700 transition"
+          style={{ left: isLayerPanelOpen ? "calc((100% - 320px) / 2)" : "50%" }}
+        >
+          {isBottomPanelOpen ? "⌄ Sembunyikan panel bawah" : "⌃ Tampilkan panel bawah"}
+        </button>
       </div>
 
       {/* Modal Tambah Data */}
