@@ -52,6 +52,8 @@ export default function EnterpriseLayout() {
     location.pathname === "/gis" ||
     location.pathname.startsWith("/gis/");
 
+  const isRecommendation = location.pathname === "/rekomendasi";
+
   /* ==========================================================
      SIDEBAR STATE
   ========================================================== */
@@ -201,9 +203,7 @@ export default function EnterpriseLayout() {
             shrink-0
           "
         >
-          <Header
-            onMenuClick={toggleMobileSidebar}
-          />
+          <Header onMenuClick={toggleMobileSidebar} hideMenu={isRecommendation} />
         </header>
 
         {/* ======================================================
@@ -224,7 +224,7 @@ export default function EnterpriseLayout() {
               MOBILE SIDEBAR OVERLAY
           ==================================================== */}
 
-          {mobileSidebar && (
+          {mobileSidebar && !isRecommendation && (
             <button
               type="button"
               aria-label="Tutup menu navigasi"
@@ -244,8 +244,7 @@ export default function EnterpriseLayout() {
               SIDEBAR
           ==================================================== */}
 
-          <aside
-            className={`
+          <aside style={{ display: isRecommendation ? "none" : undefined }} className={`
               relative
               z-[95]
               shrink-0

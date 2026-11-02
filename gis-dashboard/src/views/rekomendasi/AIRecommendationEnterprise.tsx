@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import { booleanPointInPolygon, point, centroid } from "@turf/turf";
 const API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
@@ -934,6 +934,13 @@ export default function AIRecommendationEnterprise() {
       minZoom: 3,
     }).addTo(map);
 
+    // Tampilan awal seluruh wilayah Indonesia.
+    map.fitBounds([[-11.5, 94], [6.5, 141]], {
+      padding: [18, 18],
+      maxZoom: 5,
+      animate: false,
+    });
+
     L.control.zoom({ position: "topright" }).addTo(map);
 
     markerLayerRef.current = L.layerGroup().addTo(map);
@@ -1625,7 +1632,7 @@ export default function AIRecommendationEnterprise() {
                   })}
                 </div>
                 <div className="ai-map-scope"><span>Wilayah aktif</span><strong>{selectedAreaBoundary?.label || "Belum dipilih"}</strong></div>
-                <button type="button" className="ai-map-tool" onClick={() => mapInstanceRef.current?.setView([-2.5,118],5)} title="Kembali ke Indonesia"><Navigation size={16}/></button>
+                <button type="button" className="ai-map-tool" onClick={() => mapInstanceRef.current?.fitBounds([[-11.5, 94], [6.5, 141]], { padding: [18, 18], maxZoom: 5 })} title="Kembali ke Indonesia"><Navigation size={16}/></button>
                 <button type="button" className="ai-map-tool" onClick={() => setShowLayers(v => !v)} title="Layer"><Layers3 size={16}/></button>
               </div>
 

@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 
 interface HeaderProps {
   onMenuClick?: () => void;
+  hideMenu?: boolean;
 }
 
 interface CurrentUser {
@@ -36,7 +37,7 @@ interface CurrentUser {
   last_login?: string;
 }
 
-export default function Header({ onMenuClick }: HeaderProps) {
+export default function Header({ onMenuClick, hideMenu = false }: HeaderProps) {
   const [dark, setDark] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showNotification, setShowNotification] = useState(false);
@@ -118,6 +119,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
 
       <div className="flex items-center min-w-0">
         {/* SIDEBAR TOGGLE */}
+        {!hideMenu && (
 
         <button
           type="button"
@@ -141,6 +143,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
         >
           <Menu size={22} />
         </button>
+        )}
 
         {/* SEARCH */}
 
