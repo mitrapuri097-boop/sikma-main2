@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   area as turfArea,
   bbox as turfBbox,
@@ -2020,14 +2020,20 @@ const Kerawanan = () => {
       }
 
       const data = await response.json();
-      const layer = Array.isArray(data?.layers)
-        ? data.layers.find(
-            (item: any) => String(item.layerId ?? item.id) === "0",
-          ) || data.layers[0]
-        : null;
+      // ArcGIS MapServer dapat mengembalikan legenda untuk beberapa sublayer.
+      // Jangan hanya mengambil layerId 0 karena kelas dari sublayer lain akan hilang.
+      const serviceLayers = Array.isArray(data?.layers) ? data.layers : [];
+      const legendEntries = serviceLayers.flatMap((serviceLayer: any) => {
+        const entries = Array.isArray(serviceLayer?.legend)
+          ? serviceLayer.legend
+          : [];
+        return entries.map((entry: any) => ({
+          ...entry,
+          __serviceLayerName: serviceLayer?.layerName || serviceLayer?.name || "",
+        }));
+      });
 
-      const legend = Array.isArray(layer?.legend) ? layer.legend : [];
-      const normalized = legend
+      const normalized = legendEntries
         .map((item: any) => {
           let color: string | undefined;
           if (Array.isArray(item?.color)) {
@@ -2046,8 +2052,12 @@ const Kerawanan = () => {
               ? [String(item.value).trim()]
               : [];
 
+          const label = String(
+            item?.label ?? values[0] ?? "Tidak berlabel",
+          ).trim();
+          const serviceLayerName = String(item?.__serviceLayerName || "").trim();
           return {
-            label: String(item?.label ?? values[0] ?? "Tidak berlabel").trim(),
+            label: serviceLayerName ? `${serviceLayerName} — ${label}` : label,
             imageData: item?.imageData ? String(item.imageData) : undefined,
             contentType: item?.contentType
               ? String(item.contentType)
@@ -2056,7 +2066,15 @@ const Kerawanan = () => {
             values,
           };
         })
-        .filter((item: any) => item.label);
+        .filter((item: any) => item.label)
+        // Hilangkan duplikasi tanpa membuang kelas yang mempunyai kode berbeda.
+        .filter((item: any, index: number, all: any[]) =>
+          all.findIndex(
+            (candidate: any) =>
+              candidate.label === item.label &&
+              JSON.stringify(candidate.values || []) === JSON.stringify(item.values || []),
+          ) === index,
+        );
 
       setSigapKawasanHutanLegend(normalized);
       console.log("SIGAP Kawasan Hutan legend loaded", {
@@ -3634,8 +3652,22 @@ const Kerawanan = () => {
 
       // Buat layer group. GeoJSON Point yang koordinatnya rusak harus dilewati
       // agar satu feature invalid tidak membuat renderer Leaflet crash saat pan/resize/export PDF.
+      // Optimasi khusus Rawan Banjir pada tampilan Nasional.
+      // Canvas menghindari pembuatan ribuan elemen SVG terpisah.
+      const isNationalRawanBanjirOverview =
+        tableName === "risiko_banjir" &&
+        selectedAreas.length === 0 &&
+        selectedDas.length === 0 &&
+        zoom <= 5;
+
+      const nationalCanvasRenderer =
+        isNationalRawanBanjirOverview && window.L.canvas
+          ? window.L.canvas({ padding: 0.5 })
+          : undefined;
+
       const layerGroup = window.L.geoJSON(geojsonData, {
         pane: "overlayPane",
+        renderer: nationalCanvasRenderer,
         style: styleFunction,
         filter: function (feature: any) {
           const geometry = feature?.geometry;
@@ -8721,6 +8753,16 @@ const Kerawanan = () => {
     return tabs;
   }, [activeLayers, activeKejadianLayers]);
 
+  // Sinkronkan tab aktif dengan layer yang tersedia, termasuk saat layer dimatikan.
+  useEffect(() => {
+    if (
+      bottomTabs.length > 0 &&
+      !bottomTabs.some((tab) => tab.id === activeBottomTab)
+    ) {
+      setActiveBottomTab(bottomTabs[0].id);
+    }
+  }, [bottomTabs, activeBottomTab]);
+
   const renderBottomContent = () => {
     // Jika tidak ada layer yang aktif atau tidak ada tab
     if (bottomTabs.length === 0) {
@@ -10961,10 +11003,7 @@ const Kerawanan = () => {
                   )}
                 </div>
 
-                <div
-                  className="overflow-auto flex-1 rounded-lg border border-slate-200"
-                  style={{ maxHeight: "calc(35vh - 190px)" }}
-                >
+                <div className="min-h-0 overflow-auto flex-1 rounded-lg border border-slate-200">
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 bg-slate-50 z-10">
                       <tr className="border-b border-slate-200">
@@ -11045,7 +11084,11 @@ const Kerawanan = () => {
                             colSpan={3}
                             className="py-8 text-center text-[10px] text-slate-400"
                           >
-                            Tidak ada kelas yang cocok.
+                            {sigapKawasanHutanLegendLoading
+                              ? "Memuat seluruh legenda Kawasan Hutan..."
+                              : sigapKawasanHutanSearch
+                                ? "Tidak ada kelas yang cocok dengan pencarian."
+                                : "Legenda SIGAP belum tersedia. Coba aktifkan ulang layer Kawasan Hutan."}
                           </td>
                         </tr>
                       )}
@@ -14558,6 +14601,33 @@ const Kerawanan = () => {
           }
         }
 
+        /* Panel bawah berbasis tab seperti versi ORI. Override aturan grid tiga kolom lama. */
+        .kerawanan-bottom-tabs-panel {
+          display: flex !important;
+          flex-direction: column !important;
+          grid-template-columns: minmax(0, 1fr) !important;
+          gap: 0 !important;
+          align-items: stretch !important;
+        }
+        .kerawanan-bottom-tabs-panel > .kerawanan-bottom-tabs-header {
+          flex: 0 0 auto !important;
+          width: 100% !important;
+          height: auto !important;
+          min-height: 34px !important;
+          max-height: 42px !important;
+          overflow-x: auto !important;
+          overflow-y: hidden !important;
+          padding: 4px 10px !important;
+        }
+        .kerawanan-bottom-tabs-panel > .kerawanan-bottom-tabs-content {
+          flex: 1 1 auto !important;
+          width: 100% !important;
+          height: auto !important;
+          min-height: 0 !important;
+          max-height: none !important;
+          overflow: auto !important;
+          padding: 6px 10px !important;
+        }
         `}</style>
 
       {/* =========================================================
@@ -15372,471 +15442,94 @@ const Kerawanan = () => {
             </aside>
 
             {/* =====================================================
-                BOTTOM ANALYTICS — KERAWANAN + MITIGASI & ADAPTASI
-                Tiga kolom sejajar: Kejadian Terkini | Legenda | Mitigasi & Adaptasi.
-                Tidak mengubah logic layer / API / map.
+                BOTTOM PANEL — TAB LAYER (mengikuti kerawanan-ori)
+                Konten memakai renderBottomContent + bottomTabs existing.
+                Tidak mengubah data/API/GPS maupun proses pemuatan layer.
                ===================================================== */}
             <section
               id="kerawanan-bottom-summary-panel"
-              className={`kerawanan-bottom-summary min-h-0 min-w-0 grid grid-cols-[minmax(240px,0.72fr)_minmax(0,1.38fr)_minmax(0,1.18fr)] overflow-hidden bg-white transition-opacity duration-200 ${
-                isBottomSummaryOpen ? "opacity-100" : "kerawanan-bottom-summary-hidden"
+              className={`kerawanan-bottom-summary kerawanan-bottom-tabs-panel min-h-0 min-w-0 overflow-hidden bg-white transition-opacity duration-200 ${
+                isBottomSummaryOpen
+                  ? "opacity-100"
+                  : "kerawanan-bottom-summary-hidden"
               } xl:col-span-full`}
             >
-              {/* =====================================================
-                  01 — KEJADIAN TERKINI
-                  Data tetap menggunakan kejadianListings/API existing.
-                 ===================================================== */}
-              <div className="min-w-0 min-h-0 overflow-hidden border-0 bg-white">
-                <div className="h-full min-h-0 flex flex-col px-4 py-3">
-                  <div className="shrink-0 border-b border-slate-200 pb-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-slate-800">
-                          Kejadian Terkini
-                        </div>
-                        <div className="mt-0.5 text-[7px] font-medium text-slate-400">
-                          Informasi kejadian pada area peta aktif
-                        </div>
-                      </div>
-                      <span className="shrink-0 text-[8px] font-bold tabular-nums text-slate-400">
-                        {kejadianListings.length} data
-                      </span>
-                    </div>
-                  </div>
+              <div className="kerawanan-bottom-tabs-header flex min-w-0 flex-shrink-0 items-center gap-1.5 overflow-x-auto border-b border-slate-200 bg-slate-50 px-3 py-1.5 dashboard-scroll">
+                {bottomTabs.map((tab) => {
+                  const tabLayerName: Record<string, string> = {
+                    tutupanLahan: "tutupan_lahan",
+                    penutupanLahan2024: "penutupan_lahan_2024",
+                    pl2024: "pl2024",
+                    jenisTanah: "jenis_tanah",
+                    geologi: "geologi",
+                    lahan_kritis: "lahan_kritis",
+                    rawan_erosi: "rawan_erosi",
+                    rawan_longsor: "rawan_longsor",
+                    rawan_limpasan: "rawan_limpasan",
+                    rawan_karhutla: "rawan_karhutla",
+                    bahaya_kekeringan: "bahaya_kekeringan",
+                    bahaya_abrasi: "bahaya_abrasi_dan_gelombang_ekstrim",
+                    bahaya_banjir: "bahaya_banjir",
+                    bahaya_banjir_bandang: "bahaya_banjir_bandang",
+                    dta_danau: "dta_danau",
+                    rehabilitasi_das: "rehabilitasi_das",
+                    rehabilitasi_hutan: "rehabilitasi_hutan",
+                    restorasi_gambut: "restorasi_gambut",
+                    penerapan_teknik_kta: "penerapan_teknik_kta",
+                    kebakaran_2021: "karhutla_2021",
+                    kebakaran_2022: "karhutla_2022",
+                    kebakaran_2023: "karhutla_2023",
+                    kebakaran_2024: "karhutla_2024",
+                    kebakaran_2025: "karhutla_2025",
+                    kawasan_hutan: "kawasan_hutan",
+                    risiko_banjir: "risiko_banjir",
+                    risiko_banjir_bandang: "risiko_banjir_bandang",
+                    risiko_kekeringan: "risiko_kekeringan",
+                    risiko_abrasi: "risiko_abrasi",
+                    risiko_longsor: "risiko_longsor",
+                    risiko_karhutla: "risiko_karhutla",
+                    khdtk: "khdtk",
+                  };
+                  const layerName = tabLayerName[tab.id] || "";
+                  const isTabLoading = Boolean(
+                    layerName && loadingLayerNames.has(layerName),
+                  );
+                  const isActive = activeBottomTab === tab.id;
 
-                  {(() => {
-                    const counts = kejadianListings.reduce((acc: Record<string, number>, item: any) => {
-                      const category = String(item.category || "Lainnya").trim() || "Lainnya";
-                      acc[category] = (acc[category] || 0) + 1;
-                      return acc;
-                    }, {});
-                    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-                    const colors = ["#0D9488", "#2563EB", "#F59E0B", "#DC2626", "#7C3AED", "#64748B", "#16A34A"];
-                    let cursor = 0;
-                    const total = kejadianListings.length;
-                    const gradient = entries.length ? entries.map(([label, value], index) => {
-                      const start = cursor;
-                      cursor += total ? (Number(value) / total) * 100 : 0;
-                      return `${colors[index % colors.length]} ${start}% ${cursor}%`;
-                    }).join(", ") : "#E2E8F0 0% 100%";
-                    return (
-                      <div className="my-2 flex items-center gap-3 rounded-lg border border-slate-100 bg-slate-50/80 p-2">
-                        <div className="h-14 w-14 shrink-0 rounded-full ring-1 ring-white shadow-sm" role="img" aria-label={`Grafik pie kategori kejadian, total ${total} data`} style={{ background: `conic-gradient(${gradient})` }} />
-                        <div className="min-w-0 flex-1">
-                          <div className="mb-1 text-[8px] font-extrabold uppercase tracking-wide text-slate-600">Komposisi kejadian</div>
-                          {entries.length ? <div className="flex flex-wrap gap-x-2 gap-y-1">
-                            {entries.slice(0, 6).map(([label, value], index) => (
-                              <span key={label} className="inline-flex items-center gap-1 text-[8px] text-slate-600">
-                                <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: colors[index % colors.length] }} />
-                                <span className="max-w-[90px] truncate">{label}</span>
-                                <strong className="tabular-nums">{value}</strong>
-                              </span>
-                            ))}
-                          </div> : <div className="text-[8px] text-slate-400">Belum ada data untuk wilayah/filter aktif.</div>}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  <div className="min-h-0 flex-1 overflow-y-auto pr-1 dashboard-scroll">
-                    {kejadianListings.length > 0 ? (
-                      <div className="divide-y divide-slate-100">
-                        {kejadianListings.slice(0, 50).map((kejadian, idx) => (
-                          <button
-                            key={kejadian.id ?? idx}
-                            type="button"
-                            onClick={() =>
-                              navigate("/detailkejadian", {
-                                state: {
-                                  incident: {
-                                    id: kejadian.id,
-                                    title: kejadian.title,
-                                    image: kejadian.thumbnail_path
-                                      ? `${API_URL}${kejadian.thumbnail_path}`
-                                      : "https://images.unsplash.com/photo-1611273426858-450d8e3c9fce?w=400",
-                                    location: kejadian.location,
-                                    category: kejadian.category,
-                                    type: String(kejadian.category ?? "")
-                                      .toLowerCase()
-                                      .includes("banjir")
-                                      ? "banjir"
-                                      : String(kejadian.category ?? "")
-                                            .toLowerCase()
-                                            .includes("longsor")
-                                        ? "longsor"
-                                        : "kebakaran",
-                                    date: kejadian.date,
-                                    das: kejadian.das,
-                                    description: kejadian.description,
-                                    thumbnail_path: kejadian.thumbnail_path,
-                                    images_paths: kejadian.images_paths,
-                                    coordinates: [
-                                      kejadian.latitude,
-                                      kejadian.longitude,
-                                    ],
-                                    latitude: kejadian.latitude,
-                                    longitude: kejadian.longitude,
-                                    featured: kejadian.featured || false,
-                                    curah_hujan: kejadian.curah_hujan,
-                                  },
-                                },
-                              })
-                            }
-                            className="group w-full py-2.5 text-left transition-colors hover:bg-slate-50"
-                          >
-                            <div className="flex min-w-0 items-start gap-2.5">
-                              {kejadian.thumbnail_path ? (
-                                <img
-                                  src={`${API_URL}${kejadian.thumbnail_path}`}
-                                  alt={kejadian.title || "Kejadian"}
-                                  className="h-9 w-9 shrink-0 rounded-md object-cover ring-1 ring-slate-200"
-                                />
-                              ) : (
-                                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-slate-100 text-sm">
-                                  ⚠️
-                                </span>
-                              )}
-
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-start justify-between gap-2">
-                                  <span className="min-w-0 truncate text-[8px] font-extrabold text-slate-800 group-hover:text-emerald-700">
-                                    {bottomValue(kejadian.title)}
-                                  </span>
-                                  <span className="shrink-0 text-[7px] font-semibold text-slate-400">
-                                    {bottomIncidentDate(kejadian.date)}
-                                  </span>
-                                </div>
-
-                                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[7px] text-slate-500">
-                                  <span className="truncate">
-                                    📍 {bottomValue(kejadian.location)}
-                                  </span>
-                                  <span
-                                    className={`inline-flex rounded-full border px-1.5 py-0.5 text-[6px] font-bold ${bottomIncidentTone(kejadian.category)}`}
-                                  >
-                                    {bottomValue(kejadian.category)}
-                                  </span>
-                                </div>
-
-                                <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[7px] text-slate-400">
-                                  {kejadian.das && (
-                                    <span>💧 {kejadian.das}</span>
-                                  )}
-                                  {kejadian.curah_hujan !== undefined &&
-                                    kejadian.curah_hujan !== null && (
-                                      <span>🌧️ {kejadian.curah_hujan} mm</span>
-                                    )}
-                                </div>
-                              </div>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="flex h-full min-h-[100px] items-center justify-center px-3 text-center">
-                        <div>
-                          <div className="text-[9px] font-bold text-slate-500">
-                            Belum ada kejadian terbaru
-                          </div>
-                          <div className="mt-1 text-[7px] text-slate-400">
-                            Data kejadian mengikuti area dan filter peta aktif.
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() =>
+                        !isTabLoading && setActiveBottomTab(tab.id)
+                      }
+                      disabled={isTabLoading}
+                      aria-pressed={isActive}
+                      className={`inline-flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-[10px] font-semibold transition-colors ${
+                        isActive
+                          ? "border border-blue-200 bg-white text-blue-700 shadow-sm"
+                          : isTabLoading
+                            ? "cursor-not-allowed text-slate-400"
+                            : "border border-transparent text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-800"
+                      }`}
+                    >
+                      {isTabLoading ? (
+                        <span className="inline-block animate-spin">⏳</span>
+                      ) : null}
+                      <span>{tab.icon}</span>
+                      <span>{tab.label}</span>
+                    </button>
+                  );
+                })}
+                {bottomTabs.length > 0 ? (
+                  <span className="ml-auto flex-shrink-0 px-2 text-[9px] font-medium text-slate-400">
+                    {bottomTabs.length} layer aktif
+                  </span>
+                ) : null}
               </div>
 
-              {/* =====================================================
-                  02 — LEGENDA
-                  Layer → kelas → warna → luas langsung vertikal di bawahnya.
-                 ===================================================== */}
-              <div className="min-w-0 min-h-0 overflow-hidden border-0 bg-white">
-                <div className="h-full min-h-0 flex flex-col px-4 py-3">
-                  <div className="shrink-0 border-b border-slate-200 pb-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-slate-800">
-                          Legenda
-                        </div>
-                        <div className="mt-0.5 text-[7px] font-medium text-slate-400">
-                          Warna dan kelas risiko layer aktif
-                        </div>
-                      </div>
-                      <span className="shrink-0 text-[8px] font-bold tabular-nums text-slate-400">
-                        {bottomActiveRiskLayers.length} layer
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="min-h-0 flex-1 overflow-y-auto pr-1 dashboard-scroll">
-                    {bottomActiveRiskLayers.length > 0 ? (
-                      <div className="flex flex-wrap items-start gap-x-5 gap-y-2">
-                        {bottomActiveRiskLayers.map((name) => {
-                          const items = risikoData[name] || [];
-                          const layerColor =
-                            BENCANA_LAYER_COLORS[name] || "#64748B";
-                          const expanded = expandedRiskLegendLayers.has(name);
-
-                          return (
-                            <div
-                              key={name}
-                              className="min-w-[150px] max-w-[260px] flex-1 py-1"
-                            >
-                              {/* Nama layer selalu tampil terlebih dahulu. */}
-                              <button
-                                type="button"
-                                onClick={() => toggleRiskLegendLayer(name)}
-                                className="flex w-full items-center gap-2 py-1 text-left hover:bg-slate-50 rounded-md transition-colors"
-                                aria-expanded={expanded}
-                              >
-                                <span
-                                  className="h-3 w-3 shrink-0 rounded-sm"
-                                  style={{ backgroundColor: layerColor }}
-                                />
-                                <span className="min-w-0 flex-1 truncate text-[8px] font-extrabold text-slate-800">
-                                  {expanded ? "▾" : "▸"} {formatTableName(name)}
-                                </span>
-                                <span className="shrink-0 text-[7px] font-semibold tabular-nums text-slate-400">
-                                  {items.length} kelas
-                                </span>
-                              </button>
-
-                              {/* Kelas + warna baru keluar setelah nama layer diklik. */}
-                              {expanded && (
-                                <div className="mt-1 ml-5">
-                                  {items.length > 0 ? (
-                                    <div className="space-y-0.5">
-                                      {items.map((item, idx) => (
-                                        <button
-                                          key={`${name}-${item.kelas}-${idx}`}
-                                          type="button"
-                                          onClick={() =>
-                                            handleLegendClick(
-                                              item.kelas,
-                                              name,
-                                              item.color || layerColor,
-                                            )
-                                          }
-                                          onMouseEnter={() =>
-                                            handleRowMouseEnter(
-                                              item.kelas,
-                                              name,
-                                              item.color || layerColor,
-                                            )
-                                          }
-                                          onMouseLeave={handleRowMouseLeave}
-                                          className={`grid w-full grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-1.5 py-1 text-left transition-colors hover:bg-slate-50 rounded-md ${
-                                            selectedLegendKey === item.kelas &&
-                                            selectedLegendType === name
-                                              ? "bg-emerald-50"
-                                              : ""
-                                          }`}
-                                        >
-                                          <span
-                                            className="h-3 w-3 rounded-sm"
-                                            style={{
-                                              backgroundColor:
-                                                item.color || layerColor,
-                                            }}
-                                          />
-                                          <span className="truncate text-[7px] font-semibold text-slate-600">
-                                            {bottomValue(item.kelas)}
-                                          </span>
-                                          <span className="text-right text-[7px] font-bold tabular-nums text-slate-400">
-                                            {(() => {
-                                              const raw =
-                                                Number(item.luas) || 0;
-                                              const ha =
-                                                raw > 100000
-                                                  ? raw / 10000
-                                                  : raw;
-                                              return `${ha.toLocaleString(
-                                                "id-ID",
-                                                {
-                                                  minimumFractionDigits: 2,
-                                                  maximumFractionDigits: 2,
-                                                },
-                                              )} ha`;
-                                            })()}
-                                          </span>
-                                        </button>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    <div className="py-1 text-[7px] text-slate-400">
-                                      Belum ada kelas data pada area peta.
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="flex h-full min-h-[100px] items-center justify-center px-3 text-center">
-                        <div>
-                          <div className="text-[9px] font-bold text-slate-500">
-                            Belum ada layer risiko aktif
-                          </div>
-                          <div className="mt-1 text-[7px] text-slate-400">
-                            Aktifkan layer risiko untuk melihat legenda.
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* =====================================================
-                  03 — MITIGASI & ADAPTASI
-                  Tampilan ringkas: tab layer di atas, satu tabel horizontal.
-                 ===================================================== */}
-              <div className="min-w-0 min-h-0 overflow-hidden border-0 bg-white">
-                <div className="h-full min-h-0 flex flex-col">
-                  {bottomActiveInfraLayers.length > 0 ? (
-                    (() => {
-                      const selectedLayer =
-                        bottomActiveInfraLayers.find(
-                          (layer) => layer.id === activeInfraSummaryLayer,
-                        ) || bottomActiveInfraLayers[0];
-                      const rows = infraData[selectedLayer.id] || [];
-                      const columns = [
-                        {
-                          h: "Nama",
-                          k: selectedLayer.cols?.[0]?.k || "nama_infra",
-                        },
-                        { h: "Kondisi", k: "kondisi_ba" },
-                        { h: "Kelurahan", k: "kelurahan" },
-                        { h: "Kecamatan", k: "kecamatan" },
-                        { h: "Kabupaten/Kota", k: "kabkot_nam" },
-                        { h: "Provinsi", k: "prov_name" },
-                        { h: "Daerah Aliran", k: "daerah_ali" },
-                      ];
-
-                      return (
-                        <>
-                          <div className="shrink-0 overflow-x-auto border-b border-slate-200 bg-white dashboard-scroll">
-                            <div className="flex min-w-max items-end px-2">
-                              {bottomActiveInfraLayers.map((layer) => {
-                                const active = layer.id === selectedLayer.id;
-                                const rowsCount = (infraData[layer.id] || [])
-                                  .length;
-                                return (
-                                  <button
-                                    key={layer.id}
-                                    type="button"
-                                    onClick={() =>
-                                      setActiveInfraSummaryLayer(layer.id)
-                                    }
-                                    className={`inline-flex shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-1.5 text-[9px] font-semibold transition-colors ${
-                                      active
-                                        ? "border-blue-500 text-blue-600"
-                                        : "border-transparent text-slate-700 hover:border-slate-300 hover:text-slate-900"
-                                    }`}
-                                  >
-                                    <span
-                                      className="h-3 w-3 shrink-0 rounded-full"
-                                      style={{
-                                        backgroundColor:
-                                          layer.color || "#64748B",
-                                      }}
-                                    />
-                                    <span>{layer.label}</span>
-                                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500">
-                                      {rowsCount} data
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          <div className="min-h-0 flex-1 min-w-0 overflow-auto dashboard-scroll">
-                            {rows.length > 0 ? (
-                              <table className="w-full min-w-[680px] border-collapse text-left">
-                                <thead className="sticky top-0 z-10 bg-slate-50">
-                                  <tr className="border-b border-slate-200">
-                                    <th className="w-10 px-3 py-2 text-[10px] font-semibold text-slate-500">
-                                      No
-                                    </th>
-                                    {columns.map((col) => (
-                                      <th
-                                        key={col.k}
-                                        className="whitespace-nowrap px-3 py-2 text-[10px] font-semibold text-slate-600"
-                                      >
-                                        {col.h}
-                                      </th>
-                                    ))}
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {rows.slice(0, 100).map((row, idx) => {
-                                    const primaryValue = bottomValue(
-                                      row[columns[0].k],
-                                    );
-                                    return (
-                                      <tr
-                                        key={`${selectedLayer.id}-${idx}`}
-                                        className="border-b border-slate-100 hover:bg-blue-50/50"
-                                        onMouseEnter={() =>
-                                          handleRowMouseEnter(
-                                            primaryValue,
-                                            selectedLayer.id,
-                                            selectedLayer.color || "#808080",
-                                          )
-                                        }
-                                        onMouseLeave={handleRowMouseLeave}
-                                      >
-                                        <td className="px-3 py-2 text-[10px] text-slate-500">
-                                          {idx + 1}
-                                        </td>
-                                        {columns.map((col) => (
-                                          <td
-                                            key={col.k}
-                                            className="whitespace-nowrap px-3 py-2 text-[10px] font-medium text-slate-600"
-                                            title={bottomValue(row[col.k])}
-                                          >
-                                            {bottomValue(row[col.k])}
-                                          </td>
-                                        ))}
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            ) : (
-                              <div className="flex h-full min-h-[100px] items-center justify-center px-4 text-center">
-                                <div className="text-[10px] text-slate-400">
-                                  Belum ada data{" "}
-                                  {String(
-                                    selectedLayer.label || "layer",
-                                  ).toLowerCase()}{" "}
-                                  di area peta.
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </>
-                      );
-                    })()
-                  ) : (
-                    <div className="flex h-full min-h-[100px] items-center justify-center px-4 text-center">
-                      <div>
-                        <div className="text-[10px] font-bold text-slate-500">
-                          Belum ada layer Mitigasi &amp; Adaptasi aktif
-                        </div>
-                        <div className="mt-1 text-[9px] text-slate-400">
-                          Aktifkan Bendungan, Embung, atau infrastruktur
-                          mitigasi lainnya.
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
+              <div className="kerawanan-bottom-tabs-content min-h-0 min-w-0 overflow-hidden bg-white p-2">
+                {renderBottomContent()}
               </div>
             </section>
           </div>

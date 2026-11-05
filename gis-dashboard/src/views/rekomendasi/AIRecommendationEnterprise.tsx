@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import { booleanPointInPolygon, point, centroid } from "@turf/turf";
 const API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
@@ -35,7 +35,13 @@ type Hazard = "Banjir" | "Longsor" | "Karhutla" | "Kekeringan" | "Abrasi";
 const getSmitiToken = (): string | null => {
   // Keep this page aligned with the authentication storage used by
   // other SIMITI GIS pages. Prefer a non-expired JWT when several keys exist.
-  const keys = ["smiti_token", "adminToken", "token", "access_token", "authToken"];
+  const keys = [
+    "smiti_token",
+    "adminToken",
+    "token",
+    "access_token",
+    "authToken",
+  ];
   const tokens: string[] = [];
 
   for (const key of keys) {
@@ -170,7 +176,8 @@ const adminLabel = (level: AdminLevel, props: any) => {
     return (
       props?.kab_kota || props?.kabupaten || props?.name || "Kabupaten/Kota"
     );
-  if (level === "kecamatan") return props?.kecamatan || props?.name || "Kecamatan";
+  if (level === "kecamatan")
+    return props?.kecamatan || props?.name || "Kecamatan";
   return props?.kelurahan || props?.desa || props?.name || "Kelurahan/Desa";
 };
 
@@ -248,7 +255,6 @@ const riskClass = (value = "") => {
   return "risk-low";
 };
 
-
 export default function AIRecommendationEnterprise() {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -278,7 +284,8 @@ export default function AIRecommendationEnterprise() {
   const [aiResult, setAiResult] = useState<AiRecommendation | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
-  const [recommendationLayerVisible, setRecommendationLayerVisible] = useState(false);
+  const [recommendationLayerVisible, setRecommendationLayerVisible] =
+    useState(false);
   const [recommendationLimit, setRecommendationLimit] = useState(10);
   const [areaSearchQuery, setAreaSearchQuery] = useState("");
   const [areaSearchResults, setAreaSearchResults] = useState<any[]>([]);
@@ -287,13 +294,26 @@ export default function AIRecommendationEnterprise() {
   const [areaSearchError, setAreaSearchError] = useState("");
   const [selectedAreaBoundary, setSelectedAreaBoundary] =
     useState<AdminBoundary | null>(null);
-  const cascadeLevels = ["provinsi", "kabupaten", "kecamatan", "kelurahan"] as const;
-  type CascadeLevel = typeof cascadeLevels[number];
-  const [cascadeSelected, setCascadeSelected] = useState<Record<CascadeLevel, any | null>>({ provinsi: null, kabupaten: null, kecamatan: null, kelurahan: null });
-  const [cascadeQueries, setCascadeQueries] = useState<Record<CascadeLevel, string>>({ provinsi: "", kabupaten: "", kecamatan: "", kelurahan: "" });
-  const [cascadeResults, setCascadeResults] = useState<Record<CascadeLevel, any[]>>({ provinsi: [], kabupaten: [], kecamatan: [], kelurahan: [] });
+  const cascadeLevels = [
+    "provinsi",
+    "kabupaten",
+    "kecamatan",
+    "kelurahan",
+  ] as const;
+  type CascadeLevel = (typeof cascadeLevels)[number];
+  const [cascadeSelected, setCascadeSelected] = useState<
+    Record<CascadeLevel, any | null>
+  >({ provinsi: null, kabupaten: null, kecamatan: null, kelurahan: null });
+  const [cascadeQueries, setCascadeQueries] = useState<
+    Record<CascadeLevel, string>
+  >({ provinsi: "", kabupaten: "", kecamatan: "", kelurahan: "" });
+  const [cascadeResults, setCascadeResults] = useState<
+    Record<CascadeLevel, any[]>
+  >({ provinsi: [], kabupaten: [], kecamatan: [], kelurahan: [] });
   const [cascadeOpen, setCascadeOpen] = useState<CascadeLevel | null>(null);
-  const [cascadeLoading, setCascadeLoading] = useState<CascadeLevel | null>(null);
+  const [cascadeLoading, setCascadeLoading] = useState<CascadeLevel | null>(
+    null,
+  );
 
   const [selectedDas, setSelectedDas] = useState<any | null>(null);
   const [dasLoading, setDasLoading] = useState(false);
@@ -351,93 +371,93 @@ export default function AIRecommendationEnterprise() {
     }
   }, []);
 
-  const fetchBnpbFloodForArea = useCallback(async (area: AdminBoundary | null) => {
-    if (!area?.feature?.geometry) {
+  const fetchBnpbFloodForArea = useCallback(
+    async (area: AdminBoundary | null) => {
+      if (!area?.feature?.geometry) {
+        setBnpbFlood({
+          available: false,
+          value: null,
+          service: "InaRISK BNPB â€” layer_risiko_banjir",
+        });
+        return;
+      }
+
+      setBnpbFloodLoading(true);
       setBnpbFlood({
         available: false,
         value: null,
         service: "InaRISK BNPB â€” layer_risiko_banjir",
       });
-      return;
-    }
 
-    setBnpbFloodLoading(true);
-    setBnpbFlood({
-      available: false,
-      value: null,
-      service: "InaRISK BNPB â€” layer_risiko_banjir",
-    });
+      try {
+        const service =
+          "https://gis.bnpb.go.id/server/rest/services/inarisk/layer_risiko_banjir/ImageServer/identify";
+        const geometry = {
+          ...area.feature.geometry,
+          spatialReference: { wkid: 4326 },
+        };
+        const params = new URLSearchParams({
+          f: "json",
+          geometry: JSON.stringify(geometry),
+          geometryType: "esriGeometryPolygon",
+          sr: "4326",
+          returnGeometry: "false",
+          returnCatalogItems: "true",
+        });
 
-    try {
-      const service =
-        "https://gis.bnpb.go.id/server/rest/services/inarisk/layer_risiko_banjir/ImageServer/identify";
-      const geometry = {
-        ...area.feature.geometry,
-        spatialReference: { wkid: 4326 },
-      };
-      const params = new URLSearchParams({
-        f: "json",
-        geometry: JSON.stringify(geometry),
-        geometryType: "esriGeometryPolygon",
-        sr: "4326",
-        returnGeometry: "false",
-        returnCatalogItems: "true",
-      });
+        // IMPORTANT: polygon geometry can be very large. Sending it in the URL
+        // causes HTTP 414 (URI Too Long). ArcGIS REST accepts POST form data,
+        // so keep the full geometry in the request body instead.
+        const response = await fetch(service, {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          },
+          body: params.toString(),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-      // IMPORTANT: polygon geometry can be very large. Sending it in the URL
-      // causes HTTP 414 (URI Too Long). ArcGIS REST accepts POST form data,
-      // so keep the full geometry in the request body instead.
-      const response = await fetch(service, {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-        },
-        body: params.toString(),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        const raw =
+          payload?.value ??
+          payload?.properties?.value ??
+          payload?.catalogItems?.features?.[0]?.attributes?.PixelValue ??
+          null;
+        const value = raw === null || raw === "" ? null : Number(raw);
+        const catalogItemCount = Array.isArray(payload?.catalogItems?.features)
+          ? payload.catalogItems.features.length
+          : 0;
 
-      const payload = await response.json();
-      const raw =
-        payload?.value ??
-        payload?.properties?.value ??
-        payload?.catalogItems?.features?.[0]?.attributes?.PixelValue ??
-        null;
-      const value = raw === null || raw === "" ? null : Number(raw);
-      const catalogItemCount = Array.isArray(
-        payload?.catalogItems?.features,
-      )
-        ? payload.catalogItems.features.length
-        : 0;
-
-      setBnpbFlood({
-        available: Number.isFinite(value),
-        value: Number.isFinite(value) ? value : null,
-        rawValue: raw == null ? null : String(raw),
-        service: "InaRISK BNPB â€” layer_risiko_banjir",
-        queriedAt: new Date().toISOString(),
-        geometryType: "polygon",
-        catalogItemCount,
-        coverageNote:
-          "Nilai raster yang dikembalikan ImageServer merupakan nilai representatif pada centroid geometri; catalog item menunjukkan raster yang beririsan dengan wilayah terpilih.",
-        error:
-          Number.isFinite(value)
+        setBnpbFlood({
+          available: Number.isFinite(value),
+          value: Number.isFinite(value) ? value : null,
+          rawValue: raw == null ? null : String(raw),
+          service: "InaRISK BNPB â€” layer_risiko_banjir",
+          queriedAt: new Date().toISOString(),
+          geometryType: "polygon",
+          catalogItemCount,
+          coverageNote:
+            "Nilai raster yang dikembalikan ImageServer merupakan nilai representatif pada centroid geometri; catalog item menunjukkan raster yang beririsan dengan wilayah terpilih.",
+          error: Number.isFinite(value)
             ? undefined
             : "Nilai raster BNPB tidak tersedia untuk wilayah terpilih.",
-      });
-    } catch (error: any) {
-      console.warn("Gagal mengambil indeks risiko banjir BNPB:", error);
-      setBnpbFlood({
-        available: false,
-        value: null,
-        service: "InaRISK BNPB â€” layer_risiko_banjir",
-        geometryType: "polygon",
-        error: "Data risiko banjir BNPB gagal dibaca untuk wilayah terpilih.",
-      });
-    } finally {
-      setBnpbFloodLoading(false);
-    }
-  }, []);
+        });
+      } catch (error: any) {
+        console.warn("Gagal mengambil indeks risiko banjir BNPB:", error);
+        setBnpbFlood({
+          available: false,
+          value: null,
+          service: "InaRISK BNPB â€” layer_risiko_banjir",
+          geometryType: "polygon",
+          error: "Data risiko banjir BNPB gagal dibaca untuk wilayah terpilih.",
+        });
+      } finally {
+        setBnpbFloodLoading(false);
+      }
+    },
+    [],
+  );
 
   const candidates = useMemo<Candidate[]>(
     () =>
@@ -473,7 +493,6 @@ export default function AIRecommendationEnterprise() {
     });
   }, [candidates, selectedAreaBoundary]);
 
-
   const filteredCandidates = useMemo(
     () =>
       candidates.filter((item) => {
@@ -485,23 +504,20 @@ export default function AIRecommendationEnterprise() {
     [candidates, hazards, query],
   );
 
-  const selectedAreaFilteredCandidates = useMemo(
-    () => {
-      if (!selectedAreaBoundary?.feature) return [];
+  const selectedAreaFilteredCandidates = useMemo(() => {
+    if (!selectedAreaBoundary?.feature) return [];
 
-      return filteredCandidates.filter((candidate) => {
-        try {
-          return booleanPointInPolygon(
-            point([candidate.lng, candidate.lat]),
-            selectedAreaBoundary.feature as any,
-          );
-        } catch {
-          return false;
-        }
-      });
-    },
-    [filteredCandidates, selectedAreaBoundary],
-  );
+    return filteredCandidates.filter((candidate) => {
+      try {
+        return booleanPointInPolygon(
+          point([candidate.lng, candidate.lat]),
+          selectedAreaBoundary.feature as any,
+        );
+      } catch {
+        return false;
+      }
+    });
+  }, [filteredCandidates, selectedAreaBoundary]);
 
   const selected =
     candidates.find((item) => String(item.id) === String(selectedId)) || null;
@@ -539,7 +555,12 @@ export default function AIRecommendationEnterprise() {
       selectedAreaIncidents.find((item) => item.das)?.das ||
       "DAS belum teridentifikasi";
 
-    const recommendations: Array<{ title: string; status: string; text: string; source: string }> = [];
+    const recommendations: Array<{
+      title: string;
+      status: string;
+      text: string;
+      source: string;
+    }> = [];
     const rain = floodEvidence.maxRainfall ?? floodEvidence.avgRainfall;
     const bnpb = bnpbFlood.value;
 
@@ -610,14 +631,7 @@ export default function AIRecommendationEnterprise() {
     }
 
     return recommendations;
-  }, [
-    selectedDas,
-    selectedAreaIncidents,
-    floodEvidence,
-    bnpbFlood.value,
-  ]);
-
-
+  }, [selectedDas, selectedAreaIncidents, floodEvidence, bnpbFlood.value]);
 
   const locateCandidateAdmin = useCallback(
     (candidate: Candidate, boundaries: AdminBoundary[]) => {
@@ -733,7 +747,6 @@ export default function AIRecommendationEnterprise() {
     }
   }, []);
 
-
   const spatialRecommendations = useMemo(() => {
     const source = groupCandidatesByBoundary
       .filter((group) => group.center?.every(Number.isFinite))
@@ -743,7 +756,9 @@ export default function AIRecommendationEnterprise() {
         const rainfallValues = candidatesInGroup
           .map((item) => toNumber(item.curah_hujan))
           .filter((value): value is number => value !== null);
-        const rainfallMax = rainfallValues.length ? Math.max(...rainfallValues) : 0;
+        const rainfallMax = rainfallValues.length
+          ? Math.max(...rainfallValues)
+          : 0;
         const hazardSet = group.hazards;
         const dominantHazard =
           Array.from(hazardSet).sort(
@@ -754,24 +769,30 @@ export default function AIRecommendationEnterprise() {
 
         const densityScore = Math.min(40, count * 8);
         const rainfallScore =
-          dominantHazard === "Banjir"
-            ? Math.min(25, rainfallMax / 8)
-            : 10;
-        const multiHazardScore = Math.min(20, Math.max(0, hazardSet.size - 1) * 10);
+          dominantHazard === "Banjir" ? Math.min(25, rainfallMax / 8) : 10;
+        const multiHazardScore = Math.min(
+          20,
+          Math.max(0, hazardSet.size - 1) * 10,
+        );
         const recencyScore = Math.min(
           15,
           candidatesInGroup.some((item) => {
             if (!item.date) return false;
             const d = new Date(item.date);
-            return Number.isFinite(d.getTime()) &&
-              Date.now() - d.getTime() <= 365 * 24 * 60 * 60 * 1000;
+            return (
+              Number.isFinite(d.getTime()) &&
+              Date.now() - d.getTime() <= 365 * 24 * 60 * 60 * 1000
+            );
           })
             ? 15
             : 7,
         );
 
         const score = Math.round(
-          Math.min(100, densityScore + rainfallScore + multiHazardScore + recencyScore),
+          Math.min(
+            100,
+            densityScore + rainfallScore + multiHazardScore + recencyScore,
+          ),
         );
 
         return {
@@ -792,37 +813,73 @@ export default function AIRecommendationEnterprise() {
     return source.slice(0, Math.max(1, recommendationLimit));
   }, [groupCandidatesByBoundary, recommendationLimit]);
 
-  const requestAi = useCallback(async (candidate: Candidate | null) => {
-    if (!candidate) {
-      setAiResult(null);
-      return;
-    }
-    setAiLoading(true);
-    setAiError("");
-    try {
-      let areaForAi: {
-        label: string;
-        level?: string;
-        geom: any;
-        source: "selected_area" | "incident_administration";
-      } | null = null;
+  const requestAi = useCallback(
+    async (candidate: Candidate | null) => {
+      if (!candidate) {
+        setAiResult(null);
+        return;
+      }
+      setAiLoading(true);
+      setAiError("");
+      try {
+        let areaForAi: {
+          label: string;
+          level?: string;
+          geom: any;
+          source: "selected_area" | "incident_administration";
+        } | null = null;
 
-      const selectedGeometry =
-        selectedAreaBoundary?.feature?.geometry;
+        const selectedGeometry = selectedAreaBoundary?.feature?.geometry;
 
-      if (
-        selectedGeometry &&
-        ["Polygon", "MultiPolygon"].includes(selectedGeometry.type)
-      ) {
-        areaForAi = {
-          label: selectedAreaBoundary!.label,
-          level: selectedAreaBoundary!.level,
-          geom: selectedGeometry,
-          source: "selected_area",
-        };
-      } else {
-        const boundaryResponse = await smitiFetch(
-          `${API_URL}/api/spatial/area-boundary`,
+        if (
+          selectedGeometry &&
+          ["Polygon", "MultiPolygon"].includes(selectedGeometry.type)
+        ) {
+          areaForAi = {
+            label: selectedAreaBoundary!.label,
+            level: selectedAreaBoundary!.level,
+            geom: selectedGeometry,
+            source: "selected_area",
+          };
+        } else {
+          const boundaryResponse = await smitiFetch(
+            `${API_URL}/api/spatial/area-boundary`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+              },
+              body: JSON.stringify({
+                latitude: candidate.lat,
+                longitude: candidate.lng,
+              }),
+            },
+          );
+
+          const boundaryData = await boundaryResponse.json().catch(() => null);
+
+          if (
+            !boundaryResponse.ok ||
+            !boundaryData?.success ||
+            !boundaryData?.data?.geom
+          ) {
+            throw new Error(
+              boundaryData?.message ||
+                "Poligon administrasi lokasi kejadian tidak ditemukan. Pilih wilayah atau periksa koordinat kejadian.",
+            );
+          }
+
+          areaForAi = {
+            label: boundaryData.data.label || candidate.area,
+            level: boundaryData.data.level,
+            geom: boundaryData.data.geom,
+            source: "incident_administration",
+          };
+        }
+
+        const response = await smitiFetch(
+          `${API_URL}/api/ai/mitigation-recommendation`,
           {
             method: "POST",
             headers: {
@@ -830,84 +887,54 @@ export default function AIRecommendationEnterprise() {
               Accept: "application/json",
             },
             body: JSON.stringify({
-              latitude: candidate.lat,
-              longitude: candidate.lng,
+              context: {
+                selected_region: areaForAi.label,
+                area: {
+                  label: areaForAi.label,
+                  level: areaForAi.level,
+                  geom: areaForAi.geom,
+                },
+                area_source: areaForAi.source,
+                hazard: candidate.hazard.toLowerCase(),
+                incident_id: candidate.id,
+                incident_title: candidate.title,
+                category_source: candidate.category,
+                event_date: candidate.date,
+                das:
+                  candidate.das ||
+                  selectedDas?.nama_das ||
+                  selectedDas?.name ||
+                  selectedDas?.das_name ||
+                  null,
+                das_id: selectedDas?.id ?? candidate.das_id ?? null,
+                bnpb_flood_risk_index: bnpbFlood.value,
+                bnpb_flood_risk_source: bnpbFlood.service,
+                rainfall_average: floodEvidence.avgRainfall,
+                rainfall_maximum: floodEvidence.maxRainfall,
+                flood_event_count: floodEvidence.count,
+                latitude: candidate.lat,
+                longitude: candidate.lng,
+                curah_hujan: candidate.curah_hujan,
+                description: candidate.description,
+                source: "SIMITI live spatial evidence",
+              },
             }),
           },
         );
-
-        const boundaryData = await boundaryResponse.json().catch(() => null);
-
-        if (!boundaryResponse.ok || !boundaryData?.success || !boundaryData?.data?.geom) {
-          throw new Error(
-            boundaryData?.message ||
-            "Poligon administrasi lokasi kejadian tidak ditemukan. Pilih wilayah atau periksa koordinat kejadian.",
-          );
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.success) {
+          throw new Error(data?.message || `HTTP ${response.status}`);
         }
-
-        areaForAi = {
-          label: boundaryData.data.label || candidate.area,
-          level: boundaryData.data.level,
-          geom: boundaryData.data.geom,
-          source: "incident_administration",
-        };
+        setAiResult(data);
+      } catch (error: any) {
+        setAiResult(null);
+        setAiError(error?.message || "AI recommendation gagal.");
+      } finally {
+        setAiLoading(false);
       }
-
-      const response = await smitiFetch(
-        `${API_URL}/api/ai/mitigation-recommendation`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            context: {
-              selected_region: areaForAi.label,
-              area: {
-                label: areaForAi.label,
-                level: areaForAi.level,
-                geom: areaForAi.geom,
-              },
-              area_source: areaForAi.source,
-              hazard: candidate.hazard.toLowerCase(),
-              incident_id: candidate.id,
-              incident_title: candidate.title,
-              category_source: candidate.category,
-              event_date: candidate.date,
-              das:
-                candidate.das ||
-                selectedDas?.nama_das ||
-                selectedDas?.name ||
-                selectedDas?.das_name ||
-                null,
-              das_id: selectedDas?.id ?? candidate.das_id ?? null,
-              bnpb_flood_risk_index: bnpbFlood.value,
-              bnpb_flood_risk_source: bnpbFlood.service,
-              rainfall_average: floodEvidence.avgRainfall,
-              rainfall_maximum: floodEvidence.maxRainfall,
-              flood_event_count: floodEvidence.count,
-              latitude: candidate.lat,
-              longitude: candidate.lng,
-              curah_hujan: candidate.curah_hujan,
-              description: candidate.description,
-              source: "SIMITI live spatial evidence",
-            },
-          }),
-        },
-      );
-      const data = await response.json().catch(() => null);
-      if (!response.ok || !data?.success) {
-        throw new Error(data?.message || `HTTP ${response.status}`);
-      }
-      setAiResult(data);
-    } catch (error: any) {
-      setAiResult(null);
-      setAiError(error?.message || "AI recommendation gagal.");
-    } finally {
-      setAiLoading(false);
-    }
-  }, [selectedDas, bnpbFlood, floodEvidence, selectedAreaBoundary]);
+    },
+    [selectedDas, bnpbFlood, floodEvidence, selectedAreaBoundary],
+  );
 
   useEffect(() => {
     void fetchIncidents();
@@ -933,13 +960,6 @@ export default function AIRecommendationEnterprise() {
       maxZoom: 19,
       minZoom: 3,
     }).addTo(map);
-
-    // Tampilan awal seluruh wilayah Indonesia.
-    map.fitBounds([[-11.5, 94], [6.5, 141]], {
-      padding: [18, 18],
-      maxZoom: 5,
-      animate: false,
-    });
 
     L.control.zoom({ position: "topright" }).addTo(map);
 
@@ -1066,7 +1086,6 @@ export default function AIRecommendationEnterprise() {
     });
   }, [groupCandidatesByBoundary, selectedId, selectedAreaBoundary]);
 
-
   useEffect(() => {
     const map = mapInstanceRef.current;
     const layer = recommendationLayerRef.current;
@@ -1078,9 +1097,7 @@ export default function AIRecommendationEnterprise() {
     spatialRecommendations.forEach((item, index) => {
       const hazard = item.dominantHazard;
       const color =
-        item.score >= 75 ? "#dc2626" :
-        item.score >= 55 ? "#f97316" :
-        "#16a34a";
+        item.score >= 75 ? "#dc2626" : item.score >= 55 ? "#f97316" : "#16a34a";
 
       const icon = L.divIcon({
         className: "simiti-ai-recommendation-marker-wrap",
@@ -1237,7 +1254,8 @@ export default function AIRecommendationEnterprise() {
 
       if (selectedParent && level !== "provinsi") {
         const provinsi = selectedParent.provinsi || "";
-        const kabKota = selectedParent.kab_kota || selectedParent.kabupaten || "";
+        const kabKota =
+          selectedParent.kab_kota || selectedParent.kabupaten || "";
         const kecamatan = selectedParent.kecamatan || "";
 
         if (provinsi) params.set("provinsi", provinsi);
@@ -1251,34 +1269,95 @@ export default function AIRecommendationEnterprise() {
 
       const response = await smitiFetch(
         `${API_URL}/api/areas/search?${params.toString()}`,
-        { headers: { Accept: "application/json" } }
+        { headers: { Accept: "application/json" } },
       );
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json();
-      const rows = Array.isArray(payload) ? payload : Array.isArray(payload?.results) ? payload.results : Array.isArray(payload?.data) ? payload.data : [];
+      const rows = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.results)
+          ? payload.results
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : [];
       const parent = cascadeParentFor(level);
-      const parentName = (item: any) => level === "kabupaten" ? (item?.provinsi || "") : level === "kecamatan" ? (item?.kab_kota || item?.kabupaten || "") : level === "kelurahan" ? (item?.kecamatan || "") : "";
-      const filtered = rows.filter((item: any) => {
-        if (!parent) return true;
-        const expected = level === "kabupaten" ? (parent.provinsi || parent.label || parent.name) : level === "kecamatan" ? (parent.kab_kota || parent.kabupaten || parent.label || parent.name) : (parent.kecamatan || parent.label || parent.name);
-        const actual = parentName(item);
-        return !actual || !expected || normalizeSearchText(actual) === normalizeSearchText(expected);
-      }).filter((item: any) => item && (item.label || item.name || item[level] || item.kelurahan || item.desa || item.kecamatan || item.kab_kota || item.kabupaten || item.provinsi)).slice(0, 12);
+      const parentName = (item: any) =>
+        level === "kabupaten"
+          ? item?.provinsi || ""
+          : level === "kecamatan"
+            ? item?.kab_kota || item?.kabupaten || ""
+            : level === "kelurahan"
+              ? item?.kecamatan || ""
+              : "";
+      const filtered = rows
+        .filter((item: any) => {
+          if (!parent) return true;
+          const expected =
+            level === "kabupaten"
+              ? parent.provinsi || parent.label || parent.name
+              : level === "kecamatan"
+                ? parent.kab_kota ||
+                  parent.kabupaten ||
+                  parent.label ||
+                  parent.name
+                : parent.kecamatan || parent.label || parent.name;
+          const actual = parentName(item);
+          return (
+            !actual ||
+            !expected ||
+            normalizeSearchText(actual) === normalizeSearchText(expected)
+          );
+        })
+        .filter(
+          (item: any) =>
+            item &&
+            (item.label ||
+              item.name ||
+              item[level] ||
+              item.kelurahan ||
+              item.desa ||
+              item.kecamatan ||
+              item.kab_kota ||
+              item.kabupaten ||
+              item.provinsi),
+        )
+        .slice(0, 12);
       setCascadeResults((old) => ({ ...old, [level]: filtered }));
     } catch {
       setCascadeResults((old) => ({ ...old, [level]: [] }));
     } finally {
-      setCascadeLoading((old) => old === level ? null : old);
+      setCascadeLoading((old) => (old === level ? null : old));
     }
   };
 
   const chooseCascadeArea = (level: CascadeLevel, area: any) => {
     const index = cascadeLevels.indexOf(level);
     const nextSelected = { ...cascadeSelected, [level]: area };
-    const nextQueries = { ...cascadeQueries, [level]: String(area?.label || area?.name || area?.[level] || area?.kelurahan || area?.desa || area?.kecamatan || area?.kab_kota || area?.kabupaten || area?.provinsi || "") };
+    const nextQueries = {
+      ...cascadeQueries,
+      [level]: String(
+        area?.label ||
+          area?.name ||
+          area?.[level] ||
+          area?.kelurahan ||
+          area?.desa ||
+          area?.kecamatan ||
+          area?.kab_kota ||
+          area?.kabupaten ||
+          area?.provinsi ||
+          "",
+      ),
+    };
     const nextResults = { ...cascadeResults };
-    cascadeLevels.slice(index + 1).forEach((child) => { nextSelected[child] = null; nextQueries[child] = ""; nextResults[child] = []; });
-    setCascadeSelected(nextSelected); setCascadeQueries(nextQueries); setCascadeResults(nextResults); setCascadeOpen(null);
+    cascadeLevels.slice(index + 1).forEach((child) => {
+      nextSelected[child] = null;
+      nextQueries[child] = "";
+      nextResults[child] = [];
+    });
+    setCascadeSelected(nextSelected);
+    setCascadeQueries(nextQueries);
+    setCascadeResults(nextResults);
+    setCascadeOpen(null);
     selectArea({ ...area, level });
   };
 
@@ -1334,28 +1413,66 @@ export default function AIRecommendationEnterprise() {
       const merged = responses
         .flatMap((response) => response.rows)
         .filter((area: any) => {
-          const label = area?.label || area?.name || area?.kelurahan || area?.kecamatan || area?.kab_kota || area?.kabupaten || area?.provinsi || "";
+          const label =
+            area?.label ||
+            area?.name ||
+            area?.kelurahan ||
+            area?.kecamatan ||
+            area?.kab_kota ||
+            area?.kabupaten ||
+            area?.provinsi ||
+            "";
           const key = `${normalizeSearchText(area?.level)}:${normalizeSearchText(label)}:${normalizeSearchText(area?.provinsi)}:${normalizeSearchText(area?.kab_kota || area?.kabupaten)}`;
           if (!label || seen.has(key)) return false;
           seen.add(key);
           return true;
         })
         .sort((a: any, b: any) => {
-          const labelA = normalizeSearchText(a?.label || a?.name || a?.kelurahan || a?.kecamatan || a?.kab_kota || a?.kabupaten || a?.provinsi);
-          const labelB = normalizeSearchText(b?.label || b?.name || b?.kelurahan || b?.kecamatan || b?.kab_kota || b?.kabupaten || b?.provinsi);
-          const score = (label: string) => label === normalizedQuery ? 0 : label.startsWith(normalizedQuery) ? 1 : label.includes(normalizedQuery) ? 2 : 3;
-          return score(labelA) - score(labelB) || labelA.localeCompare(labelB, "id");
+          const labelA = normalizeSearchText(
+            a?.label ||
+              a?.name ||
+              a?.kelurahan ||
+              a?.kecamatan ||
+              a?.kab_kota ||
+              a?.kabupaten ||
+              a?.provinsi,
+          );
+          const labelB = normalizeSearchText(
+            b?.label ||
+              b?.name ||
+              b?.kelurahan ||
+              b?.kecamatan ||
+              b?.kab_kota ||
+              b?.kabupaten ||
+              b?.provinsi,
+          );
+          const score = (label: string) =>
+            label === normalizedQuery
+              ? 0
+              : label.startsWith(normalizedQuery)
+                ? 1
+                : label.includes(normalizedQuery)
+                  ? 2
+                  : 3;
+          return (
+            score(labelA) - score(labelB) || labelA.localeCompare(labelB, "id")
+          );
         })
         .slice(0, 10);
 
       setAreaSearchResults(merged);
       if (!merged.length && responses.every((response) => !response.ok)) {
-        setAreaSearchError("Pencarian wilayah gagal terhubung ke layanan SIMITI. Coba lagi.");
+        setAreaSearchError(
+          "Pencarian wilayah gagal terhubung ke layanan SIMITI. Coba lagi.",
+        );
       } else if (!merged.length) {
-        setAreaSearchError("Wilayah tidak ditemukan. Coba nama kabupaten atau provinsi.");
+        setAreaSearchError(
+          "Wilayah tidak ditemukan. Coba nama kabupaten atau provinsi.",
+        );
       }
     } finally {
-      if (requestId === areaSearchRequestRef.current) setAreaSearchLoading(false);
+      if (requestId === areaSearchRequestRef.current)
+        setAreaSearchLoading(false);
     }
   };
 
@@ -1388,7 +1505,13 @@ export default function AIRecommendationEnterprise() {
       "";
     setAreaSearchQuery(selectedLabel);
     const selectedSearchLevel: AdminLevel =
-      area?.level === "kelurahan" || area?.level === "desa" ? "kelurahan" : area?.level === "kabupaten" ? "kabupaten" : area?.level === "kecamatan" ? "kecamatan" : "provinsi";
+      area?.level === "kelurahan" || area?.level === "desa"
+        ? "kelurahan"
+        : area?.level === "kabupaten"
+          ? "kabupaten"
+          : area?.level === "kecamatan"
+            ? "kecamatan"
+            : "provinsi";
     setAdminLevel(selectedSearchLevel);
     setSelectedId(null);
     setAiResult(null);
@@ -1397,7 +1520,15 @@ export default function AIRecommendationEnterprise() {
     setDasError("");
 
     if (area?.geom) {
-      const level = (area?.level === "kelurahan" || area?.level === "desa" ? "kelurahan" : area?.level === "kabupaten" ? "kabupaten" : area?.level === "kecamatan" ? "kecamatan" : "provinsi") as AdminLevel;
+      const level = (
+        area?.level === "kelurahan" || area?.level === "desa"
+          ? "kelurahan"
+          : area?.level === "kabupaten"
+            ? "kabupaten"
+            : area?.level === "kecamatan"
+              ? "kecamatan"
+              : "provinsi"
+      ) as AdminLevel;
       setSelectedAreaBoundary({
         id: `search:${level}:${selectedLabel}`,
         level,
@@ -1414,7 +1545,13 @@ export default function AIRecommendationEnterprise() {
     const selectedBoundaryForDas: AdminBoundary | null = area?.geom
       ? {
           id: `search:${area?.level || "provinsi"}:${selectedLabel}`,
-          level: (area?.level === "kelurahan" || area?.level === "desa" ? "kelurahan" : area?.level === "kabupaten" ? "kabupaten" : area?.level === "kecamatan" ? "kecamatan" : "provinsi") as AdminLevel,
+          level: (area?.level === "kelurahan" || area?.level === "desa"
+            ? "kelurahan"
+            : area?.level === "kabupaten"
+              ? "kabupaten"
+              : area?.level === "kecamatan"
+                ? "kecamatan"
+                : "provinsi") as AdminLevel,
           label: selectedLabel,
           provinsi: area?.provinsi,
           kab_kota: area?.kab_kota,
@@ -1557,7 +1694,8 @@ export default function AIRecommendationEnterprise() {
 
   const runAnalysis = () => {
     const topSpatial = spatialRecommendations[0];
-    const candidate = topSpatial?.representative || selectedAreaFilteredCandidates[0] || null;
+    const candidate =
+      topSpatial?.representative || selectedAreaFilteredCandidates[0] || null;
     if (!candidate) {
       setAiError("Belum ada kandidat lokasi pada wilayah terpilih.");
       setDrawerOpen(true);
@@ -1573,11 +1711,13 @@ export default function AIRecommendationEnterprise() {
     ? Math.round(Number(topRecommendation.priority_score) || 0)
     : null;
   const selectedSpatialScore = selected
-    ? spatialRecommendations.find(
+    ? (spatialRecommendations.find(
         (item) => String(item.representative.id) === String(selected.id),
-      )?.score ?? null
+      )?.score ?? null)
     : null;
-  const visibleLocations = spatialRecommendations.map((item) => item.representative);
+  const visibleLocations = spatialRecommendations.map(
+    (item) => item.representative,
+  );
 
   return (
     <div className="simiti-enterprise-page simiti-ai-module">
@@ -1585,153 +1725,956 @@ export default function AIRecommendationEnterprise() {
         <main className="simiti-enterprise-main">
           <header className="ai-module-header">
             <div className="ai-module-title">
-              <div className="ai-title-icon"><BrainCircuit size={22} /></div>
+              <div className="ai-title-icon">
+                <BrainCircuit size={22} />
+              </div>
               <div>
-                <div className="ai-eyebrow">SIMITI â€¢ DECISION SUPPORT SYSTEM</div>
-                <h1>Rekomendasi Lokasi Mitigasi &amp; Adaptasi <span>Berbasis AI</span></h1>
-                <p>Analisis spasial untuk menentukan lokasi prioritas dan model intervensi berdasarkan risiko bencana serta evidence SIMITI.</p>
+                <div className="ai-eyebrow">
+                  SIMITI â€¢ DECISION SUPPORT SYSTEM
+                </div>
+                <h1>
+                  Rekomendasi Lokasi Mitigasi &amp; Adaptasi{" "}
+                  <span>Berbasis AI</span>
+                </h1>
+                <p>
+                  Analisis spasial untuk menentukan lokasi prioritas dan model
+                  intervensi berdasarkan risiko bencana serta evidence SIMITI.
+                </p>
               </div>
             </div>
             <div className="ai-header-actions">
-              <div className="ai-live-status"><i /> <span>DATA ENGINE</span><b>LIVE</b></div>
-              <button type="button" className="ai-refresh" onClick={async () => { setRefreshing(true); await fetchIncidents(); await fetchLayerCount(); setRefreshing(false); }} disabled={refreshing}>
-                <RefreshCw size={15} className={refreshing ? "spin" : ""} /> {refreshing ? "Memuat..." : "Refresh Data"}
+              <div className="ai-live-status">
+                <i /> <span>DATA ENGINE</span>
+                <b>LIVE</b>
+              </div>
+              <button
+                type="button"
+                className="ai-refresh"
+                onClick={async () => {
+                  setRefreshing(true);
+                  await fetchIncidents();
+                  await fetchLayerCount();
+                  setRefreshing(false);
+                }}
+                disabled={refreshing}
+              >
+                <RefreshCw size={15} className={refreshing ? "spin" : ""} />{" "}
+                {refreshing ? "Memuat..." : "Refresh Data"}
               </button>
-              <button type="button" className="ai-primary-action" onClick={runAnalysis}>
+              <button
+                type="button"
+                className="ai-primary-action"
+                onClick={runAnalysis}
+              >
                 <Sparkles size={16} /> Analisis AI
               </button>
             </div>
           </header>
 
           <section className="ai-kpi-strip">
-            <div className="ai-kpi-card"><span className="kpi-icon blue"><MapPinned size={17}/></span><div><small>LOKASI DIANALISIS</small><strong>{selectedAreaBoundary ? filteredCandidates.length : candidates.length}</strong><em>{selectedAreaBoundary?.label || "Seluruh data SIMITI"}</em></div></div>
-            <div className="ai-kpi-card"><span className="kpi-icon emerald"><Target size={17}/></span><div><small>LOKASI PRIORITAS</small><strong>{visibleLocations.length}</strong><em>Hasil spatial scoring</em></div></div>
-            <div className="ai-kpi-card"><span className="kpi-icon amber"><AlertTriangle size={17}/></span><div><small>RISIKO DOMINAN</small><strong>{spatialRecommendations[0]?.dominantHazard || "â€”"}</strong><em>{spatialRecommendations[0] ? `${spatialRecommendations[0].count} evidence kejadian` : "Pilih wilayah"}</em></div></div>
-            <div className="ai-kpi-card"><span className="kpi-icon violet"><ShieldCheck size={17}/></span><div><small>CONFIDENCE AI</small><strong>{aiResult?.confidence != null ? `${Math.round(Number(aiResult.confidence))}%` : "â€”"}</strong><em>{aiResult?.meta?.model || "Menunggu analisis"}</em></div></div>
+            <div className="ai-kpi-card">
+              <span className="kpi-icon blue">
+                <MapPinned size={17} />
+              </span>
+              <div>
+                <small>LOKASI DIANALISIS</small>
+                <strong>
+                  {selectedAreaBoundary
+                    ? filteredCandidates.length
+                    : candidates.length}
+                </strong>
+                <em>{selectedAreaBoundary?.label || "Seluruh data SIMITI"}</em>
+              </div>
+            </div>
+            <div className="ai-kpi-card">
+              <span className="kpi-icon emerald">
+                <Target size={17} />
+              </span>
+              <div>
+                <small>LOKASI PRIORITAS</small>
+                <strong>{visibleLocations.length}</strong>
+                <em>Hasil spatial scoring</em>
+              </div>
+            </div>
+            <div className="ai-kpi-card">
+              <span className="kpi-icon amber">
+                <AlertTriangle size={17} />
+              </span>
+              <div>
+                <small>RISIKO DOMINAN</small>
+                <strong>
+                  {spatialRecommendations[0]?.dominantHazard || "â€”"}
+                </strong>
+                <em>
+                  {spatialRecommendations[0]
+                    ? `${spatialRecommendations[0].count} evidence kejadian`
+                    : "Pilih wilayah"}
+                </em>
+              </div>
+            </div>
+            <div className="ai-kpi-card">
+              <span className="kpi-icon violet">
+                <ShieldCheck size={17} />
+              </span>
+              <div>
+                <small>CONFIDENCE AI</small>
+                <strong>
+                  {aiResult?.confidence != null
+                    ? `${Math.round(Number(aiResult.confidence))}%`
+                    : "â€”"}
+                </strong>
+                <em>{aiResult?.meta?.model || "Menunggu analisis"}</em>
+              </div>
+            </div>
           </section>
 
           <section className="ai-workspace">
             <div className="ai-map-column">
               <div className="ai-map-toolbar">
-                <div className="ai-admin-cascade" role="search" aria-label="Pencarian wilayah administratif bertingkat">
+                <div
+                  className="ai-admin-cascade"
+                  role="search"
+                  aria-label="Pencarian wilayah administratif bertingkat"
+                >
                   {cascadeLevels.map((level, idx) => {
-                    const titles: Record<CascadeLevel, string> = { provinsi: "Provinsi", kabupaten: "Kabupaten/Kota", kecamatan: "Kecamatan", kelurahan: "Kelurahan/Desa" };
-                    const parentReady = idx === 0 || Boolean(cascadeSelected[cascadeLevels[idx - 1]]);
+                    const titles: Record<CascadeLevel, string> = {
+                      provinsi: "Provinsi",
+                      kabupaten: "Kabupaten/Kota",
+                      kecamatan: "Kecamatan",
+                      kelurahan: "Kelurahan/Desa",
+                    };
+                    const parentReady =
+                      idx === 0 ||
+                      Boolean(cascadeSelected[cascadeLevels[idx - 1]]);
                     const chosen = cascadeSelected[level];
-                    return <div className={`ai-cascade-field ${!parentReady ? "is-disabled" : ""}`} key={level}>
-                      <label htmlFor={`ai-cascade-${level}`}>{idx + 1}. {titles[level]}</label>
-                      <div className="ai-cascade-input-wrap">
-                        <input id={`ai-cascade-${level}`} value={chosen ? String(chosen.label || chosen.name || chosen[level] || chosen.kelurahan || chosen.desa || chosen.kecamatan || chosen.kab_kota || chosen.kabupaten || chosen.provinsi || "") : cascadeQueries[level]} disabled={!parentReady} autoComplete="off" placeholder={parentReady ? `Cari ${titles[level].toLowerCase()}â€¦` : `Pilih ${titles[cascadeLevels[idx - 1]].toLowerCase()} dulu`} onFocus={() => { if (parentReady) setCascadeOpen(level); }} onChange={(e) => { setCascadeSelected((old) => ({ ...old, [level]: null })); void searchCascadeLevel(level, e.target.value); }} onKeyDown={(e) => { if (e.key === "Escape") setCascadeOpen(null); if (e.key === "Enter" && cascadeResults[level][0]) { e.preventDefault(); chooseCascadeArea(level, cascadeResults[level][0]); } }} />
-                        {cascadeLoading === level && <RefreshCw size={13} className="spin" />}
-                        {chosen && <button type="button" aria-label={`Ubah ${titles[level]}`} onClick={() => { setCascadeSelected((old) => ({ ...old, [level]: null, ...Object.fromEntries(cascadeLevels.slice(idx + 1).map((child) => [child, null])) } as Record<CascadeLevel, any | null>)); setCascadeQueries((old) => ({ ...old, [level]: "", ...Object.fromEntries(cascadeLevels.slice(idx + 1).map((child) => [child, ""])) } as Record<CascadeLevel, string>)); setCascadeOpen(level); }}> <X size={12}/> </button>}
+                    return (
+                      <div
+                        className={`ai-cascade-field ${!parentReady ? "is-disabled" : ""}`}
+                        key={level}
+                      >
+                        <label htmlFor={`ai-cascade-${level}`}>
+                          {idx + 1}. {titles[level]}
+                        </label>
+                        <div className="ai-cascade-input-wrap">
+                          <input
+                            id={`ai-cascade-${level}`}
+                            value={
+                              chosen
+                                ? String(
+                                    chosen.label ||
+                                      chosen.name ||
+                                      chosen[level] ||
+                                      chosen.kelurahan ||
+                                      chosen.desa ||
+                                      chosen.kecamatan ||
+                                      chosen.kab_kota ||
+                                      chosen.kabupaten ||
+                                      chosen.provinsi ||
+                                      "",
+                                  )
+                                : cascadeQueries[level]
+                            }
+                            disabled={!parentReady}
+                            autoComplete="off"
+                            placeholder={
+                              parentReady
+                                ? `Cari ${titles[level].toLowerCase()}â€¦`
+                                : `Pilih ${titles[cascadeLevels[idx - 1]].toLowerCase()} dulu`
+                            }
+                            onFocus={() => {
+                              if (parentReady) setCascadeOpen(level);
+                            }}
+                            onChange={(e) => {
+                              setCascadeSelected((old) => ({
+                                ...old,
+                                [level]: null,
+                              }));
+                              void searchCascadeLevel(level, e.target.value);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") setCascadeOpen(null);
+                              if (
+                                e.key === "Enter" &&
+                                cascadeResults[level][0]
+                              ) {
+                                e.preventDefault();
+                                chooseCascadeArea(
+                                  level,
+                                  cascadeResults[level][0],
+                                );
+                              }
+                            }}
+                          />
+                          {cascadeLoading === level && (
+                            <RefreshCw size={13} className="spin" />
+                          )}
+                          {chosen && (
+                            <button
+                              type="button"
+                              aria-label={`Ubah ${titles[level]}`}
+                              onClick={() => {
+                                setCascadeSelected(
+                                  (old) =>
+                                    ({
+                                      ...old,
+                                      [level]: null,
+                                      ...Object.fromEntries(
+                                        cascadeLevels
+                                          .slice(idx + 1)
+                                          .map((child) => [child, null]),
+                                      ),
+                                    }) as Record<CascadeLevel, any | null>,
+                                );
+                                setCascadeQueries(
+                                  (old) =>
+                                    ({
+                                      ...old,
+                                      [level]: "",
+                                      ...Object.fromEntries(
+                                        cascadeLevels
+                                          .slice(idx + 1)
+                                          .map((child) => [child, ""]),
+                                      ),
+                                    }) as Record<CascadeLevel, string>,
+                                );
+                                setCascadeOpen(level);
+                              }}
+                            >
+                              {" "}
+                              <X size={12} />{" "}
+                            </button>
+                          )}
+                        </div>
+                        {cascadeOpen === level &&
+                          parentReady &&
+                          cascadeQueries[level].trim().length >= 2 && (
+                            <div
+                              className="ai-cascade-results"
+                              role="listbox"
+                              aria-label={`Hasil ${titles[level]}`}
+                            >
+                              {cascadeResults[level].length ? (
+                                cascadeResults[level].map((area, i) => {
+                                  const label =
+                                    area.label ||
+                                    area.name ||
+                                    area[level] ||
+                                    area.kelurahan ||
+                                    area.desa ||
+                                    area.kecamatan ||
+                                    area.kab_kota ||
+                                    area.kabupaten ||
+                                    area.provinsi ||
+                                    "Wilayah";
+                                  const detail = [
+                                    area.kecamatan,
+                                    area.kab_kota || area.kabupaten,
+                                    area.provinsi,
+                                  ]
+                                    .filter(
+                                      (v) =>
+                                        v &&
+                                        normalizeSearchText(v) !==
+                                          normalizeSearchText(label),
+                                    )
+                                    .join(" Â· ");
+                                  return (
+                                    <button
+                                      type="button"
+                                      role="option"
+                                      key={`${area.id || level}:${label}:${i}`}
+                                      onClick={() =>
+                                        chooseCascadeArea(level, area)
+                                      }
+                                    >
+                                      <strong>{label}</strong>
+                                      {detail && <small>{detail}</small>}
+                                    </button>
+                                  );
+                                })
+                              ) : (
+                                <div className="ai-cascade-empty">
+                                  {cascadeLoading === level
+                                    ? "Mencari wilayahâ€¦"
+                                    : "Tidak ada hasil. Periksa ejaan atau coba nama lebih lengkap."}
+                                </div>
+                              )}
+                            </div>
+                          )}
                       </div>
-                      {cascadeOpen === level && parentReady && cascadeQueries[level].trim().length >= 2 && <div className="ai-cascade-results" role="listbox" aria-label={`Hasil ${titles[level]}`}>
-                        {cascadeResults[level].length ? cascadeResults[level].map((area, i) => { const label = area.label || area.name || area[level] || area.kelurahan || area.desa || area.kecamatan || area.kab_kota || area.kabupaten || area.provinsi || "Wilayah"; const detail = [area.kecamatan, area.kab_kota || area.kabupaten, area.provinsi].filter((v) => v && normalizeSearchText(v) !== normalizeSearchText(label)).join(" Â· "); return <button type="button" role="option" key={`${area.id || level}:${label}:${i}`} onClick={() => chooseCascadeArea(level, area)}><strong>{label}</strong>{detail && <small>{detail}</small>}</button>; }) : <div className="ai-cascade-empty">{cascadeLoading === level ? "Mencari wilayahâ€¦" : "Tidak ada hasil. Periksa ejaan atau coba nama lebih lengkap."}</div>}
-                      </div>}
-                    </div>;
+                    );
                   })}
                 </div>
-                <div className="ai-map-scope"><span>Wilayah aktif</span><strong>{selectedAreaBoundary?.label || "Belum dipilih"}</strong></div>
-                <button type="button" className="ai-map-tool" onClick={() => mapInstanceRef.current?.fitBounds([[-11.5, 94], [6.5, 141]], { padding: [18, 18], maxZoom: 5 })} title="Kembali ke Indonesia"><Navigation size={16}/></button>
-                <button type="button" className="ai-map-tool" onClick={() => setShowLayers(v => !v)} title="Layer"><Layers3 size={16}/></button>
+                <div className="ai-map-scope">
+                  <span>Wilayah aktif</span>
+                  <strong>
+                    {selectedAreaBoundary?.label || "Belum dipilih"}
+                  </strong>
+                </div>
+                <button
+                  type="button"
+                  className="ai-map-tool"
+                  onClick={() =>
+                    mapInstanceRef.current?.setView([-2.5, 118], 5)
+                  }
+                  title="Kembali ke Indonesia"
+                >
+                  <Navigation size={16} />
+                </button>
+                <button
+                  type="button"
+                  className="ai-map-tool"
+                  onClick={() => setShowLayers((v) => !v)}
+                  title="Layer"
+                >
+                  <Layers3 size={16} />
+                </button>
               </div>
 
               <div className="simiti-map-stage ai-map-stage">
                 <div ref={mapRef} className="simiti-map" />
 
-                {showLayers && <div className="simiti-map-layer-card ai-layer-card">
-                  <div className="layer-card-head"><div><small>LAYER PETA</small><h3>Tematik</h3></div><button type="button" onClick={() => setShowLayers(false)}><X size={15}/></button></div>
-                  <div className="layer-check active"><span>âœ“</span><b>Batas Administrasi</b><ChevronRight size={13} /></div>
-                  <div className="layer-check active"><span>âœ“</span><b>Risiko Bencana</b><ChevronRight size={13} /></div>
-                  <div className="layer-check"><span>âœ“</span><b>DAS</b><ChevronRight size={13} /></div>
-                  <div className="layer-check"><span>â–¡</span><b>Kerentanan</b><ChevronRight size={13} /></div>
-                  <div className="layer-check"><span>â–¡</span><b>Paparan</b><ChevronRight size={13} /></div>
-                  <div className="layer-check"><span>â–¡</span><b>Tutupan Lahan</b><ChevronRight size={13} /></div>
-                  <div className={`layer-ai-title ${recommendationLayerVisible ? "active" : ""}`} onClick={() => setRecommendationLayerVisible(v => !v)} role="button" tabIndex={0}>
-                    <span>{recommendationLayerVisible ? "âœ“" : "â–¡"}</span><b>Titik Rekomendasi AI</b><ChevronRight size={13}/>
+                {showLayers && (
+                  <div className="simiti-map-layer-card ai-layer-card">
+                    <div className="layer-card-head">
+                      <div>
+                        <small>LAYER PETA</small>
+                        <h3>Tematik</h3>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowLayers(false)}
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+                    <div className="layer-check active">
+                      <span>âœ“</span>
+                      <b>Batas Administrasi</b>
+                      <ChevronRight size={13} />
+                    </div>
+                    <div className="layer-check active">
+                      <span>âœ“</span>
+                      <b>Risiko Bencana</b>
+                      <ChevronRight size={13} />
+                    </div>
+                    <div className="layer-check">
+                      <span>âœ“</span>
+                      <b>DAS</b>
+                      <ChevronRight size={13} />
+                    </div>
+                    <div className="layer-check">
+                      <span>â–¡</span>
+                      <b>Kerentanan</b>
+                      <ChevronRight size={13} />
+                    </div>
+                    <div className="layer-check">
+                      <span>â–¡</span>
+                      <b>Paparan</b>
+                      <ChevronRight size={13} />
+                    </div>
+                    <div className="layer-check">
+                      <span>â–¡</span>
+                      <b>Tutupan Lahan</b>
+                      <ChevronRight size={13} />
+                    </div>
+                    <div
+                      className={`layer-ai-title ${recommendationLayerVisible ? "active" : ""}`}
+                      onClick={() => setRecommendationLayerVisible((v) => !v)}
+                      role="button"
+                      tabIndex={0}
+                    >
+                      <span>{recommendationLayerVisible ? "âœ“" : "â–¡"}</span>
+                      <b>Titik Rekomendasi AI</b>
+                      <ChevronRight size={13} />
+                    </div>
+                    <div className="layer-legend">
+                      <span className="dot red" /> Sangat Direkomendasikan{" "}
+                      <span className="dot orange" /> Direkomendasikan{" "}
+                      <span className="dot green" /> Cukup
+                    </div>
                   </div>
-                  <div className="layer-legend"><span className="dot red" /> Sangat Direkomendasikan <span className="dot orange" /> Direkomendasikan <span className="dot green" /> Cukup</div>
-                </div>}
+                )}
 
-                <div className="ai-map-status"><span><i/> DATA SPASIAL LIVE</span><span>{filteredCandidates.length.toLocaleString("id-ID")} kandidat</span><span>{layersCount ?? "â€”"} layer</span></div>
+                <div className="ai-map-status">
+                  <span>
+                    <i /> DATA SPASIAL LIVE
+                  </span>
+                  <span>
+                    {filteredCandidates.length.toLocaleString("id-ID")} kandidat
+                  </span>
+                  <span>{layersCount ?? "â€”"} layer</span>
+                </div>
               </div>
 
               <div className="ai-workflow">
-                <div className="workflow-step done"><span>01</span><div><b>Integrasi Data Peta</b><small>PostGIS Â· layer risiko Â· DAS Â· kejadian</small></div></div><i>â†’</i>
-                <div className="workflow-step done"><span>02</span><div><b>Analisis Spasial</b><small>Overlay Â· evidence Â· spatial scoring</small></div></div><i>â†’</i>
-                <div className="workflow-step active"><span>03</span><div><b>AI Recommendation</b><small>Model mitigasi &amp; adaptasi</small></div></div><i>â†’</i>
-                <div className="workflow-step"><span>04</span><div><b>Visualisasi</b><small>Titik / layer rekomendasi</small></div></div><i>â†’</i>
-                <div className="workflow-step"><span>05</span><div><b>Output</b><small>GeoJSON Â· laporan Â· evidence</small></div></div>
+                <div className="workflow-step done">
+                  <span>01</span>
+                  <div>
+                    <b>Integrasi Data Peta</b>
+                    <small>PostGIS Â· layer risiko Â· DAS Â· kejadian</small>
+                  </div>
+                </div>
+                <i>â†’</i>
+                <div className="workflow-step done">
+                  <span>02</span>
+                  <div>
+                    <b>Analisis Spasial</b>
+                    <small>Overlay Â· evidence Â· spatial scoring</small>
+                  </div>
+                </div>
+                <i>â†’</i>
+                <div className="workflow-step active">
+                  <span>03</span>
+                  <div>
+                    <b>AI Recommendation</b>
+                    <small>Model mitigasi &amp; adaptasi</small>
+                  </div>
+                </div>
+                <i>â†’</i>
+                <div className="workflow-step">
+                  <span>04</span>
+                  <div>
+                    <b>Visualisasi</b>
+                    <small>Titik / layer rekomendasi</small>
+                  </div>
+                </div>
+                <i>â†’</i>
+                <div className="workflow-step">
+                  <span>05</span>
+                  <div>
+                    <b>Output</b>
+                    <small>GeoJSON Â· laporan Â· evidence</small>
+                  </div>
+                </div>
               </div>
             </div>
 
             <aside className="ai-recommendation-panel">
               <div className="ai-panel-head">
-                <div><div className="ai-eyebrow">AI DECISION SUPPORT</div><h2>Panel Rekomendasi AI</h2><p>Pilih risiko untuk memfilter kandidat lokasi.</p></div>
-                <span className="ai-badge"><Sparkles size={13}/> AI</span>
+                <div>
+                  <div className="ai-eyebrow">AI DECISION SUPPORT</div>
+                  <h2>Panel Rekomendasi AI</h2>
+                  <p>Pilih risiko untuk memfilter kandidat lokasi.</p>
+                </div>
+                <span className="ai-badge">
+                  <Sparkles size={13} /> AI
+                </span>
               </div>
 
-              {aiLoading && <div role="status" style={{ padding: "10px 12px", marginBottom: 10, borderRadius: 8, background: "#EFF6FF", color: "#1D4ED8", fontSize: 12 }}>AI sedang membaca evidence spasial dan menyusun rekomendasi...</div>}
-              {!aiLoading && aiError && <div role="alert" style={{ padding: "10px 12px", marginBottom: 10, borderRadius: 8, background: "#FEF2F2", color: "#B91C1C", fontSize: 12 }}>Analisis AI gagal: {aiError}</div>}
-              {!aiLoading && !aiError && aiResult?.verification_needed && <div role="status" style={{ padding: "10px 12px", marginBottom: 10, borderRadius: 8, background: "#FFFBEB", color: "#92400E", fontSize: 12 }}>Perlu verifikasi lapangan: {aiResult.verification_reason || "Bukti spasial belum cukup untuk memastikan rekomendasi."}</div>}
-              {!aiLoading && !aiError && aiResult && !aiResult.verification_needed && <div role="status" style={{ padding: "10px 12px", marginBottom: 10, borderRadius: 8, background: "#ECFDF5", color: "#065F46", fontSize: 12 }}>Analisis AI selesai. Tetap verifikasi rekomendasi terhadap kondisi lapangan.</div>}
+              {aiLoading && (
+                <div
+                  role="status"
+                  style={{
+                    padding: "10px 12px",
+                    marginBottom: 10,
+                    borderRadius: 8,
+                    background: "#EFF6FF",
+                    color: "#1D4ED8",
+                    fontSize: 12,
+                  }}
+                >
+                  AI sedang membaca evidence spasial dan menyusun rekomendasi...
+                </div>
+              )}
+              {!aiLoading && aiError && (
+                <div
+                  role="alert"
+                  style={{
+                    padding: "10px 12px",
+                    marginBottom: 10,
+                    borderRadius: 8,
+                    background: "#FEF2F2",
+                    color: "#B91C1C",
+                    fontSize: 12,
+                  }}
+                >
+                  Analisis AI gagal: {aiError}
+                </div>
+              )}
+              {!aiLoading && !aiError && aiResult?.verification_needed && (
+                <div
+                  role="status"
+                  style={{
+                    padding: "10px 12px",
+                    marginBottom: 10,
+                    borderRadius: 8,
+                    background: "#FFFBEB",
+                    color: "#92400E",
+                    fontSize: 12,
+                  }}
+                >
+                  Perlu verifikasi lapangan:{" "}
+                  {aiResult.verification_reason ||
+                    "Bukti spasial belum cukup untuk memastikan rekomendasi."}
+                </div>
+              )}
+              {!aiLoading &&
+                !aiError &&
+                aiResult &&
+                !aiResult.verification_needed && (
+                  <div
+                    role="status"
+                    style={{
+                      padding: "10px 12px",
+                      marginBottom: 10,
+                      borderRadius: 8,
+                      background: "#ECFDF5",
+                      color: "#065F46",
+                      fontSize: 12,
+                    }}
+                  >
+                    Analisis AI selesai. Tetap verifikasi rekomendasi terhadap
+                    kondisi lapangan.
+                  </div>
+                )}
               <div className="ai-candidate-search" role="search">
                 <Search size={16} aria-hidden="true" />
-                <input aria-label="Cari kandidat lokasi" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Cari lokasi, kejadian, atau DASâ€¦" />
-                {query && <button type="button" aria-label="Bersihkan pencarian kandidat" onClick={() => setQuery("")}><X size={14}/></button>}
+                <input
+                  aria-label="Cari kandidat lokasi"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Cari lokasi, kejadian, atau DASâ€¦"
+                />
+                {query && (
+                  <button
+                    type="button"
+                    aria-label="Bersihkan pencarian kandidat"
+                    onClick={() => setQuery("")}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
               </div>
-              <div className="ai-search-summary" role="status" aria-live="polite">
-                Menampilkan <strong>{filteredCandidates.length.toLocaleString("id-ID")}</strong> kandidat dari {candidates.length.toLocaleString("id-ID")} data berkoordinat
-                {query.trim() && <button type="button" onClick={() => setQuery("")}>Hapus kata kunci</button>}
+              <div
+                className="ai-search-summary"
+                role="status"
+                aria-live="polite"
+              >
+                Menampilkan{" "}
+                <strong>
+                  {filteredCandidates.length.toLocaleString("id-ID")}
+                </strong>{" "}
+                kandidat dari {candidates.length.toLocaleString("id-ID")} data
+                berkoordinat
+                {query.trim() && (
+                  <button type="button" onClick={() => setQuery("")}>
+                    Hapus kata kunci
+                  </button>
+                )}
               </div>
 
               <div className="hazard-tabs">
-                <button type="button" className={hazards.size === 5 ? "active" : ""} onClick={() => setHazards(new Set(["Banjir","Longsor","Karhutla","Kekeringan","Abrasi"]))}>Semua</button>
-                {(Object.keys(hazardMeta) as Hazard[]).map((hazard) => { const Icon = hazardMeta[hazard].icon; return <button type="button" key={hazard} className={hazards.size === 1 && hazards.has(hazard) ? "active" : ""} onClick={() => setHazards(new Set([hazard]))}><Icon size={14}/> {hazard}</button>; })}
+                <button
+                  type="button"
+                  className={hazards.size === 5 ? "active" : ""}
+                  onClick={() =>
+                    setHazards(
+                      new Set([
+                        "Banjir",
+                        "Longsor",
+                        "Karhutla",
+                        "Kekeringan",
+                        "Abrasi",
+                      ]),
+                    )
+                  }
+                >
+                  Semua
+                </button>
+                {(Object.keys(hazardMeta) as Hazard[]).map((hazard) => {
+                  const Icon = hazardMeta[hazard].icon;
+                  return (
+                    <button
+                      type="button"
+                      key={hazard}
+                      className={
+                        hazards.size === 1 && hazards.has(hazard)
+                          ? "active"
+                          : ""
+                      }
+                      onClick={() => setHazards(new Set([hazard]))}
+                    >
+                      <Icon size={14} /> {hazard}
+                    </button>
+                  );
+                })}
               </div>
 
-              <div className="hazard-kpi-grid">{(Object.keys(hazardMeta) as Hazard[]).map((hazard) => { const Icon = hazardMeta[hazard].icon; return <button type="button" key={hazard} className={`hazard-kpi ${hazardMeta[hazard].markerClass}`} onClick={() => setHazards(new Set([hazard]))}><span><Icon size={14}/></span><strong>{hazardCounts[hazard]}</strong><small>lokasi {hazard}</small></button>; })}</div>
+              <div className="hazard-kpi-grid">
+                {(Object.keys(hazardMeta) as Hazard[]).map((hazard) => {
+                  const Icon = hazardMeta[hazard].icon;
+                  return (
+                    <button
+                      type="button"
+                      key={hazard}
+                      className={`hazard-kpi ${hazardMeta[hazard].markerClass}`}
+                      onClick={() => setHazards(new Set([hazard]))}
+                    >
+                      <span>
+                        <Icon size={14} />
+                      </span>
+                      <strong>{hazardCounts[hazard]}</strong>
+                      <small>lokasi {hazard}</small>
+                    </button>
+                  );
+                })}
+              </div>
 
-              <div className="ai-panel-section-title"><div><small>PRIORITY RANKING</small><h3>Daftar Rekomendasi Lokasi</h3></div><span>{visibleLocations.length} lokasi</span></div>
+              <div className="ai-panel-section-title">
+                <div>
+                  <small>PRIORITY RANKING</small>
+                  <h3>Daftar Rekomendasi Lokasi</h3>
+                </div>
+                <span>{visibleLocations.length} lokasi</span>
+              </div>
               <div className="ai-ranking-list">
-                {visibleLocations.slice(0, 8).map((item, index) => { const score = Math.round(Number(spatialRecommendations[index]?.score) || 0); const Icon = hazardMeta[item.hazard].icon; return <button type="button" className={`ai-ranking-item ${String(selected?.id) === String(item.id) ? "selected" : ""}`} key={item.id} onClick={() => { setSelectedId(item.id); setRecommendationLayerVisible(true); setDrawerOpen(true); }}><span className={`rank-marker ${hazardMeta[item.hazard].markerClass}`}><Icon size={14}/></span><span className="rank-content"><strong>{item.title || item.area}</strong><small>{item.area}</small><em><b>{item.hazard}</b> Â· {item.das || "DAS belum teridentifikasi"}</em></span><span className="rank-score"><b>{score}</b><small>/100</small><i>Detail</i></span></button>; })}
-                {!visibleLocations.length && <div className="ai-empty"><MapPinned size={24}/><strong>Pilih wilayah untuk memunculkan kandidat</strong><span>Analisis spasial akan menggunakan evidence kejadian SIMITI pada wilayah aktif.</span></div>}
+                {visibleLocations.slice(0, 8).map((item, index) => {
+                  const score = Math.round(
+                    Number(spatialRecommendations[index]?.score) || 0,
+                  );
+                  const Icon = hazardMeta[item.hazard].icon;
+                  return (
+                    <button
+                      type="button"
+                      className={`ai-ranking-item ${String(selected?.id) === String(item.id) ? "selected" : ""}`}
+                      key={item.id}
+                      onClick={() => {
+                        setSelectedId(item.id);
+                        setRecommendationLayerVisible(true);
+                        setDrawerOpen(true);
+                      }}
+                    >
+                      <span
+                        className={`rank-marker ${hazardMeta[item.hazard].markerClass}`}
+                      >
+                        <Icon size={14} />
+                      </span>
+                      <span className="rank-content">
+                        <strong>{item.title || item.area}</strong>
+                        <small>{item.area}</small>
+                        <em>
+                          <b>{item.hazard}</b> Â·{" "}
+                          {item.das || "DAS belum teridentifikasi"}
+                        </em>
+                      </span>
+                      <span className="rank-score">
+                        <b>{score}</b>
+                        <small>/100</small>
+                        <i>Detail</i>
+                      </span>
+                    </button>
+                  );
+                })}
+                {!visibleLocations.length && (
+                  <div className="ai-empty">
+                    <MapPinned size={24} />
+                    <strong>Pilih wilayah untuk memunculkan kandidat</strong>
+                    <span>
+                      Analisis spasial akan menggunakan evidence kejadian SIMITI
+                      pada wilayah aktif.
+                    </span>
+                  </div>
+                )}
               </div>
 
-              <div className="ai-panel-footer"><button type="button" className="ai-primary-action full" onClick={runAnalysis}><Sparkles size={15}/> Jalankan Analisis AI</button><span><ShieldCheck size={13}/> Output AI menggunakan evidence spasial SIMITI.</span></div>
+              <div className="ai-panel-footer">
+                <button
+                  type="button"
+                  className="ai-primary-action full"
+                  onClick={runAnalysis}
+                >
+                  <Sparkles size={15} /> Jalankan Analisis AI
+                </button>
+                <span>
+                  <ShieldCheck size={13} /> Output AI menggunakan evidence
+                  spasial SIMITI.
+                </span>
+              </div>
             </aside>
           </section>
 
           <section className="ai-results-grid">
             <article className="dash-card ranking-card ai-result-card">
-              <div className="dash-title"><div><small>SPATIAL ANALYSIS OUTPUT</small><h3>Hasil Rekomendasi Lokasi</h3></div><div className="result-actions"><span>{visibleLocations.length} lokasi</span><button type="button" onClick={exportGeoJson}><Download size={14}/> GeoJSON</button></div></div>
-              <div className="rank-table"><div className="rank-row rank-head"><span>No</span><span>Lokasi</span><span>Hazard</span><span>Score</span><span>Aksi</span></div>{visibleLocations.map((item,index) => <div className="rank-row" key={item.id}><span className="rank-no">{index+1}</span><span><strong>{item.title || item.area}</strong><small>{item.area}</small></span><span className={`hazard-pill ${hazardMeta[item.hazard].markerClass}`}>{item.hazard}</span><b>{Math.round(Number(spatialRecommendations[index]?.score)||0)}/100</b><button type="button" onClick={() => { setSelectedId(item.id); setDrawerOpen(true); setRecommendationLayerVisible(true); }}><Eye size={14}/> Detail</button></div>)}{!visibleLocations.length && <div className="dash-empty">Belum ada hasil. Pilih wilayah lalu jalankan analisis.</div>}</div>
+              <div className="dash-title">
+                <div>
+                  <small>SPATIAL ANALYSIS OUTPUT</small>
+                  <h3>Hasil Rekomendasi Lokasi</h3>
+                </div>
+                <div className="result-actions">
+                  <span>{visibleLocations.length} lokasi</span>
+                  <button type="button" onClick={exportGeoJson}>
+                    <Download size={14} /> GeoJSON
+                  </button>
+                </div>
+              </div>
+              <div className="rank-table">
+                <div className="rank-row rank-head">
+                  <span>No</span>
+                  <span>Lokasi</span>
+                  <span>Hazard</span>
+                  <span>Score</span>
+                  <span>Aksi</span>
+                </div>
+                {visibleLocations.map((item, index) => (
+                  <div className="rank-row" key={item.id}>
+                    <span className="rank-no">{index + 1}</span>
+                    <span>
+                      <strong>{item.title || item.area}</strong>
+                      <small>{item.area}</small>
+                    </span>
+                    <span
+                      className={`hazard-pill ${hazardMeta[item.hazard].markerClass}`}
+                    >
+                      {item.hazard}
+                    </span>
+                    <b>
+                      {Math.round(
+                        Number(spatialRecommendations[index]?.score) || 0,
+                      )}
+                      /100
+                    </b>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedId(item.id);
+                        setDrawerOpen(true);
+                        setRecommendationLayerVisible(true);
+                      }}
+                    >
+                      <Eye size={14} /> Detail
+                    </button>
+                  </div>
+                ))}
+                {!visibleLocations.length && (
+                  <div className="dash-empty">
+                    Belum ada hasil. Pilih wilayah lalu jalankan analisis.
+                  </div>
+                )}
+              </div>
             </article>
 
             <article className="dash-card detail-card ai-detail-enterprise">
-              <div className="dash-title"><div><small>AI INSIGHT</small><h3>Detail Rekomendasi #{selected ? "01" : "â€”"}</h3></div>{recommendationScore !== null && <span className="score-badge">{recommendationScore}/100</span>}</div>
-              {selected ? <>
-                <div className="enterprise-location-head"><div className="enterprise-location-icon"><MapPinned size={20}/></div><div><small>{selected.hazard.toUpperCase()}</small><h4>{selected.title || selected.area}</h4><p>{selected.area} Â· {selected.date || "Tanggal tidak tersedia"}</p></div><div className="confidence-box"><small>CONFIDENCE</small><strong>{aiResult?.confidence != null ? `${Math.round(Number(aiResult.confidence))}%` : "â€”"}</strong></div></div>
-                <div className="enterprise-factors"><div><span>Skor Spasial {selected.hazard}</span><i><b style={{width:`${selectedSpatialScore ?? 0}%`}}/></i><strong>{selectedSpatialScore ?? "â€”"}</strong></div><div><span>Curah Hujan</span><i><b style={{width:`${Math.min(100, Number(selected.curah_hujan)||0)}%`}}/></i><strong>{selected.curah_hujan ?? "â€”"}</strong></div><div><span>Evidence Kejadian</span><i><b style={{width:`${Math.min(100, selectedAreaIncidents.length*10)}%`}}/></i><strong>{selectedAreaIncidents.length}</strong></div></div>
-                <div className="enterprise-model-columns"><div><small>MODEL MITIGASI</small>{topRecommendations.slice(0,3).map((r,i)=><span key={r.intervention_id || i}><ShieldCheck size={13}/>{r.intervention}</span>)}</div><div><small>MODEL ADAPTASI</small><span><ShieldCheck size={13}/>Early Warning System</span><span><ShieldCheck size={13}/>Peningkatan kesiapsiagaan</span><span><ShieldCheck size={13}/>Jalur evakuasi</span></div></div>
-                <div className="enterprise-reason"><strong>Alasan Rekomendasi</strong><p>{topRecommendation?.why || aiResult?.diagnosis || "Jalankan analisis AI untuk mendapatkan alasan rekomendasi berbasis evidence SIMITI."}</p></div>
-              </> : <div className="dash-empty large"><Target size={28}/><strong>Belum ada lokasi terpilih</strong><p>Klik kandidat pada panel kanan atau jalankan analisis AI.</p></div>}
+              <div className="dash-title">
+                <div>
+                  <small>AI INSIGHT</small>
+                  <h3>Detail Rekomendasi #{selected ? "01" : "â€”"}</h3>
+                </div>
+                {recommendationScore !== null && (
+                  <span className="score-badge">{recommendationScore}/100</span>
+                )}
+              </div>
+              {selected ? (
+                <>
+                  <div className="enterprise-location-head">
+                    <div className="enterprise-location-icon">
+                      <MapPinned size={20} />
+                    </div>
+                    <div>
+                      <small>{selected.hazard.toUpperCase()}</small>
+                      <h4>{selected.title || selected.area}</h4>
+                      <p>
+                        {selected.area} Â·{" "}
+                        {selected.date || "Tanggal tidak tersedia"}
+                      </p>
+                    </div>
+                    <div className="confidence-box">
+                      <small>CONFIDENCE</small>
+                      <strong>
+                        {aiResult?.confidence != null
+                          ? `${Math.round(Number(aiResult.confidence))}%`
+                          : "â€”"}
+                      </strong>
+                    </div>
+                  </div>
+                  <div className="enterprise-factors">
+                    <div>
+                      <span>Skor Spasial {selected.hazard}</span>
+                      <i>
+                        <b style={{ width: `${selectedSpatialScore ?? 0}%` }} />
+                      </i>
+                      <strong>{selectedSpatialScore ?? "â€”"}</strong>
+                    </div>
+                    <div>
+                      <span>Curah Hujan</span>
+                      <i>
+                        <b
+                          style={{
+                            width: `${Math.min(100, Number(selected.curah_hujan) || 0)}%`,
+                          }}
+                        />
+                      </i>
+                      <strong>{selected.curah_hujan ?? "â€”"}</strong>
+                    </div>
+                    <div>
+                      <span>Evidence Kejadian</span>
+                      <i>
+                        <b
+                          style={{
+                            width: `${Math.min(100, selectedAreaIncidents.length * 10)}%`,
+                          }}
+                        />
+                      </i>
+                      <strong>{selectedAreaIncidents.length}</strong>
+                    </div>
+                  </div>
+                  <div className="enterprise-model-columns">
+                    <div>
+                      <small>MODEL MITIGASI</small>
+                      {topRecommendations.slice(0, 3).map((r, i) => (
+                        <span key={r.intervention_id || i}>
+                          <ShieldCheck size={13} />
+                          {r.intervention}
+                        </span>
+                      ))}
+                    </div>
+                    <div>
+                      <small>MODEL ADAPTASI</small>
+                      <span>
+                        <ShieldCheck size={13} />
+                        Early Warning System
+                      </span>
+                      <span>
+                        <ShieldCheck size={13} />
+                        Peningkatan kesiapsiagaan
+                      </span>
+                      <span>
+                        <ShieldCheck size={13} />
+                        Jalur evakuasi
+                      </span>
+                    </div>
+                  </div>
+                  <div className="enterprise-reason">
+                    <strong>Alasan Rekomendasi</strong>
+                    <p>
+                      {topRecommendation?.why ||
+                        aiResult?.diagnosis ||
+                        "Jalankan analisis AI untuk mendapatkan alasan rekomendasi berbasis evidence SIMITI."}
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <div className="dash-empty large">
+                  <Target size={28} />
+                  <strong>Belum ada lokasi terpilih</strong>
+                  <p>
+                    Klik kandidat pada panel kanan atau jalankan analisis AI.
+                  </p>
+                </div>
+              )}
             </article>
           </section>
 
           <section className="ai-audit-grid">
-            <article className="dash-card process-card"><div className="dash-title"><div><small>TRANSPARENCY</small><h3>Alur Keputusan Sistem</h3></div></div><div className="process-flow enterprise-flow"><div><span>01</span><b>PostGIS</b><small>Data spasial &amp; layer risiko</small></div><i>â†’</i><div><span>02</span><b>Spatial Engine</b><small>Overlay, evidence, scoring</small></div><i>â†’</i><div><span>03</span><b>AI Engine</b><small>Reasoning &amp; model rekomendasi</small></div><i>â†’</i><div><span>04</span><b>SIMITI UI</b><small>Peta, ranking &amp; output</small></div></div></article>
-            <article className="dash-card json-card"><div className="dash-title"><div><small>AUDIT TRAIL</small><h3>AI Response</h3></div><span>LIVE</span></div><pre>{JSON.stringify(aiResult || { status:"waiting", wilayah:selectedAreaBoundary?.label || null, kandidat:visibleLocations.length }, null, 2)}</pre><button type="button" onClick={() => navigator.clipboard?.writeText(JSON.stringify(aiResult || {}, null, 2))}>Salin JSON</button></article>
+            <article className="dash-card process-card">
+              <div className="dash-title">
+                <div>
+                  <small>TRANSPARENCY</small>
+                  <h3>Alur Keputusan Sistem</h3>
+                </div>
+              </div>
+              <div className="process-flow enterprise-flow">
+                <div>
+                  <span>01</span>
+                  <b>PostGIS</b>
+                  <small>Data spasial &amp; layer risiko</small>
+                </div>
+                <i>â†’</i>
+                <div>
+                  <span>02</span>
+                  <b>Spatial Engine</b>
+                  <small>Overlay, evidence, scoring</small>
+                </div>
+                <i>â†’</i>
+                <div>
+                  <span>03</span>
+                  <b>AI Engine</b>
+                  <small>Reasoning &amp; model rekomendasi</small>
+                </div>
+                <i>â†’</i>
+                <div>
+                  <span>04</span>
+                  <b>SIMITI UI</b>
+                  <small>Peta, ranking &amp; output</small>
+                </div>
+              </div>
+            </article>
+            <article className="dash-card json-card">
+              <div className="dash-title">
+                <div>
+                  <small>AUDIT TRAIL</small>
+                  <h3>AI Response</h3>
+                </div>
+                <span>LIVE</span>
+              </div>
+              <pre>
+                {JSON.stringify(
+                  aiResult || {
+                    status: "waiting",
+                    wilayah: selectedAreaBoundary?.label || null,
+                    kandidat: visibleLocations.length,
+                  },
+                  null,
+                  2,
+                )}
+              </pre>
+              <button
+                type="button"
+                onClick={() =>
+                  navigator.clipboard?.writeText(
+                    JSON.stringify(aiResult || {}, null, 2),
+                  )
+                }
+              >
+                Salin JSON
+              </button>
+            </article>
           </section>
         </main>
 
         <aside className={`simiti-assistant-panel ${drawerOpen ? "open" : ""}`}>
-          <div className="assistant-head"><div className="assistant-avatar"><Sparkles size={16}/></div><div><strong>AI Assistant â€” DSS Mitigasi</strong><small>Evidence SIMITI</small></div><button type="button" onClick={() => setDrawerOpen(false)}><X size={16}/></button></div>
-          <div className="assistant-body"><div className="chat-bubble bot">Saya dapat membantu membaca hasil spatial scoring dan menjelaskan alasan rekomendasi.</div>{selected && <div className="chat-bubble bot">Lokasi aktif: <b>{selected.area}</b>. {recommendationScore ? `Prioritas ${recommendationScore}/100.` : "Skor belum tersedia."}</div>}<button type="button" className="chat-action" onClick={runAnalysis}><Sparkles size={13}/> Tampilkan rekomendasi</button><button type="button" className="chat-action secondary" onClick={() => setSelectedId(visibleLocations[0]?.id || null)}>Buka lokasi terbaik</button></div>
-          <div className="assistant-input"><span>Tulis pertanyaan...</span><Sparkles size={16}/></div>
+          <div className="assistant-head">
+            <div className="assistant-avatar">
+              <Sparkles size={16} />
+            </div>
+            <div>
+              <strong>AI Assistant â€” DSS Mitigasi</strong>
+              <small>Evidence SIMITI</small>
+            </div>
+            <button type="button" onClick={() => setDrawerOpen(false)}>
+              <X size={16} />
+            </button>
+          </div>
+          <div className="assistant-body">
+            <div className="chat-bubble bot">
+              Saya dapat membantu membaca hasil spatial scoring dan menjelaskan
+              alasan rekomendasi.
+            </div>
+            {selected && (
+              <div className="chat-bubble bot">
+                Lokasi aktif: <b>{selected.area}</b>.{" "}
+                {recommendationScore
+                  ? `Prioritas ${recommendationScore}/100.`
+                  : "Skor belum tersedia."}
+              </div>
+            )}
+            <button type="button" className="chat-action" onClick={runAnalysis}>
+              <Sparkles size={13} /> Tampilkan rekomendasi
+            </button>
+            <button
+              type="button"
+              className="chat-action secondary"
+              onClick={() => setSelectedId(visibleLocations[0]?.id || null)}
+            >
+              Buka lokasi terbaik
+            </button>
+          </div>
+          <div className="assistant-input">
+            <span>Tulis pertanyaan...</span>
+            <Sparkles size={16} />
+          </div>
         </aside>
       </div>
     </div>
   );
 }
-

@@ -14681,6 +14681,7 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
     ) {
       selectedCols.push("kelas");
     }
+
     // Hindari query JSON_OBJECT kosong.
     if (selectedCols.length === 0) selectedCols = [];
 
@@ -14922,6 +14923,18 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       );
     }
 
+    // Optimasi geometri khusus Rawan Banjir pada tampilan Nasional.
+    // Filter administrasi dan DAS tidak terkena perubahan ini.
+    const isNationalRawanBanjirOverview =
+      tableName === "risiko_banjir" &&
+      zoom <= 5 &&
+      !dasFilter &&
+      !adminFilter;
+
+    if (isNationalRawanBanjirOverview) {
+      simplifyTolerance = Math.max(simplifyTolerance, 0.02);
+    }
+
     // Batasi payload berdasarkan zoom. View nasional tidak boleh memuat 100 ribu
     // geometri sekaligus; detail bertambah ketika pengguna memperbesar peta.
     const FEATURE_LIMIT =
@@ -15016,6 +15029,290 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
 });
 
 // Alias yang eksplisit untuk debugging/browser testing.
+
+
+// SIMITI: statistik agregat layer kerawanan tanpa batas pagination GeoJSON
+app.get("/api/layers/:tableName/statistics", async (req, res) => {
+  const allowedLayers = [
+    "risiko_banjir",
+    "risiko_banjir_bandang",
+    "risiko_kekeringan",
+    "risiko_abrasi",
+    "risiko_longsor",
+    "risiko_karhutla",
+  ];
+
+  const tableName = String(req.params.tableName || "");
+  if (!allowedLayers.includes(tableName)) {
+    return res.status(400).json({ success: false, message: "Layer statistik tidak diizinkan." });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+
+    const auth = await authorizeLayerByTable(req, tableName, client);
+    if (!auth.ok) {
+      return res.status(auth.status).json({
+        success: false,
+        message: auth.message || "Akses layer ditolak.",
+      });
+    }
+
+    const parseArray = (value, label) => {
+      if (value === undefined || value === null || value === "") return [];
+      let parsed;
+      try {
+        parsed = typeof value === "string" ? JSON.parse(value) : value;
+      } catch {
+        throw new Error(`${label} harus berupa JSON array.`);
+      }
+      if (!Array.isArray(parsed) || parsed.some(v => typeof v !== "string" || !v.trim())) {
+        throw new Error(`${label} harus berupa array teks yang valid.`);
+      }
+      return [...new Set(parsed.map(v => v.trim()))];
+    };
+
+    const dasNames = parseArray(req.query.dasFilter, "dasFilter");
+    const adminNames = parseArray(req.query.adminFilter, "adminFilter");
+    const adminLevel = String(req.query.adminLevel || "").toLowerCase();
+
+    const adminConfig = {
+      provinsi: { table: "provinsi", column: "provinsi" },
+      kabupaten: { table: "kab_kota", column: "kab_kota" },
+      kecamatan: { table: "kecamatan", column: "kecamatan" },
+      kelurahan: { table: "kel_desa", column: "kel_desa" },
+    };
+
+    if (adminNames.length && !adminConfig[adminLevel]) {
+      return res.status(400).json({ success: false, message: "adminLevel tidak valid." });
+    }
+
+    const params = [];
+    const conditions = ["l.geom_valid IS NOT NULL"];
+    let adminJoin = "";
+    let measuredGeom = "l.geom_valid";
+
+    if (dasNames.length) {
+      params.push(dasNames);
+      conditions.push(`
+        EXISTS (
+          SELECT 1
+          FROM das_adm d
+          WHERE d.nama_das = ANY($${params.length}::text[])
+            AND d.geom_valid IS NOT NULL
+            AND ST_Intersects(l.geom_valid, d.geom_valid)
+        )
+      `);
+    }
+
+    if (adminNames.length) {
+      const config = adminConfig[adminLevel];
+      params.push(adminNames);
+      const adminParam = `$${params.length}`;
+
+      adminJoin = `
+        CROSS JOIN LATERAL (
+          SELECT ST_UnaryUnion(ST_Collect(b.geom_valid)) AS clip_geom
+          FROM "${config.table}" b
+          WHERE b."${config.column}" = ANY(${adminParam}::text[])
+            AND b.geom_valid IS NOT NULL
+        ) admin_scope
+      `;
+
+      measuredGeom = `
+        ST_CollectionExtract(
+          ST_MakeValid(
+            ST_Intersection(
+              ST_MakeValid(l.geom_valid),
+              admin_scope.clip_geom
+            )
+          ),
+          3
+        )
+      `;
+
+      conditions.push("admin_scope.clip_geom IS NOT NULL");
+    }
+
+    const sql = `
+      WITH measured AS (
+        SELECT
+          l.kelas,
+          ${measuredGeom} AS geom
+        FROM "${tableName}" l
+        ${adminJoin}
+        WHERE ${conditions.join(" AND ")}
+      )
+      SELECT
+        kelas,
+        COUNT(*) FILTER (
+          WHERE geom IS NOT NULL
+            AND NOT ST_IsEmpty(geom)
+            AND ST_Area(ST_Transform(geom, 6933)) > 0
+        ) AS jumlah_fitur,
+        COALESCE(
+          SUM(ST_Area(ST_Transform(geom, 6933)) / 10000.0)
+          FILTER (
+            WHERE geom IS NOT NULL
+              AND NOT ST_IsEmpty(geom)
+              AND ST_Area(ST_Transform(geom, 6933)) > 0
+          ),
+          0
+        ) AS luas_ha
+      FROM measured
+      GROUP BY kelas
+      ORDER BY kelas
+    `;
+
+    const result = await client.query(sql, params);
+
+    const classes = result.rows.map(row => ({
+      kelas: row.kelas,
+      jumlahFitur: Number(row.jumlah_fitur || 0),
+      luasHa: Number(row.luas_ha || 0),
+    }));
+
+    const totalFeatures = classes.reduce((sum, item) => sum + item.jumlahFitur, 0);
+    const totalAreaHa = classes.reduce((sum, item) => sum + item.luasHa, 0);
+
+    return res.json({
+      success: true,
+      layer: tableName,
+      scope: {
+        das: dasNames,
+        adminLevel: adminNames.length ? adminLevel : null,
+        administrasi: adminNames,
+      },
+      totalFeatures,
+      totalAreaHa,
+      classes,
+      areaMethod: "ST_Area(ST_Transform(geom, 6933)) / 10000",
+    });
+  } catch (error) {
+    console.error("[LAYER STATISTICS]", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Gagal menghitung statistik layer.",
+    });
+  } finally {
+    if (client) client.release();
+  }
+});
+// SIMITI MVT: tile nasional risiko_banjir.
+// Sumber tetap geom_valid; tidak mengubah atau menyederhanakan data permanen.
+app.get("/api/layers/risiko_banjir/tiles/:z/:x/:y.mvt", async (req, res) => {
+  let client;
+
+  try {
+    const z = Number(req.params.z);
+    const x = Number(req.params.x);
+    const y = Number(req.params.y);
+
+    if (
+      !Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y) ||
+      z < 0 || z > 22 ||
+      x < 0 || y < 0 ||
+      x >= 2 ** z || y >= 2 ** z
+    ) {
+      return res.status(400).json({ error: "Koordinat tile tidak valid." });
+    }
+
+    client = await pool.connect();
+
+    const layerAuth = await authorizeLayerByTable(
+      req,
+      "risiko_banjir",
+      client
+    );
+
+    if (!layerAuth.ok) {
+      return res.status(layerAuth.status).json(
+        layerAuth.body || { error: "Akses layer ditolak." }
+      );
+    }
+
+    const sql = `
+      WITH tile_bounds AS (
+        SELECT
+          ST_TileEnvelope(
+            $1, $2, $3,
+            ST_MakeEnvelope(
+              -20037508.342789244,
+              -20037508.342789244,
+               20037508.342789244,
+               20037508.342789244,
+              3857
+            ),
+            0
+          ) AS bounds_3857,
+
+          ST_TileEnvelope(
+            $1, $2, $3,
+            ST_MakeEnvelope(
+              -20037508.342789244,
+              -20037508.342789244,
+               20037508.342789244,
+               20037508.342789244,
+              3857
+            ),
+            0.015625
+          ) AS query_bounds_3857
+      ),
+      bounds AS (
+        SELECT
+          bounds_3857,
+          ST_Transform(query_bounds_3857, 4326) AS query_bounds_4326
+        FROM tile_bounds
+      ),
+      tile_features AS (
+        SELECT
+          r.gid,
+          r.kelas,
+          ST_AsMVTGeom(
+            ST_Transform(r.geom_valid, 3857),
+            b.bounds_3857::box2d,
+            4096,
+            64,
+            true
+          ) AS geom
+        FROM public.risiko_banjir AS r
+        CROSS JOIN bounds AS b
+        WHERE
+          r.geom_valid && b.query_bounds_4326
+          AND ST_Intersects(r.geom_valid, b.query_bounds_4326)
+      )
+      SELECT ST_AsMVT(
+        tile_features,
+        'risiko_banjir',
+        4096,
+        'geom',
+        'gid'
+      ) AS tile
+      FROM tile_features
+      WHERE geom IS NOT NULL;
+    `;
+
+    const result = await client.query(sql, [z, x, y]);
+    const tile = result.rows[0]?.tile;
+
+    res.setHeader("Content-Type", "application/vnd.mapbox-vector-tile");
+    res.setHeader("Cache-Control", "private, max-age=60");
+
+    if (!tile || !tile.length) {
+      return res.status(204).end();
+    }
+
+    return res.status(200).send(tile);
+  } catch (error) {
+    console.error("SIMITI MVT risiko_banjir error:", error);
+    return res.status(500).json({
+      error: "Gagal membuat tile risiko banjir."
+    });
+  } finally {
+    if (client) client.release();
+  }
+});
 app.get("/api/layers/:tableName/geojson/health", async (req, res) => {
   res.json({
     success: true,
