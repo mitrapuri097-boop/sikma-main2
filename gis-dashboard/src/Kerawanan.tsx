@@ -7353,6 +7353,7 @@ const Kerawanan = () => {
   const [activeInfraSummaryLayer, setActiveInfraSummaryLayer] = useState<
     string | null
   >(null);
+  const [showAllBottomIncidents, setShowAllBottomIncidents] = useState(false);
 
   // Mode utama filter lokasi: Administrasi atau DAS.
   // Saat mode berganti, pilihan dari mode sebelumnya dibersihkan
@@ -9710,8 +9711,8 @@ const Kerawanan = () => {
                         Kelas
                       </th>
                       <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "140px" }}
+                        className="text-right py-2 px-2 font-medium text-gray-600 bg-white"
+                        style={{ width: "160px", textAlign: "right" }}
                       >
                         Luas (Shape Area)
                       </th>
@@ -9741,7 +9742,7 @@ const Kerawanan = () => {
                         <td className="py-2 px-2 text-gray-700 break-words">
                           {item.kelas || "-"}
                         </td>
-                        <td className="py-2 px-2 text-gray-700">
+                        <td className="py-2 px-2 text-gray-700 text-right tabular-nums" style={{ textAlign: "right" }}>
                           {item.luas ? item.luas.toFixed(2) : "0"}
                         </td>
                       </tr>
@@ -9797,8 +9798,8 @@ const Kerawanan = () => {
                         Kelas
                       </th>
                       <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "140px" }}
+                        className="text-right py-2 px-2 font-medium text-gray-600 bg-white"
+                        style={{ width: "160px", textAlign: "right" }}
                       >
                         Luas (Shape Area)
                       </th>
@@ -9828,7 +9829,7 @@ const Kerawanan = () => {
                         <td className="py-2 px-2 text-gray-700 break-words">
                           {item.kelas || "-"}
                         </td>
-                        <td className="py-2 px-2 text-gray-700">
+                        <td className="py-2 px-2 text-gray-700 text-right tabular-nums" style={{ textAlign: "right" }}>
                           {item.luas ? item.luas.toFixed(2) : "0"}
                         </td>
                       </tr>
@@ -9881,8 +9882,8 @@ const Kerawanan = () => {
                         Kelas
                       </th>
                       <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "140px" }}
+                        className="text-right py-2 px-2 font-medium text-gray-600 bg-white"
+                        style={{ width: "160px", textAlign: "right" }}
                       >
                         Luas (Shape Area)
                       </th>
@@ -9912,7 +9913,7 @@ const Kerawanan = () => {
                         <td className="py-2 px-2 text-gray-700 break-words">
                           {item.kelas || "-"}
                         </td>
-                        <td className="py-2 px-2 text-gray-700">
+                        <td className="py-2 px-2 text-gray-700 text-right tabular-nums" style={{ textAlign: "right" }}>
                           {item.luas ? item.luas.toFixed(2) : "0"}
                         </td>
                       </tr>
@@ -9968,8 +9969,8 @@ const Kerawanan = () => {
                         Kelas
                       </th>
                       <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "140px" }}
+                        className="text-right py-2 px-2 font-medium text-gray-600 bg-white"
+                        style={{ width: "160px", textAlign: "right" }}
                       >
                         Luas (Shape Area)
                       </th>
@@ -9999,7 +10000,7 @@ const Kerawanan = () => {
                         <td className="py-2 px-2 text-gray-700 break-words">
                           {item.kelas || "-"}
                         </td>
-                        <td className="py-2 px-2 text-gray-700">
+                        <td className="py-2 px-2 text-gray-700 text-right tabular-nums" style={{ textAlign: "right" }}>
                           {item.luas ? item.luas.toFixed(2) : "0"}
                         </td>
                       </tr>
@@ -10083,7 +10084,7 @@ const Kerawanan = () => {
                         <td className="py-2 px-2 text-gray-700 break-words">
                           {item.tipe_danau || "-"}
                         </td>
-                        <td className="py-2 px-2 text-gray-700">
+                        <td className="py-2 px-2 text-gray-700 text-right tabular-nums" style={{ textAlign: "right" }}>
                           {item.luas ? item.luas.toFixed(2) : "0"}
                         </td>
                       </tr>
@@ -10170,7 +10171,7 @@ const Kerawanan = () => {
                         <td className="py-2 px-2 text-gray-700 break-words">
                           {item.bpdas || "-"}
                         </td>
-                        <td className="py-2 px-2 text-gray-700">
+                        <td className="py-2 px-2 text-gray-700 text-right tabular-nums" style={{ textAlign: "right" }}>
                           {item.luas ? item.luas.toFixed(2) : "0"}
                         </td>
                       </tr>
@@ -10260,7 +10261,7 @@ const Kerawanan = () => {
                         >
                           {item.jenis_tana || "-"}
                         </td>
-                        <td className="py-2 px-2 text-gray-700">
+                        <td className="py-2 px-2 text-gray-700 text-right tabular-nums" style={{ textAlign: "right" }}>
                           {item.luas ? item.luas.toFixed(2) : "0"}
                         </td>
                       </tr>
@@ -10563,7 +10564,7 @@ const Kerawanan = () => {
                         <td className="py-2 px-2 text-gray-700 break-words">
                           {item.periode || "-"}
                         </td>
-                        <td className="py-2 px-2 text-gray-700">
+                        <td className="py-2 px-2 text-gray-700 text-right tabular-nums" style={{ textAlign: "right" }}>
                           {item.luas ? item.luas.toFixed(2) : "0"}
                         </td>
                       </tr>
@@ -10722,7 +10723,7 @@ const Kerawanan = () => {
                         <td className="py-2 px-2 text-gray-700 break-words">
                           {item.periode || "-"}
                         </td>
-                        <td className="py-2 px-2 text-gray-700">
+                        <td className="py-2 px-2 text-gray-700 text-right tabular-nums" style={{ textAlign: "right" }}>
                           {item.luas ? item.luas.toFixed(2) : "0"}
                         </td>
                       </tr>
@@ -10806,7 +10807,7 @@ const Kerawanan = () => {
                         <td className="py-2 px-2 text-gray-700 break-words">
                           {item.periode || "-"}
                         </td>
-                        <td className="py-2 px-2 text-gray-700">
+                        <td className="py-2 px-2 text-gray-700 text-right tabular-nums" style={{ textAlign: "right" }}>
                           {item.luas ? item.luas.toFixed(2) : "0"}
                         </td>
                       </tr>
@@ -11216,8 +11217,8 @@ const Kerawanan = () => {
                         Kelas
                       </th>
                       <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "140px" }}
+                        className="text-right py-2 px-2 font-medium text-gray-600 bg-white"
+                        style={{ width: "160px", textAlign: "right" }}
                       >
                         Luas (Shape Area)
                       </th>
@@ -11247,7 +11248,7 @@ const Kerawanan = () => {
                         <td className="py-2 px-2 text-gray-700 break-words">
                           {item.kelas || "-"}
                         </td>
-                        <td className="py-2 px-2 text-gray-700">
+                        <td className="py-2 px-2 text-gray-700 text-right tabular-nums" style={{ textAlign: "right" }}>
                           {item.luas ? item.luas.toFixed(2) : "0"}
                         </td>
                       </tr>
@@ -11737,6 +11738,13 @@ const Kerawanan = () => {
         }
         selectedVillagePolygonRef.current = null;
 
+        // Jangan biarkan batas kelurahan lama tetap menjadi clipping target
+        // ketika koordinat baru tidak berada di dalam polygon administrasi.
+        if (selectedSpatialFeatureRef.current?.layerType === "admin-village") {
+          selectedSpatialFeatureRef.current = null;
+          syncSelectedSpatialFeatureBencanaClip();
+        }
+
         if (response.status !== 404) {
           console.warn(
             "SIMITI: polygon desa/kelurahan gagal dimuat:",
@@ -11768,7 +11776,34 @@ const Kerawanan = () => {
       polygon.addTo(map);
       selectedVillagePolygonRef.current = polygon;
 
-      console.info("SIMITI: polygon desa/kelurahan terpilih", {
+      // PENTING: polygon hasil identify koordinat sebelumnya hanya digambar
+      // sebagai overlay. Ia belum menjadi selectedSpatialFeature sehingga
+      // layer risiko tidak pernah menerima batas kelurahan ini untuk clipping.
+      // Daftarkan geometry yang sama sebagai target clip risiko.
+      const villageFeature = {
+        type: "Feature",
+        geometry: result.data.geom,
+        properties: {
+          level: result.data.level || "kelurahan",
+          kel_desa: result.data.kel_desa || result.data.label || "",
+          kecamatan: result.data.kecamatan || "",
+          kab_kota: result.data.kab_kota || result.data.kabupaten || "",
+          provinsi: result.data.provinsi || "",
+        },
+      };
+
+      selectedSpatialFeatureRef.current = {
+        layerType: "admin-village",
+        feature: villageFeature,
+        layer: polygon,
+      };
+
+      // Terapkan ke layer risiko yang sudah aktif dan pertahankan sinkron
+      // ketika peta di-pan/zoom. Jika risiko baru dicentang kemudian,
+      // alur toggle yang ada juga akan membaca selectedSpatialFeatureRef.
+      requestAnimationFrame(() => syncSelectedSpatialFeatureBencanaClip());
+
+      console.info("SIMITI: polygon desa/kelurahan terpilih dan dijadikan batas clip risiko", {
         desa: result.data.kel_desa,
         kecamatan: result.data.kecamatan,
         kabupaten: result.data.kab_kota,
@@ -14601,32 +14636,33 @@ const Kerawanan = () => {
           }
         }
 
-        /* Panel bawah berbasis tab seperti versi ORI. Override aturan grid tiga kolom lama. */
-        .kerawanan-bottom-tabs-panel {
-          display: flex !important;
-          flex-direction: column !important;
-          grid-template-columns: minmax(0, 1fr) !important;
-          gap: 0 !important;
+        /* Panel bawah tiga kolom: tren | legenda | kejadian terkini. */
+        .kerawanan-bottom-summary {
+          display: grid !important;
+          grid-template-columns: minmax(190px, .9fr) minmax(340px, 1.45fr) minmax(250px, 1.1fr) !important;
           align-items: stretch !important;
+          gap: 0 !important;
         }
-        .kerawanan-bottom-tabs-panel > .kerawanan-bottom-tabs-header {
-          flex: 0 0 auto !important;
-          width: 100% !important;
-          height: auto !important;
-          min-height: 34px !important;
-          max-height: 42px !important;
-          overflow-x: auto !important;
-          overflow-y: hidden !important;
-          padding: 4px 10px !important;
+        .kerawanan-bottom-summary > * { min-width: 0 !important; min-height: 0 !important; }
+        @media (max-width: 1279px) {
+          .kerawanan-bottom-summary {
+            grid-template-columns: minmax(160px, .85fr) minmax(280px, 1.4fr) minmax(220px, 1fr) !important;
+          }
         }
-        .kerawanan-bottom-tabs-panel > .kerawanan-bottom-tabs-content {
-          flex: 1 1 auto !important;
-          width: 100% !important;
-          height: auto !important;
-          min-height: 0 !important;
-          max-height: none !important;
-          overflow: auto !important;
-          padding: 6px 10px !important;
+        @media (max-width: 767px) {
+          .kerawanan-bottom-summary {
+            grid-template-columns: minmax(0, 1fr) !important;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+          }
+          .kerawanan-bottom-summary > * {
+            height: 190px !important;
+            min-height: 160px !important;
+            max-height: 240px !important;
+            border-right: 0 !important;
+            border-bottom: 1px solid #e2e8f0 !important;
+          }
         }
         `}</style>
 
@@ -15442,94 +15478,224 @@ const Kerawanan = () => {
             </aside>
 
             {/* =====================================================
-                BOTTOM PANEL — TAB LAYER (mengikuti kerawanan-ori)
-                Konten memakai renderBottomContent + bottomTabs existing.
-                Tidak mengubah data/API/GPS maupun proses pemuatan layer.
+                BOTTOM SUMMARY — 3 KOLOM
+                Tren kejadian | Legenda kerawanan | Kejadian terkini
+                Mekanisme legenda existing tetap dipakai:
+                expandedRiskLegendLayers, toggleRiskLegendLayer,
+                handleLegendClick, handleRowMouseEnter/Leave.
+                Tidak mengubah proses GIS, API, atau pemuatan layer.
                ===================================================== */}
             <section
               id="kerawanan-bottom-summary-panel"
-              className={`kerawanan-bottom-summary kerawanan-bottom-tabs-panel min-h-0 min-w-0 overflow-hidden bg-white transition-opacity duration-200 ${
+              className={`kerawanan-bottom-summary min-h-0 min-w-0 overflow-hidden bg-white transition-opacity duration-200 ${
                 isBottomSummaryOpen
                   ? "opacity-100"
                   : "kerawanan-bottom-summary-hidden"
               } xl:col-span-full`}
             >
-              <div className="kerawanan-bottom-tabs-header flex min-w-0 flex-shrink-0 items-center gap-1.5 overflow-x-auto border-b border-slate-200 bg-slate-50 px-3 py-1.5 dashboard-scroll">
-                {bottomTabs.map((tab) => {
-                  const tabLayerName: Record<string, string> = {
-                    tutupanLahan: "tutupan_lahan",
-                    penutupanLahan2024: "penutupan_lahan_2024",
-                    pl2024: "pl2024",
-                    jenisTanah: "jenis_tanah",
-                    geologi: "geologi",
-                    lahan_kritis: "lahan_kritis",
-                    rawan_erosi: "rawan_erosi",
-                    rawan_longsor: "rawan_longsor",
-                    rawan_limpasan: "rawan_limpasan",
-                    rawan_karhutla: "rawan_karhutla",
-                    bahaya_kekeringan: "bahaya_kekeringan",
-                    bahaya_abrasi: "bahaya_abrasi_dan_gelombang_ekstrim",
-                    bahaya_banjir: "bahaya_banjir",
-                    bahaya_banjir_bandang: "bahaya_banjir_bandang",
-                    dta_danau: "dta_danau",
-                    rehabilitasi_das: "rehabilitasi_das",
-                    rehabilitasi_hutan: "rehabilitasi_hutan",
-                    restorasi_gambut: "restorasi_gambut",
-                    penerapan_teknik_kta: "penerapan_teknik_kta",
-                    kebakaran_2021: "karhutla_2021",
-                    kebakaran_2022: "karhutla_2022",
-                    kebakaran_2023: "karhutla_2023",
-                    kebakaran_2024: "karhutla_2024",
-                    kebakaran_2025: "karhutla_2025",
-                    kawasan_hutan: "kawasan_hutan",
-                    risiko_banjir: "risiko_banjir",
-                    risiko_banjir_bandang: "risiko_banjir_bandang",
-                    risiko_kekeringan: "risiko_kekeringan",
-                    risiko_abrasi: "risiko_abrasi",
-                    risiko_longsor: "risiko_longsor",
-                    risiko_karhutla: "risiko_karhutla",
-                    khdtk: "khdtk",
-                  };
-                  const layerName = tabLayerName[tab.id] || "";
-                  const isTabLoading = Boolean(
-                    layerName && loadingLayerNames.has(layerName),
-                  );
-                  const isActive = activeBottomTab === tab.id;
-
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() =>
-                        !isTabLoading && setActiveBottomTab(tab.id)
-                      }
-                      disabled={isTabLoading}
-                      aria-pressed={isActive}
-                      className={`inline-flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-[10px] font-semibold transition-colors ${
-                        isActive
-                          ? "border border-blue-200 bg-white text-blue-700 shadow-sm"
-                          : isTabLoading
-                            ? "cursor-not-allowed text-slate-400"
-                            : "border border-transparent text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-800"
-                      }`}
-                    >
-                      {isTabLoading ? (
-                        <span className="inline-block animate-spin">⏳</span>
-                      ) : null}
-                      <span>{tab.icon}</span>
-                      <span>{tab.label}</span>
-                    </button>
-                  );
-                })}
-                {bottomTabs.length > 0 ? (
-                  <span className="ml-auto flex-shrink-0 px-2 text-[9px] font-medium text-slate-400">
-                    {bottomTabs.length} layer aktif
+              {/* KOLOM 1 — TREN KEJADIAN 5 TAHUN */}
+              <div className="min-w-0 min-h-0 flex flex-col overflow-hidden border-r border-slate-200">
+                <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
+                  <div className="min-w-0">
+                    <h3 className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                      Tren Kejadian 5 Tahun Terakhir
+                    </h3>
+                    <p className="mt-0.5 text-[9px] font-semibold text-slate-700">
+                      Jumlah Kejadian
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[8px] font-semibold text-slate-500">
+                    Semua Jenis
                   </span>
-                ) : null}
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto dashboard-scroll px-3 py-2">
+                  {(() => {
+                    const currentYear = new Date().getFullYear();
+                    const years = Array.from({ length: 5 }, (_, index) => currentYear - 4 + index);
+                    const counts = years.map((year) =>
+                      kejadianListings.filter((item: any) => {
+                        const dateValue = item.date || item.tanggal || item.created_at;
+                        const date = dateValue ? new Date(dateValue) : null;
+                        return Boolean(date && !Number.isNaN(date.getTime()) && date.getFullYear() === year);
+                      }).length,
+                    );
+                    const maxCount = Math.max(1, ...counts);
+                    return (
+                      <>
+                        <div className="mb-2 flex items-end justify-between gap-2">
+                          <span className="text-[9px] text-slate-400">
+                            {selectedRegionName}
+                          </span>
+                          <strong className="text-[13px] tabular-nums text-slate-800">
+                            {kejadianListings.length}
+                          </strong>
+                        </div>
+                        <div className="flex h-[66px] items-end justify-around gap-2 border-b border-slate-100 pb-1">
+                          {years.map((year, index) => (
+                            <div key={year} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1">
+                              <span className="text-[8px] font-semibold tabular-nums text-slate-500">{counts[index]}</span>
+                              <div className="flex w-full flex-1 items-end justify-center">
+                                <div
+                                  className="w-full max-w-7 rounded-t bg-emerald-500/80 transition-all"
+                                  style={{ height: `${Math.max(counts[index] > 0 ? 8 : 2, (counts[index] / maxCount) * 100)}%` }}
+                                  title={`${year}: ${counts[index]} kejadian`}
+                                />
+                              </div>
+                              <span className="text-[8px] text-slate-400">{String(year).slice(-2)}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-[8px] leading-3 text-slate-400">
+                          {kejadianListings.length > 0
+                            ? "Ringkasan berdasarkan data kejadian yang tersedia untuk lokasi aktif."
+                            : "Data kejadian yang tersedia untuk lokasi aktif belum tersedia."}
+                        </p>
+                      </>
+                    );
+                  })()}
+                </div>
               </div>
 
-              <div className="kerawanan-bottom-tabs-content min-h-0 min-w-0 overflow-hidden bg-white p-2">
-                {renderBottomContent()}
+              {/* KOLOM 2 — LEGENDA KERAWANAN (MEKANISME LAMA) */}
+              <div className="min-w-0 min-h-0 flex flex-col overflow-hidden border-r border-slate-200">
+                <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
+                  <div className="min-w-0">
+                    <h3 className="text-[10px] font-extrabold uppercase tracking-wide text-slate-700">
+                      Legenda Kerawanan
+                    </h3>
+                    <p className="mt-0.5 text-[8px] text-slate-400">
+                      Layer aktif • klik layer untuk melihat kelas warna
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[8px] font-bold text-emerald-700">
+                    {bottomActiveRiskLayers.length} layer
+                  </span>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto dashboard-scroll px-2 py-1.5">
+                  {bottomActiveRiskLayers.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-2">
+                      {bottomActiveRiskLayers.map((layerName) => {
+                        const labelMap: Record<string, string> = {
+                          risiko_banjir: "Risiko Banjir",
+                          risiko_banjir_bandang: "Risiko Banjir Bandang",
+                          risiko_kekeringan: "Risiko Kekeringan",
+                          risiko_abrasi: "Risiko Abrasi",
+                          risiko_longsor: "Risiko Longsor",
+                          risiko_karhutla: "Risiko Karhutla",
+                        };
+                        const rows = risikoData[layerName as keyof typeof risikoData] || [];
+                        const expanded = expandedRiskLegendLayers.has(layerName);
+                        const fallbackColor = getBencanaLayerColor(layerName);
+                        return (
+                          <div key={layerName} className="w-full min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                            <button
+                              type="button"
+                              onClick={() => toggleRiskLegendLayer(layerName)}
+                              aria-expanded={expanded}
+                              className={`flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left transition-colors ${expanded ? "bg-emerald-50 text-emerald-800" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}
+                            >
+                              <span className="flex min-w-0 items-center gap-1.5">
+                                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] ${expanded ? "bg-emerald-100" : "bg-slate-200"}`}>
+                                  {expanded ? "−" : "+"}
+                                </span>
+                                <span className="min-w-0 whitespace-normal break-words text-left text-[10px] font-bold leading-4">{labelMap[layerName] || formatTableName(layerName)}</span>
+                              </span>
+                              <span className="shrink-0 rounded-full bg-white/80 px-1.5 py-0.5 text-[8px] font-semibold text-slate-500">{rows.length}</span>
+                            </button>
+                            {expanded && (
+                              <div className="space-y-1 border-t border-slate-100 p-2">
+                                {rows.length > 0 ? rows.map((item: any, index: number) => {
+                                  const color = item.color || getRiskClassColor(item.kelas, fallbackColor);
+                                  const isSelected = selectedLegendKey === String(item.kelas) && selectedLegendType === layerName;
+                                  return (
+                                    <button
+                                      key={`${layerName}-${item.kelas || index}`}
+                                      type="button"
+                                      onMouseEnter={() => handleRowMouseEnter(String(item.kelas), layerName, color)}
+                                      onMouseLeave={handleRowMouseLeave}
+                                      onClick={() => handleLegendClick(String(item.kelas), layerName, color)}
+                                      className={`flex w-full min-w-0 flex-col items-stretch gap-1.5 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors ${isSelected ? "border-emerald-200 bg-emerald-50 ring-1 ring-emerald-200" : "hover:border-slate-200 hover:bg-slate-50"}`}
+                                      title={`Pilih kelas ${item.kelas || "-"}`}
+                                    >
+                                      <span className="flex w-full min-w-0 items-start gap-2">
+                                        <span className="mt-0.5 h-3 w-3 shrink-0 rounded-sm border border-black/10" style={{ backgroundColor: color }} />
+                                        <span className="min-w-0 flex-1 whitespace-normal break-words text-[10px] font-medium leading-4 text-slate-700">{item.kelas || "Tidak diketahui"}</span>
+                                      </span>
+                                      <span className="self-end whitespace-nowrap text-[9px] font-semibold tabular-nums text-slate-500">Luas: {Number(item.luas || 0).toLocaleString("id-ID", { maximumFractionDigits: 1 })} ha</span>
+                                    </button>
+                                  );
+                                }) : (
+                                  <p className="rounded-lg bg-slate-50 px-2.5 py-3 text-center text-[9px] leading-4 text-slate-500">Data kelas legenda belum tersedia.</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="flex h-full min-h-[52px] items-center justify-center px-3 text-center text-[9px] text-slate-400">
+                      Aktifkan layer Risiko Banjir, Kekeringan, Longsor, atau lainnya untuk melihat legenda.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* KOLOM 3 — KEJADIAN TERKINI */}
+              <div className="min-w-0 min-h-0 flex flex-col overflow-hidden">
+                <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
+                  <div className="min-w-0">
+                    <h3 className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                      Kejadian Terkini di Sekitar Lokasi
+                    </h3>
+                    <p className="mt-0.5 text-[8px] text-slate-400">
+                      {kejadianListings.length} record
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAllBottomIncidents((value) => !value)}
+                    className="shrink-0 text-[9px] font-semibold text-emerald-700 hover:text-emerald-900"
+                  >
+                    {showAllBottomIncidents ? "Tampilkan Sedikit" : "Lihat Semua"}
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto dashboard-scroll px-3 py-2">
+                  {kejadianListings.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {[...kejadianListings]
+                        .sort((a: any, b: any) => new Date(b.date || b.tanggal || 0).getTime() - new Date(a.date || a.tanggal || 0).getTime())
+                        .slice(0, showAllBottomIncidents ? undefined : 4)
+                        .map((kejadian: any, index: number) => (
+                          <button
+                            key={kejadian.id ?? `${kejadian.title}-${index}`}
+                            type="button"
+                            onClick={() => navigate("/detailkejadian", {
+                              state: { incident: {
+                                ...kejadian,
+                                image: kejadian.thumbnail_path ? `${API_URL}${kejadian.thumbnail_path}` : undefined,
+                                type: String(kejadian.category || "").toLowerCase().includes("banjir") ? "banjir" : String(kejadian.category || "").toLowerCase().includes("longsor") ? "longsor" : "kebakaran",
+                                coordinates: [kejadian.latitude, kejadian.longitude],
+                              } },
+                            })}
+                            className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-100 px-2.5 py-2 text-left hover:border-emerald-200 hover:bg-emerald-50/40"
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[9px] font-bold text-slate-700">{kejadian.title || "Kejadian bencana"}</span>
+                              <span className="mt-0.5 block truncate text-[8px] text-slate-400">{kejadian.location || "Lokasi tidak tersedia"} · {bottomIncidentDate(kejadian.date || kejadian.tanggal)}</span>
+                            </span>
+                            <span className={`shrink-0 rounded-full border px-2 py-1 text-[8px] font-semibold ${bottomIncidentTone(kejadian.category)}`}>
+                              {kejadian.category || "Kejadian"}
+                            </span>
+                          </button>
+                        ))}
+                    </div>
+                  ) : (
+                    <div className="flex h-full min-h-[52px] items-center justify-center text-center text-[9px] text-slate-400">
+                      Belum ada kejadian aktif untuk lokasi ini.
+                    </div>
+                  )}
+                </div>
               </div>
             </section>
           </div>
