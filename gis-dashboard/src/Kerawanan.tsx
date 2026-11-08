@@ -2367,6 +2367,25 @@ const Kerawanan = () => {
     tableName: string,
     customBounds?: [[number, number], [number, number]],
   ) => {
+    // Layer kejadian otomatis bukan tabel GIS. Jangan pernah kirim ID/label
+    // kejadian ke endpoint /api/layers/:name/geojson; gunakan endpoint khusus.
+    const stableLayerKey = String(tableName);
+    if (stableLayerKey.startsWith("kejadian_")) {
+      const savedMeta = activeKejadianLayers.get(stableLayerKey);
+      const yearMatch = stableLayerKey.match(/_(20\d{2})$/);
+      const year = savedMeta?.year ?? (yearMatch ? Number(yearMatch[1]) : NaN);
+      const category = savedMeta?.category ?? stableLayerKey
+        .replace(/^kejadian_/, "")
+        .replace(/_20\d{2}$/, "")
+        .replace(/_/g, " ");
+      if (Number.isFinite(year)) {
+        await loadKejadianLayer(stableLayerKey, year, category || undefined);
+        return;
+      }
+      console.warn("ID layer kejadian tidak memiliki tahun yang valid:", stableLayerKey);
+      return;
+    }
+
     if (!mapInstanceRef.current || !window.L) {
       console.log("Map not ready");
       return;
@@ -6274,7 +6293,12 @@ const Kerawanan = () => {
     isShapefile?: boolean,
   ) => {
     const uiLayerKey = String(tableName);
-    const resolvedTableName = resolveUiLayerName(uiLayerKey);
+    // Auto-generated kejadian harus tetap memakai ID stabil (kejadian_<kategori>_<tahun>).
+    // resolveUiLayerName() mengembalikan label tampilan, mis. "Banjir 2026",
+    // yang tidak valid sebagai nama tabel dan membuatnya salah masuk ke endpoint /api/layers.
+    const resolvedTableName = uiLayerKey.startsWith("kejadian_")
+      ? uiLayerKey
+      : resolveUiLayerName(uiLayerKey);
     console.log(
       "Toggle layer clicked:",
       uiLayerKey,
