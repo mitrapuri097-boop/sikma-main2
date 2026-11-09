@@ -192,6 +192,35 @@ const Kerawanan = () => {
   const satelliteBaseLayerRef = useRef<any>(null);
   const mapInstanceRef = useRef(null);
   const mapInitializingRef = useRef(false);
+
+  // Identifikasi polygon memerlukan dua klik pada lokasi yang berdekatan.
+  // Klik pertama hanya menyimpan titik; klik kedua mengonfirmasi pemilihan.
+  const mapPolygonClickConfirmRef = useRef<any>(null);
+  const confirmMapPolygonClick = (latlng: any) => {
+    const map: any = mapInstanceRef.current;
+    if (!map || !latlng) return false;
+
+    const previous = mapPolygonClickConfirmRef.current;
+    if (previous) {
+      let distance = Infinity;
+      try {
+        distance = map.distance(previous, latlng);
+      } catch {}
+
+      // Klik kedua harus berada maksimal 30 meter dari klik pertama.
+      if (Number.isFinite(distance) && distance <= 30) {
+        mapPolygonClickConfirmRef.current = null;
+        return true;
+      }
+    }
+
+    mapPolygonClickConfirmRef.current = latlng;
+    console.info(
+      "SIMITI: klik pertama diterima. Klik sekali lagi pada lokasi yang sama (maks. 30 m) untuk memilih polygon.",
+    );
+    return false;
+  };
+
   const mapWeatherMarkerRef = useRef<any>(null);
   const selectedVillagePolygonRef = useRef<any>(null);
   const gpsMarkerRef = useRef<any>(null);
@@ -237,21 +266,6 @@ const Kerawanan = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [activeLayers, setActiveLayers] = useState<Set<string>>(new Set());
-  const [sigapKawasanHutanLegend, setSigapKawasanHutanLegend] = useState<
-    Array<{
-      label: string;
-      imageData?: string;
-      contentType?: string;
-      color?: string;
-      values?: string[];
-    }>
-  >([]);
-  const [sigapKawasanHutanLegendLoading, setSigapKawasanHutanLegendLoading] =
-    useState(false);
-  const [sigapKawasanHutanSearch, setSigapKawasanHutanSearch] = useState("");
-  const [selectedSigapKawasanHutanClass, setSelectedSigapKawasanHutanClass] =
-    useState<string | null>(null);
-  const selectedSigapKawasanHutanClassRef = useRef<string | null>(null);
   // UI-only: synchronize Leaflet with the map container after panel resize.
   useEffect(() => {
     const el = mapRef.current;
@@ -302,9 +316,6 @@ const Kerawanan = () => {
     };
   }, [isRightLayerPanelOpen]);
 
-  useEffect(() => {
-    selectedSigapKawasanHutanClassRef.current = selectedSigapKawasanHutanClass;
-  }, [selectedSigapKawasanHutanClass]);
   const activeLayersRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     activeLayersRef.current = activeLayers;
@@ -430,6 +441,8 @@ const Kerawanan = () => {
     });
   };
 
+  const [selectedKhdtkName, setSelectedKhdtkName] = useState<string>("");
+  const selectedKhdtkLayerKeyRef = useRef<string>("selected_khdtk_focus");
   const [selectedAreas, setSelectedAreas] = useState<
     Array<{
       label: string;
@@ -1801,6 +1814,15 @@ const Kerawanan = () => {
 
     if (!selected?.feature?.geometry || !layerGroup || !map) return;
 
+    // KHDTK dipotong langsung pada GeoJSON dengan Turf sebelum dirender.
+    // Jangan menambahkan SVG clip-path berbasis layerPoint karena koordinat
+    // SVG Leaflet memiliki transform lokal; clip-path tersebut dapat
+    // menyembunyikan seluruh fill polygon pada sebagian zoom/viewport.
+    if (selected.layerType === "khdtk") {
+      console.log("SIMITI: KHDTK clipping memakai geometri hasil Turf; SVG clip dilewati", tableName);
+      return;
+    }
+
     const geometryType = selected.feature.geometry.type;
     if (geometryType !== "Polygon" && geometryType !== "MultiPolygon") return;
 
@@ -1947,6 +1969,18 @@ const Kerawanan = () => {
     const map = mapInstanceRef.current;
     if (!map || !window.L) return;
 
+    // KHDTK adalah batas spasial yang lebih spesifik daripada administrasi.
+    // Jangan pernah memasang ulang clipping provinsi/kabupaten setelah KHDTK dipilih.
+    const activeKhdtkFocus = selectedSpatialFeatureRef.current;
+    if (
+      activeKhdtkFocus?.layerType === "khdtk" &&
+      activeKhdtkFocus?.feature?.geometry
+    ) {
+      clearSelectedAreaBencanaClip();
+      syncSelectedSpatialFeatureBencanaClip();
+      return;
+    }
+
     clearSelectedAreaBencanaClip();
 
     if (!areas.length) return;
@@ -1992,345 +2026,8 @@ const Kerawanan = () => {
       areas: effectiveAreas.map((area: any) => area?.label),
     });
   };
-  // ======================================================
-  // SIGAP Kementerian Kehutanan - Kawasan Hutan
-  // ======================================================
-  const SIGAP_KAWASAN_HUTAN_MAPSERVER =
-    "https://geoportal.planologi.kehutanan.go.id/server/rest/services/Peta_Interaktif_2026/KWSHUTAN_AR_250K/MapServer";
-
-  const wgs84ToWebMercator = (latitude: number, longitude: number) => {
-    const R = 6378137;
-    const maxLat = 85.0511287798;
-    const lat = Math.max(-maxLat, Math.min(maxLat, latitude));
-    const lon = Math.max(-180, Math.min(180, longitude));
-    const x = R * ((lon * Math.PI) / 180);
-    const y = R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 180 / 2));
-    return { x, y };
-  };
-
-  const isSigapKawasanHutanLayer = (layerName: string) =>
-    layerName === "kawasan_hutan" || layerName === "97";
-
-  const loadSigapKawasanHutanLegend = async () => {
-    setSigapKawasanHutanLegendLoading(true);
-    try {
-      const response = await fetch(
-        `${SIGAP_KAWASAN_HUTAN_MAPSERVER}/legend?f=json`,
-        { headers: { Accept: "application/json" } },
-      );
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      // ArcGIS MapServer dapat mengembalikan legenda untuk beberapa sublayer.
-      // Jangan hanya mengambil layerId 0 karena kelas dari sublayer lain akan hilang.
-      const serviceLayers = Array.isArray(data?.layers) ? data.layers : [];
-      const legendEntries = serviceLayers.flatMap((serviceLayer: any) => {
-        const entries = Array.isArray(serviceLayer?.legend)
-          ? serviceLayer.legend
-          : [];
-        return entries.map((entry: any) => ({
-          ...entry,
-          __serviceLayerName: serviceLayer?.layerName || serviceLayer?.name || "",
-        }));
-      });
-
-      const normalized = legendEntries
-        .map((item: any) => {
-          let color: string | undefined;
-          if (Array.isArray(item?.color)) {
-            const [r, g, b, a = 255] = item.color.map((v: any) => Number(v));
-            const alpha = Math.max(0, Math.min(1, a / 255));
-            color = `rgba(${r}, ${g}, ${b}, ${alpha})`;
-          } else if (item?.color) {
-            color = String(item.color);
-          }
-
-          const values = Array.isArray(item?.values)
-            ? item.values
-                .map((value: any) => String(value).trim())
-                .filter(Boolean)
-            : item?.value != null
-              ? [String(item.value).trim()]
-              : [];
-
-          const label = String(
-            item?.label ?? values[0] ?? "Tidak berlabel",
-          ).trim();
-          const serviceLayerName = String(item?.__serviceLayerName || "").trim();
-          return {
-            label: serviceLayerName ? `${serviceLayerName} — ${label}` : label,
-            imageData: item?.imageData ? String(item.imageData) : undefined,
-            contentType: item?.contentType
-              ? String(item.contentType)
-              : undefined,
-            color,
-            values,
-          };
-        })
-        .filter((item: any) => item.label)
-        // Hilangkan duplikasi tanpa membuang kelas yang mempunyai kode berbeda.
-        .filter((item: any, index: number, all: any[]) =>
-          all.findIndex(
-            (candidate: any) =>
-              candidate.label === item.label &&
-              JSON.stringify(candidate.values || []) === JSON.stringify(item.values || []),
-          ) === index,
-        );
-
-      setSigapKawasanHutanLegend(normalized);
-      console.log("SIGAP Kawasan Hutan legend loaded", {
-        count: normalized.length,
-        labels: normalized.map((item) => item.label),
-      });
-    } catch (error) {
-      console.warn(
-        "SIGAP legend tidak dapat dimuat; legend peta tetap aktif:",
-        error,
-      );
-      setSigapKawasanHutanLegend([]);
-    } finally {
-      setSigapKawasanHutanLegendLoading(false);
-    }
-  };
-
-  const loadSigapKawasanHutan = async (
-    customBounds?: [[number, number], [number, number]],
-    layerName = "kawasan_hutan",
-    filterValue?: string | null,
-  ) => {
-    if (!mapInstanceRef.current || !window.L) {
-      console.log("SIGAP: map belum siap");
-      return;
-    }
-
-    const tableName = layerName;
-    const mapAtRequest = mapInstanceRef.current;
-    const requestId = (layerRequestSeqRef.current[tableName] || 0) + 1;
-    layerRequestSeqRef.current[tableName] = requestId;
-
-    try {
-      setIsLoadingLayer(true);
-      setLoadingLayerNames((prev) => new Set([...prev, tableName]));
-      setLayerError("");
-
-      // Tunggu layout browser stabil sebelum menghitung extent SIGAP.
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => resolve());
-        });
-      });
-
-      // Batalkan jika ada permintaan baru atau instance map berubah.
-      if (
-        layerRequestSeqRef.current[tableName] !== requestId ||
-        mapInstanceRef.current !== mapAtRequest ||
-        !isLeafletMapUsable(mapAtRequest)
-      ) {
-        return;
-      }
-
-      // Sinkronkan ukuran Leaflet sebelum membaca bounds dan size.
-      safeInvalidateMapSize();
-
-      const mapSize = mapAtRequest.getSize();
-      if (mapSize.x <= 0 || mapSize.y <= 0) {
-        throw new Error("Ukuran container peta belum siap");
-      }
-
-      const viewport = mapAtRequest.getBounds();
-      const viewportBounds: [[number, number], [number, number]] = [
-        [viewport.getSouth(), viewport.getWest()],
-        [viewport.getNorth(), viewport.getEast()],
-      ];
-      const boundsToUse = customBounds || viewportBounds;
-      const [[south, west], [north, east]] = boundsToUse;
-
-      const sw = wgs84ToWebMercator(south, west);
-      const ne = wgs84ToWebMercator(north, east);
-      const bbox = [
-        Math.min(sw.x, ne.x),
-        Math.min(sw.y, ne.y),
-        Math.max(sw.x, ne.x),
-        Math.max(sw.y, ne.y),
-      ]
-        .map((value) => value.toFixed(3))
-        .join(",");
-
-      const size = mapAtRequest.getSize();
-      const width = Math.min(Math.max(Math.round(size.x), 800), 1800);
-      const height = Math.min(Math.max(Math.round(size.y), 600), 1400);
-
-      const params = new URLSearchParams({
-        bbox,
-        bboxSR: "102100",
-        imageSR: "102100",
-        size: `${width},${height}`,
-        dpi: "96",
-        format: "png32",
-        transparent: "true",
-        layers: "show:0",
-        f: "image",
-      });
-
-      if (filterValue) {
-        const safeValue = String(filterValue).replace(/'/g, "''");
-        params.set("layerDefs", `0:FUNGSIKWS='${safeValue}'`);
-      }
-
-      const imageUrl = `${SIGAP_KAWASAN_HUTAN_MAPSERVER}/export?${params.toString()}`;
-      const imageBounds: [[number, number], [number, number]] = [
-        [south, west],
-        [north, east],
-      ];
-
-      if (layerGroupsRef.current[tableName]) {
-        safeRemoveMapLayer(layerGroupsRef.current[tableName]);
-        delete layerGroupsRef.current[tableName];
-      }
-
-      if (
-        layerRequestSeqRef.current[tableName] !== requestId ||
-        mapInstanceRef.current !== mapAtRequest ||
-        !isLeafletMapUsable(mapAtRequest)
-      ) {
-        return;
-      }
-
-      const overlay = window.L.imageOverlay(imageUrl, imageBounds, {
-        opacity: 0.72,
-        interactive: false,
-        className: "sigap-kawasan-hutan-overlay",
-        zIndex: 430,
-      });
-
-      // Refresh dan clipping ulang setelah gambar SIGAP benar-benar siap.
-      overlay.once("load", () => {
-        if (
-          layerRequestSeqRef.current[tableName] !== requestId ||
-          mapInstanceRef.current !== mapAtRequest ||
-          !isLeafletMapUsable(mapAtRequest)
-        ) {
-          return;
-        }
-
-        requestAnimationFrame(() => {
-          safeInvalidateMapSize();
-
-          requestAnimationFrame(() => {
-            if (
-              layerRequestSeqRef.current[tableName] !== requestId ||
-              mapInstanceRef.current !== mapAtRequest
-            ) {
-              return;
-            }
-
-            const currentClipAreas =
-              selectedAreaBencanaClipPathRef.current?.areas ||
-              getDeepestSelectedAdminAreas(selectedAreas);
-
-            if (currentClipAreas.length && selectedDas.length === 0) {
-              applyBencanaClipToLayer(tableName, currentClipAreas);
-            }
-          });
-        });
-      });
-
-      if (!safeAddMapLayer(mapAtRequest, overlay)) {
-        throw new Error("Leaflet gagal menambahkan layer SIGAP Kawasan Hutan");
-      }
-
-      layerGroupsRef.current[tableName] = overlay;
-      layerCacheRef.current.set(tableName, overlay);
-
-      const selectedAdminClipAreas =
-        selectedAreaBencanaClipPathRef.current?.areas ||
-        getDeepestSelectedAdminAreas(selectedAreas);
-
-      if (selectedAdminClipAreas.length && selectedDas.length === 0) {
-        requestAnimationFrame(() =>
-          applyBencanaClipToLayer(tableName, selectedAdminClipAreas),
-        );
-      }
-
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (
-            layerRequestSeqRef.current[tableName] === requestId &&
-            mapInstanceRef.current === mapAtRequest
-          ) {
-            safeInvalidateMapSize();
-          }
-        });
-      });
-
-      void loadSigapKawasanHutanLegend();
-      console.log("SIGAP Kawasan Hutan aktif", {
-        bbox,
-        imageSize: `${width}x${height}`,
-      });
-    } catch (error: any) {
-      console.error("Error loading SIGAP Kawasan Hutan:", error);
-      setLayerError(
-        `Gagal memuat Kawasan Hutan SIGAP: ${error?.message || "unknown error"}`,
-      );
-      setTimeout(() => setLayerError(""), 6000);
-    } finally {
-      setLoadingLayerNames((prev) => {
-        const next = new Set(prev);
-        next.delete(tableName);
-        return next;
-      });
-      setIsLoadingLayer(false);
-    }
-  };
-
-  const handleSigapKawasanHutanClassClick = async (item: {
-    label: string;
-    values?: string[];
-  }) => {
-    const value = item.values?.[0] || null;
-    const activeSigapLayer = Array.from(activeLayersRef.current).find(
-      (layerName) => isSigapKawasanHutanLayer(layerName),
-    );
-    if (!activeSigapLayer) return;
-
-    if (selectedSigapKawasanHutanClassRef.current === value && value) {
-      setSelectedSigapKawasanHutanClass(null);
-      selectedSigapKawasanHutanClassRef.current = null;
-      await loadSigapKawasanHutan(undefined, activeSigapLayer, null);
-      return;
-    }
-
-    setSelectedSigapKawasanHutanClass(value);
-    selectedSigapKawasanHutanClassRef.current = value;
-    await loadSigapKawasanHutan(undefined, activeSigapLayer, value);
-  };
-
-  const clearSigapKawasanHutanClassFilter = async () => {
-    setSelectedSigapKawasanHutanClass(null);
-    selectedSigapKawasanHutanClassRef.current = null;
-    const activeSigapLayer = Array.from(activeLayersRef.current).find(
-      (layerName) => isSigapKawasanHutanLayer(layerName),
-    );
-    if (activeSigapLayer) {
-      await loadSigapKawasanHutan(undefined, activeSigapLayer, null);
-    }
-  };
-
-  const refreshActiveSigapLayers = async () => {
-    const activeSigapLayer = Array.from(activeLayersRef.current).find(
-      (layerName) => isSigapKawasanHutanLayer(layerName),
-    );
-    if (activeSigapLayer) {
-      await loadSigapKawasanHutan(
-        undefined,
-        activeSigapLayer,
-        selectedSigapKawasanHutanClassRef.current,
-      );
-    }
-  };
+  // Kawasan Hutan memakai GeoJSON lokal SIMITI/PostGIS.
+  // Frontend tidak lagi mengakses MapServer atau API SIGAP.
 
   // Normalisasi ID layer UI -> nama layer backend.
   // KHDTK di menu menggunakan ID 103, sedangkan endpoint backend menggunakan "khdtk".
@@ -2402,11 +2099,6 @@ const Kerawanan = () => {
       console.log(`🔗 Layer alias: ${tableName} -> ${apiLayerName}`);
     }
 
-    if (isSigapKawasanHutanLayer(tableName)) {
-      await loadSigapKawasanHutan(customBounds, tableName);
-      return;
-    }
-
     // Setelah request API dibentuk, gunakan nama backend untuk seluruh pemrosesan
     // GeoJSON agar branch KHDTK (`tableName === "khdtk"`) tetap bekerja.
     tableName = apiLayerName;
@@ -2428,7 +2120,18 @@ const Kerawanan = () => {
         [viewport.getSouth(), viewport.getWest()],
         [viewport.getNorth(), viewport.getEast()],
       ];
-      const boundsToUse = customBounds || currentBounds || viewportBounds;
+      const activeSpatialFocus = selectedSpatialFeatureRef.current;
+      let boundsToUse = customBounds || currentBounds || viewportBounds;
+      if (activeSpatialFocus?.layerType === "khdtk" && activeSpatialFocus?.feature?.geometry) {
+        try {
+          const [minLng, minLat, maxLng, maxLat] = turfBbox(activeSpatialFocus.feature as any);
+          if ([minLng, minLat, maxLng, maxLat].every(Number.isFinite)) {
+            boundsToUse = [[minLat, minLng], [maxLat, maxLng]];
+          }
+        } catch (boundsError) {
+          console.warn("SIMITI: gagal menghitung bounds KHDTK:", boundsError);
+        }
+      }
 
       if (boundsToUse) {
         const [[minLat, minLng], [maxLat, maxLng]] = boundsToUse;
@@ -2445,7 +2148,10 @@ const Kerawanan = () => {
         const dasNames = selectedDas.map((d) => d.nama_das);
         url += `&dasFilter=${encodeURIComponent(JSON.stringify(dasNames))}`;
         console.log(" Loading layer with DAS filtering:", tableName, dasNames);
-      } else if (selectedAreas.length > 0) {
+      } else if (
+        selectedAreas.length > 0 &&
+        selectedSpatialFeatureRef.current?.layerType !== "khdtk"
+      ) {
         const firstArea = selectedAreas[0];
         const adminLevel = firstArea.level;
 
@@ -2527,6 +2233,108 @@ const Kerawanan = () => {
         throw new Error(
           `Format GeoJSON untuk "${tableName}" tidak sesuai. Periksa respons endpoint ${apiLayerName}/geojson.`,
         );
+      }
+
+      // CLIP GEOMETRI SEBENARNYA: pecah MultiPolygon KHDTK menjadi Polygon
+      // tunggal sebelum intersection. MultiPolygon gabungan dari beberapa
+      // feature KHDTK kadang memiliki ring tumpang tindih dan membuat Turf
+      // gagal menghasilkan geometri, sehingga polygon risiko tidak ter-render.
+      const khdtkFocusForIntersection = selectedSpatialFeatureRef.current;
+      if (
+        BENCANA_FOCUS_LAYERS.has(String(tableName)) &&
+        khdtkFocusForIntersection?.layerType === "khdtk" &&
+        khdtkFocusForIntersection?.feature?.geometry
+      ) {
+        const focusGeometry = khdtkFocusForIntersection.feature.geometry;
+        const focusPolygonGeometries: any[] =
+          focusGeometry.type === "Polygon"
+            ? [focusGeometry]
+            : focusGeometry.type === "MultiPolygon"
+              ? (focusGeometry.coordinates || []).map((coordinates: any) => ({
+                  type: "Polygon", coordinates,
+                }))
+              : [];
+        const focusPolygonFeatures = focusPolygonGeometries.map((geometry: any) => ({
+          type: "Feature", properties: {}, geometry,
+        }));
+        const focusBounds = turfBbox(khdtkFocusForIntersection.feature as any);
+        const clippedFeatures: any[] = [];
+        let excludedFeatures = 0;
+        let intersectionErrors = 0;
+
+        for (const riskFeature of geojsonData.features) {
+          const riskGeometry = riskFeature?.geometry;
+          if (!["Polygon", "MultiPolygon"].includes(String(riskGeometry?.type))) {
+            excludedFeatures++;
+            continue;
+          }
+          try {
+            const riskBounds = turfBbox(riskFeature as any);
+            const outsideBounds =
+              riskBounds[0] > focusBounds[2] || riskBounds[2] < focusBounds[0] ||
+              riskBounds[1] > focusBounds[3] || riskBounds[3] < focusBounds[1];
+            if (outsideBounds) {
+              excludedFeatures++;
+              continue;
+            }
+
+            const riskPolygonGeometries: any[] =
+              riskGeometry.type === "Polygon"
+                ? [riskGeometry]
+                : (riskGeometry.coordinates || []).map((coordinates: any) => ({
+                    type: "Polygon", coordinates,
+                  }));
+            const intersectionsForRisk: any[] = [];
+
+            for (const riskPolygonGeometry of riskPolygonGeometries) {
+              const riskPolygonFeature = {
+                type: "Feature", properties: riskFeature.properties || {},
+                geometry: riskPolygonGeometry,
+              };
+              for (const focusPolygonFeature of focusPolygonFeatures) {
+                try {
+                  const intersection = turfIntersect(
+                    turfFeatureCollection([riskPolygonFeature, focusPolygonFeature]) as any,
+                  );
+                  if (
+                    intersection?.geometry &&
+                    ["Polygon", "MultiPolygon"].includes(String(intersection.geometry.type))
+                  ) {
+                    intersectionsForRisk.push({
+                      ...riskFeature,
+                      geometry: intersection.geometry,
+                    });
+                  }
+                } catch (partError) {
+                  intersectionErrors++;
+                  console.warn("SIMITI: intersection potongan risiko-KHDTK gagal:", {
+                    layer: tableName, featureId: riskFeature?.id, error: partError,
+                  });
+                }
+              }
+            }
+
+            if (intersectionsForRisk.length) {
+              clippedFeatures.push(...intersectionsForRisk);
+            } else {
+              excludedFeatures++;
+            }
+          } catch (intersectionError) {
+            intersectionErrors++;
+            console.warn("SIMITI: intersect risiko-KHDTK gagal:", tableName, riskFeature?.id, intersectionError);
+          }
+        }
+
+        console.log("SIMITI: hasil clipping geometri risiko KHDTK", {
+          layer: tableName,
+          khdtk: khdtkFocusForIntersection.feature?.properties?.namobj || "KHDTK terpilih",
+          before: geojsonData.features.length,
+          focusParts: focusPolygonFeatures.length,
+          after: clippedFeatures.length,
+          excluded: excludedFeatures,
+          intersectionErrors,
+        });
+        geojsonData = { ...geojsonData, features: clippedFeatures };
       }
 
       // Request ini sudah tidak relevan; jangan sentuh layer/map dengan data lama.
@@ -3213,7 +3021,7 @@ const Kerawanan = () => {
         const deskripsiMap = new Map<string, string>(); // deskripsi_domain -> color (via getRandomColor per deskripsi)
         const fungsikwsToDescrip = new Map<string, string>(); // fungsikws -> deskripsi_domain
         geojsonData.features.forEach((feature: any) => {
-          const fungsikws = String(feature.properties.fungsikws ?? "");
+          const fungsikws = String(feature.properties.fungsikws ?? "").trim();
           if (fungsikws) {
             const deskripsi =
               mappingKawasanHutan[fungsikws] || `Kode ${fungsikws}`;
@@ -3332,15 +3140,15 @@ const Kerawanan = () => {
         const bencanaColor = getBencanaLayerColor(String(tableName));
         styleFunction = function (feature: any) {
           const kelas = getBencanaFeatureClass(feature);
-          // Encode dua informasi tanpa membuat satu layer menutupi layer lain:
-          // warna isi = jenis bencana; warna garis = kelas kerawanan dari data.
+          // Warna isi dan garis mengikuti kelas risiko pada setiap feature,
+          // bukan satu warna seragam untuk seluruh jenis bencana.
           const classColor = getRiskClassColor(kelas, bencanaColor);
           return {
             color: classColor,
-            fillColor: bencanaColor,
+            fillColor: classColor,
             weight: zoom > 10 ? 2.2 : 1.6,
-            opacity: 0.98,
-            fillOpacity: 0.16,
+            opacity: 1,
+            fillOpacity: 0.68,
             lineCap: "round",
             lineJoin: "round",
           };
@@ -3559,14 +3367,19 @@ const Kerawanan = () => {
         };
       } else if (tableName === "kawasan_hutan") {
         styleFunction = function (feature: any) {
-          const fungsikws = String(feature.properties.fungsikws ?? "");
-          const fillColor = colorMap.get(fungsikws) || "#808080";
+          const fungsikws = String(feature?.properties?.fungsikws ?? "").trim();
+          const fillColor =
+            colorMappingRef.current.kawasanHutan.get(fungsikws) ||
+            colorMap.get(fungsikws) ||
+            "#808080";
           return {
             color: fillColor,
             fillColor,
             weight: 1,
-            opacity: 0.8,
-            fillOpacity: 0.5,
+            opacity: 1,
+            fillOpacity: 0.68,
+            lineCap: "round",
+            lineJoin: "round",
           };
         };
       } else if (
@@ -3687,13 +3500,105 @@ const Kerawanan = () => {
           ? window.L.canvas({ padding: 0.5 })
           : undefined;
 
+      // Kawasan hutan dapat berisi Polygon/MultiPolygon maupun geometri garis.
+      // Gunakan Canvas khusus layer ini dan validasi seluruh struktur koordinat
+      // sebelum Leaflet membentuk Polyline/Polygon agar koordinat parsial tidak
+      // menyebabkan Bounds.js gagal membaca titik x/y.
+      const kawasanHutanCanvasRenderer =
+        tableName === "kawasan_hutan" && window.L.canvas
+          ? window.L.canvas({ padding: 0.5 })
+          : undefined;
+      const activeGeoJsonRenderer =
+        kawasanHutanCanvasRenderer || nationalCanvasRenderer;
+
+      const isValidGeoJsonPosition = (position: any): boolean => {
+        if (!Array.isArray(position) || position.length < 2) return false;
+        const lng = position[0];
+        const lat = position[1];
+        return (
+          typeof lng === "number" &&
+          typeof lat === "number" &&
+          Number.isFinite(lng) &&
+          Number.isFinite(lat) &&
+          lng >= -180 &&
+          lng <= 180 &&
+          lat >= -90 &&
+          lat <= 90
+        );
+      };
+
+      const isValidGeoJsonGeometry = (geometry: any): boolean => {
+        if (!geometry || typeof geometry !== "object") return false;
+        const coords = geometry.coordinates;
+        const allPositionsValid = (positions: any): boolean =>
+          Array.isArray(positions) &&
+          positions.length > 0 &&
+          positions.every(isValidGeoJsonPosition);
+        const allLinesValid = (lines: any): boolean =>
+          Array.isArray(lines) &&
+          lines.length > 0 &&
+          lines.every(
+            (line: any) =>
+              Array.isArray(line) &&
+              line.length >= 2 &&
+              line.every(isValidGeoJsonPosition),
+          );
+        const allRingsValid = (rings: any): boolean =>
+          Array.isArray(rings) &&
+          rings.length > 0 &&
+          rings.every(
+            (ring: any) =>
+              Array.isArray(ring) &&
+              ring.length >= 4 &&
+              ring.every(isValidGeoJsonPosition),
+          );
+
+        switch (geometry.type) {
+          case "Point":
+            return isValidGeoJsonPosition(coords);
+          case "MultiPoint":
+            return allPositionsValid(coords);
+          case "LineString":
+            return Array.isArray(coords) && coords.length >= 2 && allPositionsValid(coords);
+          case "MultiLineString":
+            return allLinesValid(coords);
+          case "Polygon":
+            return allRingsValid(coords);
+          case "MultiPolygon":
+            return (
+              Array.isArray(coords) &&
+              coords.length > 0 &&
+              coords.every(allRingsValid)
+            );
+          case "GeometryCollection":
+            return (
+              Array.isArray(geometry.geometries) &&
+              geometry.geometries.length > 0 &&
+              geometry.geometries.every(isValidGeoJsonGeometry)
+            );
+          default:
+            return false;
+        }
+      };
+
       const layerGroup = window.L.geoJSON(geojsonData, {
         pane: "overlayPane",
-        renderer: nationalCanvasRenderer,
+        renderer: activeGeoJsonRenderer,
         style: styleFunction,
         filter: function (feature: any) {
           const geometry = feature?.geometry;
           if (!geometry) return false;
+
+          // Validasi menyeluruh hanya untuk kawasan_hutan; perilaku filter
+          // layer lain tetap sama seperti sebelumnya.
+          if (tableName === "kawasan_hutan" && !isValidGeoJsonGeometry(geometry)) {
+            console.warn("SIMITI: skipping invalid kawasan_hutan geometry", {
+              geometryType: geometry?.type,
+              properties: feature?.properties,
+            });
+            return false;
+          }
+
           if (geometry.type === "Point") {
             const coords = geometry.coordinates;
             const lng = Number(coords?.[0]);
@@ -3763,6 +3668,10 @@ const Kerawanan = () => {
             if (event?.originalEvent?.stopPropagation) {
               event.originalEvent.stopPropagation();
             }
+
+            // Klik pertama belum memilih polygon. Klik kedua pada lokasi
+            // yang sama (maks. 30 meter) baru menjalankan identifikasi GIS.
+            if (!confirmMapPolygonClick(event?.latlng)) return;
 
             // ==================================================
             // SIMITI - FEATURE SELECTION LOCK
@@ -3865,6 +3774,48 @@ const Kerawanan = () => {
         throw new Error(`Leaflet gagal menambahkan layer ${tableName}`);
       }
 
+      // Pastikan polygon memakai warna yang sama dengan legenda setelah terpasang.
+      if (tableName === "kawasan_hutan") {
+        let coloredFeatures = 0;
+        let fallbackFeatures = 0;
+        layerGroup.eachLayer((featureLayer: any) => {
+          const props = featureLayer?.feature?.properties || {};
+          const fungsikws = String(props.fungsikws ?? "").trim();
+          const fillColor =
+            colorMappingRef.current.kawasanHutan.get(fungsikws) ||
+            colorMap.get(fungsikws);
+          if (fillColor && featureLayer?.setStyle) {
+            featureLayer.setStyle({
+              color: fillColor,
+              fillColor,
+              weight: 1,
+              opacity: 1,
+              fillOpacity: 0.68,
+              lineCap: "round",
+              lineJoin: "round",
+            });
+            coloredFeatures++;
+          } else {
+            fallbackFeatures++;
+            if (featureLayer?.setStyle) {
+              featureLayer.setStyle({
+                color: "#808080",
+                fillColor: "#808080",
+                weight: 1,
+                opacity: 1,
+                fillOpacity: 0.68,
+              });
+            }
+          }
+        });
+        console.info("SIMITI: warna polygon Kawasan Hutan diterapkan", {
+          total: coloredFeatures + fallbackFeatures,
+          colored: coloredFeatures,
+          tanpaMapping: fallbackFeatures,
+          jumlahKelasLegenda: colorMappingRef.current.kawasanHutan.size,
+        });
+      }
+
       // Bencana sudah difilter oleh API berdasarkan selectedAreas/adminFilter.
       // Jangan pasang SVG clip-path lagi karena dapat membuat polygon/marker hilang.
 
@@ -3889,7 +3840,12 @@ const Kerawanan = () => {
           rawan_karhutla: "rawan_karhutla",
         };
 
-        const correspondingTab = tabMapping[tableName];
+        // Semua layer risiko memiliki tab dengan ID yang sama dengan nama tabel.
+        // Ini penting untuk risiko_karhutla/risiko_kekeringan/dll: tanpa mapping
+        // generik, layer hanya tersimpan di cache dan tidak pernah masuk ke peta.
+        const correspondingTab = BENCANA_FOCUS_LAYERS.has(String(tableName))
+          ? String(tableName)
+          : tabMapping[tableName];
 
         // Hanya add ke map jika tab nya sedang aktif
         if (correspondingTab === activeBottomTab) {
@@ -3929,10 +3885,10 @@ const Kerawanan = () => {
             );
             const style = {
               color: classColor,
-              fillColor: forcedBencanaColor,
+              fillColor: classColor,
               weight: zoom > 10 ? 2.2 : 1.6,
-              opacity: 0.98,
-              fillOpacity: 0.16,
+              opacity: 1,
+              fillOpacity: 0.68,
               lineCap: "round",
               lineJoin: "round",
             };
@@ -3947,13 +3903,24 @@ const Kerawanan = () => {
       }
       layerGroupsRef.current[tableName] = layerGroup;
       if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
-        const selectedAdminClipAreas =
-          selectedAreaBencanaClipPathRef.current?.areas ||
-          getDeepestSelectedAdminAreas(selectedAreas);
-        if (selectedAdminClipAreas.length && selectedDas.length === 0) {
-          requestAnimationFrame(() =>
-            applyBencanaClipToLayer(String(tableName), selectedAdminClipAreas),
-          );
+        const selectedSpatialFocus = selectedSpatialFeatureRef.current;
+        if (
+          selectedDas.length === 0 &&
+          selectedSpatialFocus?.layerType === "khdtk" &&
+          selectedSpatialFocus?.feature?.geometry
+        ) {
+          requestAnimationFrame(() => {
+            applyBencanaClipToSelectedKhdtk(String(tableName));
+          });
+        } else {
+          const selectedAdminClipAreas =
+            selectedAreaBencanaClipPathRef.current?.areas ||
+            getDeepestSelectedAdminAreas(selectedAreas);
+          if (selectedAdminClipAreas.length && selectedDas.length === 0) {
+            requestAnimationFrame(() =>
+              applyBencanaClipToLayer(String(tableName), selectedAdminClipAreas),
+            );
+          }
         }
       }
   // SIMITI_HATCH_REFRESH_ON_LOAD
@@ -4312,7 +4279,7 @@ const Kerawanan = () => {
               } else if (hoveredLayerType === "kawasan_hutan") {
                 originalColor =
                   colorMappingRef.current.kawasanHutan.get(
-                    String(layer.feature.properties.fungsikws ?? ""),
+                    String(layer.feature.properties.fungsikws ?? "").trim(),
                   ) || "#808080";
               } else if (
                 [
@@ -4442,7 +4409,7 @@ const Kerawanan = () => {
                 String(layer.feature.properties.periode) === highlightKey;
             } else if (highlightType === "kawasan_hutan") {
               shouldHighlight =
-                String(layer.feature.properties.fungsikws ?? "") ===
+                String(layer.feature.properties.fungsikws ?? "").trim() ===
                 highlightKey;
             } else if (
               [
@@ -5736,6 +5703,22 @@ const Kerawanan = () => {
 
   // Function untuk select area
   const handleAreaSelect = async (area: any) => {
+    // Pemilihan administrasi baru membatalkan fokus KHDTK sebelumnya.
+    if (selectedKhdtkName) {
+      const focusKey = selectedKhdtkLayerKeyRef.current;
+      if (layerGroupsRef.current[focusKey]) {
+        safeRemoveMapLayer(layerGroupsRef.current[focusKey]);
+        delete layerGroupsRef.current[focusKey];
+      }
+      const fullKhdtkLayer = layerGroupsRef.current["khdtk"];
+      if (fullKhdtkLayer && mapInstanceRef.current && !mapInstanceRef.current.hasLayer(fullKhdtkLayer)) {
+        fullKhdtkLayer.addTo(mapInstanceRef.current);
+      }
+      setSelectedKhdtkName("");
+      selectedSpatialFeatureRef.current = null;
+      clearSelectedAreaBencanaClip();
+    }
+
     const isAlreadySelected = selectedAreas.some((a) => {
       if (a.level !== area.level) return false;
 
@@ -5885,6 +5868,19 @@ const Kerawanan = () => {
   // Function untuk remove selected area
   const handleRemoveArea = async (index: number) => {
     const removedArea = selectedAreas[index];
+    if (removedArea?.level === "provinsi" && selectedKhdtkName) {
+      const focusKey = selectedKhdtkLayerKeyRef.current;
+      if (layerGroupsRef.current[focusKey]) {
+        safeRemoveMapLayer(layerGroupsRef.current[focusKey]);
+        delete layerGroupsRef.current[focusKey];
+      }
+      const fullKhdtkLayer = layerGroupsRef.current["khdtk"];
+      if (fullKhdtkLayer && mapInstanceRef.current && !mapInstanceRef.current.hasLayer(fullKhdtkLayer)) {
+        fullKhdtkLayer.addTo(mapInstanceRef.current);
+      }
+      setSelectedKhdtkName("");
+      selectedSpatialFeatureRef.current = null;
+    }
     const newSelectedAreas = selectedAreas.filter((_, i) => i !== index);
     setSelectedAreas(newSelectedAreas);
 
@@ -6317,6 +6313,18 @@ const Kerawanan = () => {
 
     if (isChecked) {
       tableName = resolvedTableName;
+
+      // SIMITI KHDTK/RISK TAB SYNC:
+      // Layer risiko mempunyai bottom tab sendiri. Saat user memilih
+      // Risiko Karhutla/Banjir/dll, aktifkan tab yang sama agar useEffect
+      // pemilih layer Leaflet tidak menyembunyikan polygon karena tab lama
+      // (misalnya tab KHDTK) masih aktif.
+      if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
+        setActiveBottomTab(String(tableName));
+        setIsBottomSummaryOpen(true);
+        console.log("SIMITI: tab peta risiko diaktifkan:", tableName);
+      }
+
       // Tambahkan layer ke active layers
       setActiveLayers((prev) => new Set([...prev, tableName]));
 
@@ -6325,14 +6333,10 @@ const Kerawanan = () => {
       if (INFRA_IDS.includes(tableName as any)) {
         setActiveBottomTab("mitigasi_adaptasi");
         setIsBottomSummaryOpen(true);
-      } else if (isSigapKawasanHutanLayer(tableName)) {
-        // Saat Kawasan Hutan dipilih, langsung buka panel bawah
-        // pada tab legenda SIGAP agar kelas fungsi kawasan terlihat.
+      } else if (tableName === "kawasan_hutan") {
+        // Buka legenda fungsi kawasan dari GeoJSON lokal SIMITI/PostGIS.
         setActiveBottomTab("kawasan_hutan");
         setIsBottomSummaryOpen(true);
-        setSigapKawasanHutanSearch("");
-        setSelectedSigapKawasanHutanClass(null);
-        selectedSigapKawasanHutanClassRef.current = null;
       }
 
       // Simpan metadata untuk kejadian layer
@@ -6388,7 +6392,8 @@ const Kerawanan = () => {
       if (
         selectedDas.length === 0 &&
         BENCANA_FOCUS_LAYERS.has(String(tableName)) &&
-        selectedAreas.length > 0
+        selectedAreas.length > 0 &&
+        selectedSpatialFeatureRef.current?.layerType !== "khdtk"
       ) {
         try {
           const map = mapInstanceRef.current;
@@ -6639,7 +6644,7 @@ const Kerawanan = () => {
       else if (layerId === "karhutla_2025")
         color = cm.kebakaran2025.get(String(p.periode)) || "#808080";
       else if (layerId === "kawasan_hutan" || layerId === "97")
-        color = cm.kawasanHutan.get(String(p.fungsikws ?? "")) || "#808080";
+        color = cm.kawasanHutan.get(String(p.fungsikws ?? "").trim()) || "#808080";
       else if (
         [
           "risiko_banjir",
@@ -6787,6 +6792,172 @@ const Kerawanan = () => {
     setSelectedLegendKey(null);
     setSelectedLegendType(null);
     setSelectedLegendColor(null);
+  };
+
+  // Pilih KHDTK dari tabel (bukan hanya klik polygon di peta).
+  // Semua feature dengan nama KHDTK yang sama digabung agar bagian
+  // multipart/terpisah tetap menjadi satu batas clipping.
+  const selectKhdtkFromRow = (item: any) => {
+    const khdtkName = String(item?.namobj || "").trim();
+    const khdtkLayerGroup = layerGroupsRef.current["khdtk"];
+
+    if (!khdtkName || !khdtkLayerGroup) {
+      console.warn("SIMITI: data polygon KHDTK belum tersedia:", khdtkName);
+      return;
+    }
+
+    const matchingFeatures: any[] = [];
+    let representativeLayer: any = null;
+
+    khdtkLayerGroup.eachLayer?.((candidate: any) => {
+      const candidateFeature = candidate?.feature;
+      const candidateName = String(
+        candidateFeature?.properties?.namobj || "",
+      ).trim();
+      const geometry = candidateFeature?.geometry;
+
+      if (
+        candidateName === khdtkName &&
+        geometry &&
+        ["Polygon", "MultiPolygon"].includes(String(geometry.type))
+      ) {
+        matchingFeatures.push(candidateFeature);
+        if (!representativeLayer) representativeLayer = candidate;
+      }
+    });
+
+    if (matchingFeatures.length === 0) {
+      console.warn("SIMITI: polygon KHDTK tidak ditemukan:", khdtkName);
+      return;
+    }
+
+    const polygonCoordinates: any[] = [];
+    matchingFeatures.forEach((feature) => {
+      if (feature.geometry.type === "Polygon") {
+        polygonCoordinates.push(feature.geometry.coordinates);
+      } else if (feature.geometry.type === "MultiPolygon") {
+        polygonCoordinates.push(...feature.geometry.coordinates);
+      }
+    });
+
+    const selectedFeature = {
+      type: "Feature",
+      properties: {
+        ...(matchingFeatures[0].properties || {}),
+        namobj: khdtkName,
+      },
+      geometry: {
+        type: "MultiPolygon",
+        coordinates: polygonCoordinates,
+      },
+    };
+
+    // KHDTK menjadi wilayah fokus pengganti polygon administrasi.
+    // Pertahankan pilihan provinsi sebagai konteks, tetapi lepaskan kabupaten,
+    // kecamatan, dan desa agar tidak lagi menjadi polygon fokus di peta.
+    setSelectedKhdtkName(khdtkName);
+    // Simpan provinsi hanya sebagai konteks dropdown; seluruh level administrasi
+    // di bawah provinsi diganti oleh nama KHDTK pada chip wilayah terpilih.
+    setSelectedAreas((previous) =>
+      previous.filter((area) => area.level === "provinsi"),
+    );
+
+    // Hapus seluruh polygon administrasi yang sedang digambar.
+    Object.keys(layerGroupsRef.current).forEach((key) => {
+      if (key.startsWith("admin_boundary_")) {
+        safeRemoveMapLayer(layerGroupsRef.current[key]);
+        delete layerGroupsRef.current[key];
+      }
+    });
+
+    // Polygon kelurahan hasil identify koordinat juga bukan lagi wilayah fokus.
+    const previousVillagePolygon = selectedVillagePolygonRef.current;
+    if (previousVillagePolygon && mapInstanceRef.current?.hasLayer?.(previousVillagePolygon)) {
+      safeRemoveMapLayer(previousVillagePolygon);
+    }
+    selectedVillagePolygonRef.current = null;
+
+    // Putuskan seluruh clipping administrasi sebelum memasang clipping KHDTK.
+    clearSelectedAreaBencanaClip();
+
+    // Sembunyikan layer KHDTK lengkap (semua polygon), lalu tampilkan
+    // hanya geometri KHDTK yang dipilih sebagai polygon fokus.
+    safeRemoveMapLayer(khdtkLayerGroup);
+    const focusKey = selectedKhdtkLayerKeyRef.current;
+    if (layerGroupsRef.current[focusKey]) {
+      safeRemoveMapLayer(layerGroupsRef.current[focusKey]);
+      delete layerGroupsRef.current[focusKey];
+    }
+
+    let focusLayer: any = null;
+    if (mapInstanceRef.current && window.L) {
+      focusLayer = window.L.geoJSON(selectedFeature, {
+        style: {
+          color: "#0f172a",
+          weight: 3,
+          opacity: 1,
+          fillColor: item?.color || "#16a34a",
+          fillOpacity: 0.22,
+        },
+      });
+      focusLayer.addTo(mapInstanceRef.current);
+      layerGroupsRef.current[focusKey] = focusLayer;
+      const focusBounds = focusLayer.getBounds?.();
+      if (focusBounds?.isValid?.()) {
+        mapInstanceRef.current.fitBounds(focusBounds, {
+          padding: [36, 36],
+          maxZoom: 13,
+        });
+      }
+    }
+
+    selectedSpatialFeatureRef.current = {
+      layerType: "khdtk",
+      feature: selectedFeature,
+      layer: focusLayer || representativeLayer,
+      originalColor: item?.color || "#808080",
+    };
+
+    // Muat ulang layer risiko yang sudah aktif agar feature lama yang mencakup
+    // kabupaten/provinsi diganti dengan geometri hasil intersection KHDTK.
+    try {
+      const [minLng, minLat, maxLng, maxLat] = turfBbox(selectedFeature as any);
+      const khdtkBounds: [[number, number], [number, number]] = [
+        [minLat, minLng], [maxLat, maxLng],
+      ];
+      const activeRiskLayers = Array.from(activeLayersRef.current).filter((name) =>
+        BENCANA_FOCUS_LAYERS.has(String(name)),
+      );
+      activeRiskLayers.forEach((name) => {
+        const riskName = String(name);
+        // Hilangkan geometri lama (kabupaten/provinsi) saat menunggu respons
+        // hasil pemotongan KHDTK agar tidak sempat terlihat melebar.
+        if (layerGroupsRef.current[riskName]) {
+          safeRemoveMapLayer(layerGroupsRef.current[riskName]);
+          delete layerGroupsRef.current[riskName];
+        }
+        layerCacheRef.current.delete(riskName);
+        void loadLayerInBounds(riskName, khdtkBounds);
+      });
+      console.log("SIMITI: reload layer risiko dalam bounds KHDTK", {
+        khdtk: khdtkName, layers: activeRiskLayers, bounds: khdtkBounds,
+      });
+    } catch (reloadError) {
+      console.warn("SIMITI: gagal reload layer risiko KHDTK:", reloadError);
+    }
+
+    console.log("SIMITI: KHDTK mengambil alih wilayah fokus administrasi:", {
+      name: khdtkName,
+      contextProvince: selectedAreas.find((area) => area.level === "provinsi")?.label || null,
+      matchedFeatures: matchingFeatures.length,
+      activeRiskLayers: Array.from(activeLayersRef.current).filter((name) =>
+        BENCANA_FOCUS_LAYERS.has(String(name)),
+      ),
+      activeFocusPolygon: "KHDTK only",
+    });
+
+    // Terapkan ulang clipping ke semua layer risiko yang sedang aktif.
+    requestAnimationFrame(() => syncSelectedSpatialFeatureBencanaClip());
   };
 
   const handleRowMouseEnter = (
@@ -7242,24 +7413,20 @@ const Kerawanan = () => {
       };
       defaultExtentControl.addTo(map);
 
-      // Klik peta -> identifikasi GIS, polygon desa/kelurahan, dan cuaca.
+      // Dua klik pada lokasi yang sama diperlukan sebelum identifikasi GIS.
+      // Klik pertama hanya menyimpan titik; klik kedua baru mengambil polygon.
       map.on("click", (event: any) => {
+        if (!confirmMapPolygonClick(event?.latlng)) return;
+
         const { lat, lng } = event.latlng;
 
         identifyEnterpriseAtPoint(event.latlng);
 
-        // Tampilkan batas administratif asli dari PostGIS.
+        // Tampilkan batas administratif asli dari PostGIS setelah konfirmasi.
         void showSelectedVillagePolygon(Number(lat), Number(lng));
 
-        // Pertahankan perilaku cuaca yang sudah ada.
+        // Perilaku cuaca tetap berjalan, tetapi setelah klik kedua.
         void fetchMapWeather(Number(lat), Number(lng));
-      });
-
-      map.on("moveend", () => {
-        if (activeLayersRef.current) {
-          // Kawasan Hutan SIGAP mengikuti extent peta setelah pan/zoom.
-          void refreshActiveSigapLayers();
-        }
       });
 
       const roadBaseLayer = window.L.tileLayer(
@@ -10974,182 +11141,6 @@ const Kerawanan = () => {
 
       case "kawasan_hutan":
         if (activeLayers.has("kawasan_hutan") || activeLayers.has("97")) {
-          const isSigapActive = Array.from(activeLayers).some((layerName) =>
-            isSigapKawasanHutanLayer(layerName),
-          );
-
-          if (isSigapActive) {
-            const normalizedSearch = sigapKawasanHutanSearch
-              .trim()
-              .toLowerCase();
-            const filteredSigapLegend = sigapKawasanHutanLegend.filter(
-              (item) =>
-                !normalizedSearch ||
-                item.label.toLowerCase().includes(normalizedSearch),
-            );
-            const selectedLabel = sigapKawasanHutanLegend.find(
-              (item) => item.values?.[0] === selectedSigapKawasanHutanClass,
-            )?.label;
-
-            return (
-              <div className="p-3 h-full flex flex-col">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="text-[10px] font-semibold text-slate-700">
-                      Kawasan Hutan — SIGAP Kementerian Kehutanan
-                    </div>
-                    <div className="text-[8px] text-slate-400">
-                      Klik baris untuk fokus kelas pada peta
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span className="rounded-full bg-emerald-50 px-2 py-1 text-[8px] font-medium text-emerald-700 border border-emerald-100">
-                      {sigapKawasanHutanLegend.length} kelas
-                    </span>
-                    {selectedSigapKawasanHutanClass && (
-                      <button
-                        type="button"
-                        onClick={() => void clearSigapKawasanHutanClassFilter()}
-                        className="rounded-full bg-slate-100 px-2 py-1 text-[8px] font-medium text-slate-600 hover:bg-slate-200 transition-colors"
-                      >
-                        Reset
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {selectedLabel && (
-                  <div className="mb-2 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-2">
-                    <div className="min-w-0">
-                      <div className="text-[8px] uppercase tracking-wide font-semibold text-emerald-600">
-                        Fokus kelas
-                      </div>
-                      <div className="truncate text-[10px] font-semibold text-emerald-800">
-                        {selectedLabel}
-                      </div>
-                    </div>
-                    <span className="ml-2 shrink-0 rounded-full bg-white px-2 py-1 text-[8px] text-emerald-700 border border-emerald-100">
-                      Aktif
-                    </span>
-                  </div>
-                )}
-
-                <div className="relative mb-2">
-                  <input
-                    value={sigapKawasanHutanSearch}
-                    onChange={(event) =>
-                      setSigapKawasanHutanSearch(event.target.value)
-                    }
-                    placeholder="Cari fungsi kawasan..."
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 pr-8 text-[10px] text-slate-700 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
-                  />
-                  {sigapKawasanHutanSearch && (
-                    <button
-                      type="button"
-                      onClick={() => setSigapKawasanHutanSearch("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-
-                <div className="min-h-0 overflow-auto flex-1 rounded-lg border border-slate-200">
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-slate-50 z-10">
-                      <tr className="border-b border-slate-200">
-                        <th
-                          className="text-left py-2 px-2 font-semibold text-slate-600 bg-slate-50"
-                          style={{ width: "45px" }}
-                        >
-                          No
-                        </th>
-                        <th
-                          className="text-left py-2 px-2 font-semibold text-slate-600 bg-slate-50"
-                          style={{ width: "70px" }}
-                        >
-                          Warna
-                        </th>
-                        <th className="text-left py-2 px-2 font-semibold text-slate-600 bg-slate-50">
-                          Fungsi Kawasan
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredSigapLegend.length > 0 ? (
-                        filteredSigapLegend.map((item) => {
-                          const itemValue = item.values?.[0] || null;
-                          const isSelected =
-                            !!itemValue &&
-                            selectedSigapKawasanHutanClass === itemValue;
-                          return (
-                            <tr
-                              key={`${item.label}-${itemValue || "no-value"}`}
-                              onClick={() =>
-                                void handleSigapKawasanHutanClassClick(item)
-                              }
-                              className={`border-b border-slate-100 cursor-pointer transition-all ${isSelected ? "bg-emerald-100 ring-1 ring-inset ring-emerald-300" : "hover:bg-emerald-50/70"}`}
-                              title={
-                                itemValue
-                                  ? `Klik untuk fokus: ${item.label}`
-                                  : `Kelas ${item.label} belum memiliki kode filter dari renderer SIGAP`
-                              }
-                            >
-                              <td className="py-2 px-2 text-slate-500">
-                                {sigapKawasanHutanLegend.indexOf(item) + 1}
-                              </td>
-                              <td className="py-2 px-2">
-                                {item.imageData ? (
-                                  <img
-                                    src={`data:${item.contentType || "image/png"};base64,${item.imageData}`}
-                                    alt=""
-                                    className="w-10 h-5 rounded border border-slate-300 object-contain bg-white"
-                                  />
-                                ) : (
-                                  <span
-                                    className="block w-10 h-5 rounded border border-slate-300"
-                                    style={{
-                                      background: item.color || "#808080",
-                                    }}
-                                  />
-                                )}
-                              </td>
-                              <td className="py-2 px-2">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-slate-700 font-medium">
-                                    {item.label}
-                                  </span>
-                                  {isSelected && (
-                                    <span className="shrink-0 text-[8px] font-semibold text-emerald-700">
-                                      ● Fokus
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      ) : (
-                        <tr>
-                          <td
-                            colSpan={3}
-                            className="py-8 text-center text-[10px] text-slate-400"
-                          >
-                            {sigapKawasanHutanLegendLoading
-                              ? "Memuat seluruh legenda Kawasan Hutan..."
-                              : sigapKawasanHutanSearch
-                                ? "Tidak ada kelas yang cocok dengan pencarian."
-                                : "Legenda SIGAP belum tersedia. Coba aktifkan ulang layer Kawasan Hutan."}
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            );
-          }
-
           if (kawasanHutanData.length > 0) {
             return (
               <div className="p-3 h-full flex flex-col">
@@ -11370,6 +11361,8 @@ const Kerawanan = () => {
                           )
                         }
                         onMouseLeave={handleRowMouseLeave}
+                        onClick={() => selectKhdtkFromRow(item)}
+                        title="Klik untuk memilih KHDTK sebagai batas clipping kerawanan"
                       >
                         <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                         <td className="py-2 px-2">
@@ -14707,6 +14700,25 @@ const Kerawanan = () => {
           overflow: auto !important;
           padding: 6px 10px !important;
         }
+
+        /* Desktop: batas kanan panel bawah mengikuti garis kiri panel kanan.
+           Persentase mengikuti lebar aktual workspace sehingga tetap tepat
+           pada browser dengan zoom / skala layar berbeda. */
+        @media (min-width: 1280px) {
+          .kerawanan-workspace.right-layer-open > .kerawanan-bottom-summary {
+            width: 72.75% !important;
+            max-width: 72.75% !important;
+            box-sizing: border-box !important;
+            justify-self: start !important;
+            margin-right: 0 !important;
+            position: relative !important;
+            z-index: 10 !important;
+          }
+          .kerawanan-workspace.right-layer-panel-closed > .kerawanan-bottom-summary {
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+        }
         `}</style>
 
       {/* =========================================================
@@ -14789,7 +14801,7 @@ const Kerawanan = () => {
             </button>
           </div>
           <div
-            className={`kerawanan-workspace min-h-0 flex-1 grid grid-cols-1 gap-0 transition-[grid-template-rows] duration-300 ease-out ${isBottomSummaryOpen ? "bottom-summary-open" : "bottom-summary-closed"}`}
+            className={`kerawanan-workspace min-h-0 flex-1 grid grid-cols-1 gap-0 transition-[grid-template-rows] duration-300 ease-out ${isBottomSummaryOpen ? "bottom-summary-open" : "bottom-summary-closed"} ${isRightLayerPanelOpen ? "right-layer-open" : "right-layer-panel-closed"}`}
             style={{
               gridTemplateRows: isBottomSummaryOpen
                 ? "minmax(0, 1fr) 200px"
@@ -15338,21 +15350,33 @@ const Kerawanan = () => {
                         </div>
                       )}
                       {(activeTab === "administrasi"
-                        ? selectedAreas.length > 0
+                        ? selectedAreas.length > 0 || Boolean(selectedKhdtkName)
                         : selectedDas.length > 0) && (
                         <div className="mt-2 flex flex-wrap gap-1">
                           {activeTab === "administrasi"
-                            ? selectedAreas.map((area: any, index: number) => (
-                                <button
-                                  key={`${area.label}-${index}`}
-                                  type="button"
-                                  onClick={() => void handleRemoveArea(index)}
-                                  className="max-w-full rounded-full bg-emerald-50 border border-emerald-100 px-2 py-1 text-[7px] font-semibold text-emerald-700 truncate"
-                                  title="Hapus wilayah"
-                                >
-                                  {area.label || area.nama || area.name} ×
-                                </button>
-                              ))
+                            ? <>
+                                {selectedAreas
+                                  .filter((area: any) => !selectedKhdtkName || area.level === "provinsi")
+                                  .map((area: any, index: number) => (
+                                    <button
+                                      key={`${area.label}-${index}`}
+                                      type="button"
+                                      onClick={() => void handleRemoveArea(index)}
+                                      className="max-w-full rounded-full bg-emerald-50 border border-emerald-100 px-2 py-1 text-[7px] font-semibold text-emerald-700 truncate"
+                                      title="Hapus wilayah administrasi"
+                                    >
+                                      {area.label || area.nama || area.name} ×
+                                    </button>
+                                  ))}
+                                {selectedKhdtkName && (
+                                  <span
+                                    className="max-w-full rounded-full bg-green-100 border border-green-200 px-2 py-1 text-[7px] font-bold text-green-800 truncate"
+                                    title="Nama wilayah fokus — hanya polygon KHDTK ini yang aktif"
+                                  >
+                                    {selectedKhdtkName}
+                                  </span>
+                                )}
+                              </>
                             : selectedDas.map((das: any, index: number) => (
                                 <button
                                   key={`${das.nama_das}-${index}`}
