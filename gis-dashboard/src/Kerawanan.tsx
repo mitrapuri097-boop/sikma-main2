@@ -2140,6 +2140,49 @@ const Kerawanan = () => {
         boundsString = "-11,95,6,141";
       }
 
+      // SIMITI_WMS_RISIKO_BANJIR_NASIONAL
+      // WMS hanya untuk tampilan nasional risiko banjir tanpa filter spasial.
+      const isNationalRawanBanjirWms =
+        tableName === "risiko_banjir" &&
+        selectedAreas.length === 0 &&
+        selectedDas.length === 0 &&
+        !activeSpatialFocus?.feature?.geometry &&
+        zoom <= 5;
+
+      if (isNationalRawanBanjirWms) {
+        const geoserverWmsUrl = String(
+          import.meta.env.VITE_GEOSERVER_WMS_URL ||
+          "http://localhost:8080/geoserver/simiti/wms"
+        ).trim();
+
+        // Bersihkan layer lama agar tidak terjadi duplikasi.
+        if (layerGroupsRef.current[tableName]) {
+          safeRemoveMapLayer(layerGroupsRef.current[tableName]);
+          delete layerGroupsRef.current[tableName];
+        }
+
+        layerCacheRef.current.delete(tableName);
+
+        const wmsLayer = window.L.tileLayer.wms(geoserverWmsUrl, {
+          layers: "simiti:risiko_banjir_published",
+          styles: "",
+          format: "image/png",
+          transparent: true,
+          version: "1.1.1",
+          srs: "EPSG:4326",
+          tiled: true,
+        });
+
+        layerGroupsRef.current[tableName] = wmsLayer;
+        wmsLayer.addTo(mapAtRequest);
+
+        console.log("SIMITI: risiko banjir nasional menggunakan GeoServer WMS", {
+          url: geoserverWmsUrl,
+          zoom,
+        });
+
+        return;
+      }
       // Build URL dengan filter administrasi/DAS
       let url = `${API_URL}/api/layers/${apiLayerName}/geojson?bounds=${encodeURIComponent(boundsString)}&zoom=${zoom}`;
 
