@@ -1,4 +1,4 @@
-﻿"use strict";
+"use strict";
 
 const express = require("express");
 const OpenAI = require("openai");
@@ -518,7 +518,7 @@ function createAiMitigationRecommendationRouter(pool) {
       console.error("[AI MITIGATION] Spatial evidence query failed:", JSON.stringify({
   name: error?.name ?? null,
   code: error?.code ?? null,
-  message: error?.message ?? "Unknown error",
+  provider_message_logged: false,
   detail: error?.detail ?? null,
   hint: error?.hint ?? null,
   position: error?.position ?? null,
@@ -530,7 +530,7 @@ function createAiMitigationRecommendationRouter(pool) {
       return res.status(500).json({
         success: false,
         message: "Gagal membaca bukti spasial wilayah dari database.",
-        detail: process.env.NODE_ENV === "development" ? error.message : undefined,
+        detail: undefined,
       });
     }
 
@@ -546,7 +546,7 @@ function createAiMitigationRecommendationRouter(pool) {
     if (!process.env.OPENAI_API_KEY) {
       return res.status(503).json({
         success: false,
-        message: "Bukti spasial berhasil dibaca, tetapi OPENAI_API_KEY belum tersedia.",
+        message: "Layanan analisis AI SIMITI belum dikonfigurasi oleh administrator.",
         spatial_evidence: spatialEvidence,
       });
     }
@@ -643,7 +643,7 @@ function createAiMitigationRecommendationRouter(pool) {
         error_type: error?.error?.type ?? null,
         error_code: error?.error?.code ?? null,
         request_id: error?.request_id ?? null,
-        message: error?.message ?? "Unknown error",
+        provider_message_logged: false,
       }));
 
       const errorText = [
@@ -656,64 +656,40 @@ function createAiMitigationRecommendationRouter(pool) {
       const isCreditExhausted =
         error?.status === 429 &&
         (
+          error?.code === "insufficient_quota" ||
+          error?.error?.code === "insufficient_quota" ||
           errorText.includes("insufficient_quota") ||
-          errorText.includes("quota") ||
+          errorText.includes("credit_balance_exhausted") ||
           errorText.includes("billing") ||
-          errorText.includes("credit")
+          errorText.includes("credit") ||
+          errorText.includes("quota")
         );
 
-      if (isCreditExhausted && catalogItems.length > 0) {
-        const fallbackRecommendations = catalogItems
-          .slice(0, 3)
-          .map((item, index) => ({
-            rank: index + 1,
-            intervention_id: catalogId(item, index),
-            intervention: catalogTitle(item),
-            priority_score: 50,
-            urgency: "Perlu verifikasi",
-            expected_effect:
-              "Potensi manfaat mitigasi perlu dinilai berdasarkan karakteristik wilayah dan kajian teknis.",
-            why:
-              `Diambil dari katalog lokal SIMITI untuk hazard ${hazard}. Urutan katalog bukan peringkat prioritas teknis dan belum divalidasi oleh AI.`,
-            evidence: [
-              "Berasal dari katalog mitigasi lokal SIMITI.",
-              `Jumlah fitur risiko pada hasil query spasial: ${spatialEvidence.total_risk_features}.`,
-            ],
-            implementation_notes:
-              "Validasi bukti spasial, kondisi lapangan, kelayakan teknis, dan kewenangan instansi sebelum pelaksanaan.",
-          }))
-          .filter((item) => item.intervention);
+      if (isCreditExhausted) {
+        console.warn(
+          "[AI MITIGATION] AI decision unavailable: service quota exhausted."
+        );
 
-        return res.json({
-          success: true,
-          area: area.label || area.name || context.selected_region || "Wilayah terpilih",
-          hazard,
-          diagnosis:
-            `Rekomendasi mitigasi ${hazard} menggunakan katalog lokal SIMITI karena layanan AI tidak tersedia.`,
-          risk_level: "Perlu verifikasi",
-          primary_drivers: [],
-          recommendations: fallbackRecommendations,
-          confidence: 50,
-          verification_needed: true,
-          verification_reason:
-            "Kredit atau kuota OpenAI tidak mencukupi. Skor fallback bersifat netral, urutan mengikuti katalog lokal dan bukan peringkat prioritas teknis. Seluruh rekomendasi wajib diverifikasi.",
+        return res.status(503).json({
+          success: false,
+          code: "AI_CREDITS_UNAVAILABLE",
+          message:
+            "Analisis AI SIMITI sedang tidak tersedia karena kuota layanan belum mencukupi. Silakan hubungi administrator.",
           spatial_evidence: spatialEvidence,
           meta: {
-            version: "SIMITI-AI-MITIGATION-V4.0",
-            model: "local-catalog-fallback",
-            source: "SIMITI local mitigation catalog + PostgreSQL/PostGIS",
-            fallback_reason: "OpenAI quota or credit exhausted",
+            version: "SIMITI-AI-MITIGATION-V4.1",
+            ai_decision_generated: false,
+            source: "PostgreSQL/PostGIS",
             generated_at: new Date().toISOString(),
           },
         });
       }
-
-      console.error("[AI MITIGATION] Recommendation failed:", error.message);
+      console.error("[AI MITIGATION] Recommendation failed:", JSON.stringify({ status: error?.status ?? null, code: error?.code ?? null, type: error?.type ?? null }));
       return res.status(502).json({
         success: false,
         message: "Bukti spasial berhasil dibaca, tetapi pembuatan rekomendasi AI gagal.",
         spatial_evidence: spatialEvidence,
-        detail: process.env.NODE_ENV === "development" ? error.message : undefined,
+        detail: undefined,
       });
     }
   });
