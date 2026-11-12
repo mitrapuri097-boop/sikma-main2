@@ -11277,28 +11277,28 @@ const Kerawanan = () => {
         };
         if (activeLayers.has(activeBottomTab) && risikoLayerData.length > 0) {
           return (
-            <div className="p-3 h-full flex flex-col">
-              <div className="min-w-0 w-full overflow-visible">
-                <table className="w-full text-xs">
+            <div className="kerawanan-risk-legend-content h-full min-h-0 flex flex-col">
+              <div className="kerawanan-risk-legend-scroll min-w-0 w-full overflow-visible">
+                <table className="kerawanan-risk-legend-table w-full text-xs">
                   <thead className="sticky top-0 bg-white z-10">
                     <tr className="border-b border-gray-200">
                       <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
+                        className="text-left py-1 px-2 font-medium text-gray-600 bg-white"
                         style={{ width: "50px" }}
                       >
                         No
                       </th>
                       <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
+                        className="text-left py-1 px-2 font-medium text-gray-600 bg-white"
                         style={{ width: "100px" }}
                       >
                         Warna Layer
                       </th>
-                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
+                      <th className="text-left py-1 px-2 font-medium text-gray-600 bg-white">
                         Kelas
                       </th>
                       <th
-                        className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
+                        className="text-left py-1 px-2 font-medium text-gray-600 bg-white"
                         style={{ width: "140px" }}
                       >
                         Luas (Shape Area)
@@ -11319,17 +11319,17 @@ const Kerawanan = () => {
                         }
                         onMouseLeave={handleRowMouseLeave}
                       >
-                        <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
-                        <td className="py-2 px-2">
+                        <td className="py-1 px-2 text-gray-700">{idx + 1}</td>
+                        <td className="py-1 px-2">
                           <div
                             className="w-8 h-4 rounded border border-gray-300"
                             style={{ backgroundColor: item.color }}
                           ></div>
                         </td>
-                        <td className="py-2 px-2 text-gray-700 break-words">
+                        <td className="py-1 px-2 text-gray-700 break-words">
                           {item.kelas || "-"}
                         </td>
-                        <td className="py-2 px-2 text-gray-700">
+                        <td className="py-1 px-2 text-gray-700">
                           {item.luas ? item.luas.toFixed(2) : "0"}
                         </td>
                       </tr>
@@ -14112,6 +14112,38 @@ const Kerawanan = () => {
           overscroll-behavior: contain;
           -webkit-overflow-scrolling: touch;
         }
+        /* SIMITI: scrollbar panel kanan — DEEP BLUE */
+        .kerawanan-layer-panel .dashboard-scroll {
+          scrollbar-width: thin;
+          scrollbar-color: #1D4ED8 #DBEAFE;
+        }
+
+        .kerawanan-layer-panel .dashboard-scroll::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+
+        .kerawanan-layer-panel .dashboard-scroll::-webkit-scrollbar-track {
+          background: #DBEAFE;
+          border-radius: 999px;
+          margin-block: 5px;
+        }
+
+        .kerawanan-layer-panel .dashboard-scroll::-webkit-scrollbar-thumb {
+          background: #1D4ED8;
+          border: 2px solid #DBEAFE;
+          border-radius: 999px;
+          min-height: 34px;
+        }
+
+        .kerawanan-layer-panel .dashboard-scroll::-webkit-scrollbar-thumb:hover {
+          background: #1E40AF;
+        }
+
+        .kerawanan-layer-panel .dashboard-scroll::-webkit-scrollbar-thumb:active {
+          background: #1E3A8A;
+        }
+
 
         .kerawanan-layer-panel input[type="checkbox"] {
           flex: 0 0 auto;
@@ -14762,6 +14794,100 @@ const Kerawanan = () => {
             max-width: 100% !important;
           }
         }
+
+        /* SIMITI: tampilkan seluruh baris legenda risiko tanpa scrollbar.
+           Panel bawah diperbesar; ruang peta menyesuaikan otomatis. */
+        @media (min-width: 768px) {
+          .kerawanan-workspace {
+            grid-template-rows: minmax(0, 1fr) 280px !important;
+          }
+          .kerawanan-workspace > .kerawanan-bottom-summary {
+            height: 280px !important;
+            min-height: 280px !important;
+            max-height: 280px !important;
+            overflow: hidden !important;
+          }
+        }
+
+        .kerawanan-bottom-tabs-panel > .kerawanan-bottom-tabs-content {
+          overflow: hidden !important;
+          min-height: 0 !important;
+        }
+
+        .kerawanan-risk-legend-content,
+        .kerawanan-risk-legend-scroll {
+          height: auto !important;
+          max-height: none !important;
+          min-height: 0 !important;
+          overflow: visible !important;
+        }
+
+        .kerawanan-risk-legend-table {
+          height: auto !important;
+          overflow: visible !important;
+        }
+
+        @media (max-width: 767px) {
+          .kerawanan-workspace.bottom-summary-open {
+            grid-template-rows: minmax(280px, 48dvh) auto !important;
+          }
+          .kerawanan-workspace.bottom-summary-open > .kerawanan-bottom-summary {
+            height: auto !important;
+            min-height: 220px !important;
+            max-height: none !important;
+            overflow: visible !important;
+          }
+        }
+
+
+        /* SIMITI: tinggi panel legenda risiko dinamis sesuai jumlah kelas warna.
+           Tidak membatasi tinggi tabel dan tidak menampilkan scrollbar vertikal. */
+        @media (min-width: 768px) {
+          .kerawanan-workspace.bottom-summary-open {
+            grid-template-rows:
+              minmax(0, 1fr) var(--simiti-bottom-legend-height, 200px) !important;
+          }
+          .kerawanan-workspace.bottom-summary-open > .kerawanan-bottom-summary {
+            height: var(--simiti-bottom-legend-height, 200px) !important;
+            min-height: var(--simiti-bottom-legend-height, 200px) !important;
+            max-height: none !important;
+            overflow: visible !important;
+          }
+        }
+
+        .kerawanan-bottom-tabs-panel > .kerawanan-bottom-tabs-content {
+          flex: 1 0 auto !important;
+          min-height: 0 !important;
+          max-height: none !important;
+          overflow: visible !important;
+        }
+        .kerawanan-risk-legend-content,
+        .kerawanan-risk-legend-scroll,
+        .kerawanan-risk-legend-table {
+          height: auto !important;
+          min-height: 0 !important;
+          max-height: none !important;
+          overflow: visible !important;
+        }
+        .kerawanan-risk-legend-table thead,
+        .kerawanan-risk-legend-table tbody,
+        .kerawanan-risk-legend-table tr {
+          overflow: visible !important;
+        }
+
+        @media (max-width: 767px) {
+          .kerawanan-workspace.bottom-summary-open {
+            grid-template-rows:
+              minmax(0, 1fr) var(--simiti-bottom-legend-height, 200px) !important;
+          }
+          .kerawanan-workspace.bottom-summary-open > .kerawanan-bottom-summary {
+            height: var(--simiti-bottom-legend-height, 200px) !important;
+            min-height: var(--simiti-bottom-legend-height, 200px) !important;
+            max-height: none !important;
+            overflow: visible !important;
+          }
+        }
+
         `}</style>
 
       {/* =========================================================
@@ -14846,11 +14972,28 @@ const Kerawanan = () => {
           <div
             className={`kerawanan-workspace min-h-0 flex-1 grid grid-cols-1 gap-0 transition-[grid-template-rows] duration-300 ease-out ${isBottomSummaryOpen ? "bottom-summary-open" : "bottom-summary-closed"} ${isRightLayerPanelOpen ? "right-layer-open" : "right-layer-panel-closed"}`}
             style={{
+              // Legenda risiko bertambah/berkurang mengikuti jumlah kelas warna.
+              // Ruang panel dihitung dari header tab + header tabel + seluruh baris.
+              "--simiti-bottom-legend-height": (() => {
+                const riskTabs = [
+                  "risiko_banjir",
+                  "risiko_banjir_bandang",
+                  "risiko_kekeringan",
+                  "risiko_abrasi",
+                  "risiko_longsor",
+                  "risiko_karhutla",
+                ];
+                const isRiskLegend = riskTabs.includes(activeBottomTab);
+                const riskRows = isRiskLegend
+                  ? ((risikoData as any)?.[activeBottomTab]?.length || 0)
+                  : 0;
+                return `${isRiskLegend ? Math.max(130, 76 + riskRows * 30) : 200}px`;
+              })(),
               gridTemplateRows: isBottomSummaryOpen
-                ? "minmax(0, 1fr) 200px"
+                ? "minmax(0, 1fr) var(--simiti-bottom-legend-height)"
                 : "minmax(0, 1fr) 0px",
               rowGap: isBottomSummaryOpen ? "8px" : "0px",
-            }}
+            } as React.CSSProperties}
           >
             {/* =====================================================
                 MAP — pusat visual seperti mockup
