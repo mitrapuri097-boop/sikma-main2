@@ -2152,7 +2152,7 @@ const Kerawanan = () => {
       if (isNationalRawanBanjirWms) {
         const geoserverWmsUrl = String(
           import.meta.env.VITE_GEOSERVER_WMS_URL ||
-          "http://localhost:8080/geoserver/simiti/wms"
+          "/geoserver/simiti/wms"
         ).trim();
 
         // Bersihkan layer lama agar tidak terjadi duplikasi.
@@ -2164,7 +2164,7 @@ const Kerawanan = () => {
         layerCacheRef.current.delete(tableName);
 
         const wmsLayer = window.L.tileLayer.wms(geoserverWmsUrl, {
-          layers: "simiti:risiko_banjir_published",
+          layers: "simiti:risiko_banjir",
           styles: "",
           format: "image/png",
           transparent: true,

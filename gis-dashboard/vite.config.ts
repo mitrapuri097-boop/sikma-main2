@@ -8,6 +8,12 @@ export default defineConfig({
   preview: {
     host: '0.0.0.0',
     port: 5173,
-    allowedHosts: true
+    allowedHosts: true,
+    proxy: {
+      '/geoserver': {
+        target: 'http://nkumazivhvaiapqfz9rntr3m-20261111T190131:8080',
+        changeOrigin: true
+      }
+    }
   }
 })
