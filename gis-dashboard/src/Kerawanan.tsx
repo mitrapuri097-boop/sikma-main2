@@ -2573,7 +2573,7 @@ const Kerawanan = () => {
 
           const legendPayload = await legendResponse.json();
           const legendRows = Array.isArray(legendPayload?.classes)
-            ? legendPayload.data
+            ? legendPayload.classes
             : [];
           const fallbackRiskColor = getBencanaLayerColor("risiko_banjir");
           const legendItems = legendRows
@@ -2583,7 +2583,7 @@ const Kerawanan = () => {
               const color = getRiskClassColor(kelas, fallbackRiskColor);
               return {
                 kelas,
-                luas: Number(row.luasHa ?? 0) || 0,
+                luas: Number(row.luas_total ?? row.shape_area ?? row.shape_leng ?? 0) || 0,
                 color,
               };
             });
