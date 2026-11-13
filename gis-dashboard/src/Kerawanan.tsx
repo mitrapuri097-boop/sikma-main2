@@ -4,6 +4,7 @@ import {
   bbox as turfBbox,
   featureCollection as turfFeatureCollection,
   intersect as turfIntersect,
+  simplify as turfSimplify,
 } from "@turf/turf";
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "./api";
@@ -451,6 +452,10 @@ const Kerawanan = () => {
       kab_kota?: string;
       kecamatan?: string;
       kel_desa?: string;
+      kode_prov?: string;
+      kode_kk?: string;
+      kode_kec?: string;
+      kode_kd?: string;
       geom?: any;
       latitude?: number | null;
       longitude?: number | null;
@@ -1431,6 +1436,237 @@ const Kerawanan = () => {
     return fallback;
   };
 
+  // SLD dinamis untuk WMS nasional: warna polygon berasal dari atribut kelas
+  // yang sama dengan legenda, bukan dari style default GeoServer.
+  const buildNationalRiskBanjirSld = (items: Array<{ kelas: string; color: string }>) => {
+    const xmlEscape = (value: string) =>
+      String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+    const rules = items.map((item, index) => `
+      <Rule>
+        <Name>kelas_${index + 1}</Name>
+        <Title>${xmlEscape(item.kelas)}</Title>
+        <ogc:Filter><ogc:PropertyIsEqualTo>
+          <ogc:PropertyName>kelas</ogc:PropertyName>
+          <ogc:Literal>${xmlEscape(item.kelas)}</ogc:Literal>
+        </ogc:PropertyIsEqualTo></ogc:Filter>
+        <PolygonSymbolizer>
+          <Fill><CssParameter name="fill">${xmlEscape(item.color)}</CssParameter>
+            <CssParameter name="fill-opacity">0.78</CssParameter></Fill>
+          <Stroke><CssParameter name="stroke">#FFFFFF</CssParameter>
+            <CssParameter name="stroke-width">0.25</CssParameter>
+            <CssParameter name="stroke-opacity">0.45</CssParameter></Stroke>
+        </PolygonSymbolizer>
+      </Rule>`).join("\n");
+    return `<?xml version="1.0" encoding="UTF-8"?>
+      <StyledLayerDescriptor version="1.0.0"
+        xmlns="http://www.opengis.net/sld"
+        xmlns:ogc="http://www.opengis.net/ogc"
+        xmlns:xlink="http://www.w3.org/1999/xlink"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.opengis.net/sld http://schemas.opengis.net/sld/1.0.0/StyledLayerDescriptor.xsd">
+        <NamedLayer><Name>simiti:risiko_banjir</Name><UserStyle>
+          <Title>SIMITI Risiko Banjir berdasarkan kelas</Title>
+          <FeatureTypeStyle>${rules}</FeatureTypeStyle>
+        </UserStyle></NamedLayer>
+      </StyledLayerDescriptor>`;
+  };
+
+  // Bangun WKT dari geometri administrasi untuk filter spasial GeoServer.
+  const buildRiskBanjirAdminWkt = (areas: Array<any>): string | null => {
+    const collectPolygons = (geom: any): any[] => {
+      if (!geom) return [];
+      if (geom.type === "Feature") return collectPolygons(geom.geometry);
+      if (geom.type === "Polygon") return [geom.coordinates];
+      if (geom.type === "MultiPolygon") return geom.coordinates || [];
+      if (geom.type === "GeometryCollection") {
+        return (geom.geometries || []).flatMap(collectPolygons);
+      }
+      return [];
+    };
+
+    const polygons = areas.flatMap((area: any) =>
+      collectPolygons(area?.geom)
+    );
+    if (!polygons.length) return null;
+
+    // Coba toleransi kecil lebih dahulu. Jika WKT terlalu panjang,
+    // sederhanakan bertahap tanpa langsung membuang geometri.
+    const tolerances = [0.00005, 0.0001, 0.0002, 0.0004, 0.0008];
+    const maxWktLength = 4200;
+
+    for (const tolerance of tolerances) {
+      try {
+        const outputPolygons: number[][][][] = [];
+
+        for (const coordinates of polygons) {
+          const feature: any = {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "Polygon",
+              coordinates,
+            },
+          };
+
+          const simplified: any = turfSimplify(feature, {
+            tolerance,
+            highQuality: true,
+            mutate: false,
+          });
+
+          if (simplified?.geometry?.type !== "Polygon") {
+            throw new Error("Hasil simplify bukan Polygon");
+          }
+
+          const outputRings: number[][][] = [];
+
+          for (const ring of simplified.geometry.coordinates || []) {
+            const points: number[][] = (ring || [])
+              .map((point: any) => [
+                Number(point?.[0]),
+                Number(point?.[1]),
+              ])
+              .filter((point: number[]) =>
+                point.length === 2 &&
+                point.every(Number.isFinite) &&
+                Math.abs(point[0]) <= 180 &&
+                Math.abs(point[1]) <= 90
+              );
+
+            if (points.length < 3) {
+              throw new Error("Ring geometri tidak valid");
+            }
+
+            const first = points[0];
+            const last = points[points.length - 1];
+
+            if (first[0] !== last[0] || first[1] !== last[1]) {
+              points.push([...first]);
+            }
+
+            if (points.length < 4) {
+              throw new Error("Ring terlalu pendek");
+            }
+
+            outputRings.push(points);
+          }
+
+          if (!outputRings.length) {
+            throw new Error("Polygon tidak memiliki ring");
+          }
+
+          outputPolygons.push(outputRings);
+        }
+
+        const polygonWkts = outputPolygons.map((polygon) => {
+          const ringWkts = polygon.map((ring) => {
+            const points = ring.map(([lng, lat]) =>
+              `${Number(lng.toFixed(6))} ${Number(lat.toFixed(6))}`
+            );
+            return `(${points.join(",")})`;
+          });
+          return `(${ringWkts.join(",")})`;
+        });
+
+        const wkt = `MULTIPOLYGON(${polygonWkts.join(",")})`;
+      const vertexCount = outputPolygons.reduce(
+        (total, polygon) =>
+          total + polygon.reduce(
+            (ringTotal, ring) => ringTotal + ring.length,
+            0,
+          ),
+        0,
+      );
+      console.info("SIMITI WMS WKT SIZE:", {
+        tolerance,
+        length: wkt.length,
+        polygonCount: outputPolygons.length,
+        vertexCount,
+        maxWktLength,
+      });
+        if (wkt.length <= maxWktLength) return wkt;
+      } catch (error) {
+        console.warn("SIMITI: simplify geometri WMS gagal", tolerance, error);
+      }
+    }
+
+    console.warn("SIMITI: geometri administrasi terlalu besar untuk WMS.");
+    return null;
+  };
+
+  const buildRiskBanjirWmsCqlFilter = (
+    kelas: string | null,
+    areas: Array<any> = selectedAreas
+  ): string | null => {
+    const classFilter = kelas
+      ? `kelas = '${String(kelas).replace(/'/g, "''")}'`
+      : "";
+
+    if (!areas.length) return classFilter || "INCLUDE";
+
+    const deepestAreas = getDeepestSelectedAdminAreas(areas);
+    if (!deepestAreas.length) return null;
+
+    try {
+      const features = deepestAreas
+        .map((area: any) => {
+          const geom = area?.geom?.type === "Feature"
+            ? area.geom.geometry
+            : area?.geom;
+
+          if (!geom?.type || !geom.coordinates) return null;
+
+          return {
+            type: "Feature",
+            properties: {},
+            geometry: geom,
+          };
+        })
+        .filter(Boolean) as any[];
+
+      if (!features.length) return null;
+
+      const [minX, minY, maxX, maxY] = turfBbox(
+        turfFeatureCollection(features),
+      );
+
+      if (![minX, minY, maxX, maxY].every(Number.isFinite)) {
+        return null;
+      }
+
+      const spatialFilter =
+        `BBOX(geom_valid,${minX},${minY},${maxX},${maxY},'EPSG:4326')`;
+
+      console.info("SIMITI WMS ADMIN BBOX:", {
+        minX, minY, maxX, maxY,
+        areaCount: features.length,
+      });
+
+      return classFilter
+        ? `(${spatialFilter}) AND (${classFilter})`
+        : spatialFilter;
+    } catch (error) {
+      console.warn("SIMITI: gagal membentuk BBOX WMS:", error);
+      return null;
+    }
+  };
+
+  const applyNationalRiskBanjirLegendClass = (kelas: string | null) => {
+    const wmsLayer: any = layerGroupsRef.current?.risiko_banjir;
+    if (!wmsLayer || typeof wmsLayer.setParams !== "function") return false;
+
+    const cqlFilter = buildRiskBanjirWmsCqlFilter(kelas);
+    if (!cqlFilter) {
+      console.warn("SIMITI: filter legenda WMS tidak dapat dibentuk.");
+      return false;
+    }
+
+    wmsLayer.setParams({ CQL_FILTER: cqlFilter });
+    return true;
+  };
+
   const getBencanaFeatureClass = (feature: any): string => {
     const props = feature?.properties || {};
     const candidates = [
@@ -1715,44 +1951,52 @@ const Kerawanan = () => {
     if (!d) return;
 
     try {
-      // IMAGE OVERLAY / RASTER
-      const imageElement = layerGroup.getElement?.() as
-        | HTMLImageElement
-        | undefined;
+      // WMS TILE CLIP — setiap tile dipotong mengikuti polygon administrasi.
+      if (
+        typeof layerGroup.getContainer === "function" &&
+        typeof layerGroup.on === "function"
+      ) {
+        const container = layerGroup.getContainer?.();
+        const mapContainer = map.getContainer?.();
 
-      if (imageElement) {
-        const bounds = layerGroup.getBounds?.();
+        (layerGroup as any)._simitiAdminClipAreas = areas;
 
-        if (bounds) {
-          const northWest = bounds.getNorthWest();
-          const origin = map.latLngToLayerPoint(northWest);
+        const clipWmsTile = (imageElement: HTMLImageElement) => {
+          if (!imageElement || !mapContainer) return;
 
-          const imagePath = areas
+          const currentAreas =
+            (layerGroup as any)._simitiAdminClipAreas || areas;
+
+          const containerRect = mapContainer.getBoundingClientRect();
+          const tileRect = imageElement.getBoundingClientRect();
+
+          const tileLeft = tileRect.left - containerRect.left;
+          const tileTop = tileRect.top - containerRect.top;
+
+          const imagePath = currentAreas
             .flatMap((area: any) =>
               areaGeomToLatLngRings(area?.geom),
             )
             .map((ring: number[][]) => {
               const points = ring
                 .map(([lat, lng]) => {
-                  const point = map.latLngToLayerPoint([lat, lng]);
+                  const point = map.latLngToContainerPoint([lat, lng]);
 
                   return {
-                    x: point.x - origin.x,
-                    y: point.y - origin.y,
+                    x: point.x - tileLeft,
+                    y: point.y - tileTop,
                   };
                 })
-                .filter(
-                  (point: any) =>
-                    Number.isFinite(point.x) &&
-                    Number.isFinite(point.y),
+                .filter((point: any) =>
+                  Number.isFinite(point.x) &&
+                  Number.isFinite(point.y),
                 );
 
               if (points.length < 3) return "";
 
               return (
                 `M ${points[0].x} ${points[0].y} ` +
-                points
-                  .slice(1)
+                points.slice(1)
                   .map((point: any) => `L ${point.x} ${point.y}`)
                   .join(" ") +
                 " Z"
@@ -1761,13 +2005,99 @@ const Kerawanan = () => {
             .filter(Boolean)
             .join(" ");
 
-          if (imagePath) {
-            const cssClip = `path("${imagePath}")`;
+          if (!imagePath) return;
 
-            imageElement.style.setProperty("clip-path", cssClip);
-            imageElement.style.setProperty("-webkit-clip-path", cssClip);
-            imageElement.dataset.simitiAdminClip =
-              selectedAreaBencanaClipIdRef.current;
+          const cssClip = `path("${imagePath}")`;
+
+          imageElement.style.setProperty("clip-path", cssClip);
+          imageElement.style.setProperty("-webkit-clip-path", cssClip);
+          imageElement.dataset.simitiAdminClip =
+            selectedAreaBencanaClipIdRef.current;
+        };
+
+        const updateWmsTiles = () => {
+          const tileContainer = layerGroup.getContainer?.();
+          if (!tileContainer) return;
+
+          tileContainer
+            .querySelectorAll("img.leaflet-tile")
+            .forEach((tile: HTMLImageElement) => {
+              if (tile.complete && tile.naturalWidth > 0) {
+                clipWmsTile(tile);
+              }
+            });
+        };
+
+        let tileHandler = (event: any) => {
+          const tile = event?.tile as HTMLImageElement | undefined;
+          if (tile) clipWmsTile(tile);
+        };
+
+        const previousHandler =
+          (layerGroup as any)._simitiAdminTileClipHandler;
+
+        if (previousHandler) {
+          layerGroup.off("tileload", previousHandler);
+        }
+
+        (layerGroup as any)._simitiAdminTileClipHandler = tileHandler;
+        layerGroup.on("tileload", tileHandler);
+
+        updateWmsTiles();
+
+        // Simpan fungsi agar dapat dipanggil lagi setelah map bergerak.
+        (layerGroup as any)._simitiAdminUpdateTileClip = updateWmsTiles;
+      } else {
+        // IMAGE OVERLAY / RASTER lama tetap dipertahankan.
+        const imageElement = layerGroup.getElement?.() as
+          | HTMLImageElement
+          | undefined;
+
+        if (imageElement) {
+          const bounds = layerGroup.getBounds?.();
+
+          if (bounds) {
+            const northWest = bounds.getNorthWest();
+            const origin = map.latLngToLayerPoint(northWest);
+
+            const imagePath = areas
+              .flatMap((area: any) =>
+                areaGeomToLatLngRings(area?.geom),
+              )
+              .map((ring: number[][]) => {
+                const points = ring
+                  .map(([lat, lng]) => {
+                    const point = map.latLngToLayerPoint([lat, lng]);
+                    return {
+                      x: point.x - origin.x,
+                      y: point.y - origin.y,
+                    };
+                  })
+                  .filter((point: any) =>
+                    Number.isFinite(point.x) &&
+                    Number.isFinite(point.y),
+                  );
+
+                if (points.length < 3) return "";
+
+                return (
+                  `M ${points[0].x} ${points[0].y} ` +
+                  points.slice(1)
+                    .map((point: any) => `L ${point.x} ${point.y}`)
+                    .join(" ") +
+                  " Z"
+                );
+              })
+              .filter(Boolean)
+              .join(" ");
+
+            if (imagePath) {
+              const cssClip = `path("${imagePath}")`;
+              imageElement.style.setProperty("clip-path", cssClip);
+              imageElement.style.setProperty("-webkit-clip-path", cssClip);
+              imageElement.dataset.simitiAdminClip =
+                selectedAreaBencanaClipIdRef.current;
+            }
           }
         }
       }
@@ -1896,7 +2226,31 @@ const Kerawanan = () => {
         if (!layerGroup) return;
 
         try {
-          // Bersihkan raster yang diberi clipping administrasi SIMITI.
+          // Bersihkan semua tile WMS yang pernah diberi clip.
+          const tileHandler =
+            (layerGroup as any)._simitiAdminTileClipHandler;
+
+          if (tileHandler) {
+            layerGroup.off?.("tileload", tileHandler);
+            delete (layerGroup as any)._simitiAdminTileClipHandler;
+          }
+
+          delete (layerGroup as any)._simitiAdminClipAreas;
+          delete (layerGroup as any)._simitiAdminUpdateTileClip;
+
+          const tileContainer = layerGroup.getContainer?.();
+
+          tileContainer
+            ?.querySelectorAll?.("img.leaflet-tile")
+            .forEach((tile: HTMLImageElement) => {
+              if (tile.dataset?.simitiAdminClip === clipPrefix) {
+                tile.style.removeProperty("clip-path");
+                tile.style.removeProperty("-webkit-clip-path");
+                delete tile.dataset.simitiAdminClip;
+              }
+            });
+
+          // Bersihkan raster ImageOverlay lama.
           const imageElement = layerGroup.getElement?.() as
             | HTMLImageElement
             | undefined;
@@ -2140,14 +2494,31 @@ const Kerawanan = () => {
         boundsString = "-11,95,6,141";
       }
 
-      // SIMITI_WMS_RISIKO_BANJIR_NASIONAL
-      // WMS hanya untuk tampilan nasional risiko banjir tanpa filter spasial.
-      const isNationalRawanBanjirWms =
+      // SIMITI_WMS_RISIKO_BANJIR_ADMIN
+      // Nasional: WMS pada zoom rendah.
+      // Administrasi: WMS memakai INTERSECTS pada geometri wilayah terpilih.
+      // DAS dan fokus KHDTK tetap memakai jalur lama.
+      const isRiskBanjirWmsCandidate =
         tableName === "risiko_banjir" &&
-        selectedAreas.length === 0 &&
         selectedDas.length === 0 &&
-        !activeSpatialFocus?.feature?.geometry &&
-        zoom <= 5;
+        (
+          selectedAreas.length > 0
+            ? activeSpatialFocus?.layerType !== "khdtk"
+            : !activeSpatialFocus?.feature?.geometry && zoom <= 5
+        );
+
+      const riskBanjirWmsCqlFilter = isRiskBanjirWmsCandidate
+        ? buildRiskBanjirWmsCqlFilter(selectedLegendKey)
+        : null;
+
+      const isNationalRawanBanjirWms =
+        isRiskBanjirWmsCandidate && Boolean(riskBanjirWmsCqlFilter);
+
+      if (isRiskBanjirWmsCandidate && !riskBanjirWmsCqlFilter) {
+        console.warn(
+          "SIMITI: WMS dilewati karena filter administrasi tidak tersedia; memakai GeoJSON."
+        );
+      }
 
       if (isNationalRawanBanjirWms) {
         const geoserverWmsUrl = String(
@@ -2170,11 +2541,80 @@ const Kerawanan = () => {
           transparent: true,
           version: "1.1.1",
           srs: "EPSG:4326",
-          tiled: true,
+          tiled: false,
+          CQL_FILTER: riskBanjirWmsCqlFilter,
         });
 
         layerGroupsRef.current[tableName] = wmsLayer;
         wmsLayer.addTo(mapAtRequest);
+
+        // WMS hanya menggambar raster/peta; ia tidak mengirim feature GeoJSON
+        // sehingga legenda kelas harus diisi dari endpoint agregasi backend.
+        // Endpoint ini sudah tersedia di server.js dan tidak mengubah jalur
+        // GeoJSON yang dipakai untuk filter administrasi maupun DAS.
+        try {
+          const token = getAuthToken();
+          const legendHeaders: Record<string, string> = {
+            Accept: "application/json",
+          };
+          if (token) legendHeaders.Authorization = `Bearer ${token}`;
+
+          const legendResponse = await fetch(
+            `${API_URL}/api/layers/risiko_banjir/statistics`,
+            {
+              method: "GET",
+              headers: legendHeaders,
+              credentials: "same-origin",
+            },
+          );
+          if (!legendResponse.ok) {
+            throw new Error(`HTTP ${legendResponse.status}`);
+          }
+
+          const legendPayload = await legendResponse.json();
+          const legendRows = Array.isArray(legendPayload?.classes)
+            ? legendPayload.data
+            : [];
+          const fallbackRiskColor = getBencanaLayerColor("risiko_banjir");
+          const legendItems = legendRows
+            .filter((row: any) => String(row?.kelas ?? "").trim())
+            .map((row: any) => {
+              const kelas = String(row.kelas).trim();
+              const color = getRiskClassColor(kelas, fallbackRiskColor);
+              return {
+                kelas,
+                luas: Number(row.luasHa ?? 0) || 0,
+                color,
+              };
+            });
+
+          setRisikoData((prev) => ({
+            ...prev,
+            risiko_banjir: legendItems,
+          }));
+          colorMappingRef.current.risikoBanjir.clear();
+          legendItems.forEach((item: any) => {
+            colorMappingRef.current.risikoBanjir.set(item.kelas, item.color);
+          });
+          // Pakai SLD yang sama untuk seluruh kelas agar warna WMS nasional
+          // identik dengan kotak warna pada legenda.
+          (wmsLayer as any).setParams({
+            styles: "",
+            SLD_BODY: buildNationalRiskBanjirSld(legendItems),
+            CQL_FILTER: riskBanjirWmsCqlFilter,
+          });
+
+          console.log("SIMITI: legenda risiko banjir nasional berhasil dimuat", {
+            jumlahKelas: legendItems.length,
+            kelas: legendItems.map((item: any) => item.kelas),
+          });
+        } catch (legendError) {
+          console.error(
+            "SIMITI: gagal memuat agregasi legenda risiko banjir nasional:",
+            legendError,
+          );
+          setRisikoData((prev) => ({ ...prev, risiko_banjir: [] }));
+        }
 
         console.log("SIMITI: risiko banjir nasional menggunakan GeoServer WMS", {
           url: geoserverWmsUrl,
@@ -2195,33 +2635,41 @@ const Kerawanan = () => {
         selectedAreas.length > 0 &&
         selectedSpatialFeatureRef.current?.layerType !== "khdtk"
       ) {
-        const firstArea = selectedAreas[0];
-        const adminLevel = firstArea.level;
+        const deepestAreas = getDeepestSelectedAdminAreas(selectedAreas);
+        const adminLevel = deepestAreas[0]?.level;
 
-        const adminNames = selectedAreas
-          .map((area) => {
-            switch (area.level) {
+        const adminCodes = deepestAreas
+          .map((area: any) => {
+            switch (adminLevel) {
               case "provinsi":
-                return area.provinsi!;
+                return area.kode_prov;
               case "kabupaten":
-                return area.kab_kota!;
+                return area.kode_kk;
               case "kecamatan":
-                return area.kecamatan!;
+                return area.kode_kec;
               case "kelurahan":
-                return area.kel_desa!;
+                return area.kode_kd;
               default:
                 return "";
             }
           })
-          .filter((name) => name);
+          .filter((code: any) => Boolean(code && String(code).trim()));
 
-        url += `&adminFilter=${encodeURIComponent(JSON.stringify(adminNames))}`;
-        url += `&adminLevel=${adminLevel}`;
+        if (adminLevel && adminCodes.length > 0) {
+          url += `&adminCodes=${encodeURIComponent(JSON.stringify(adminCodes))}`;
+          url += `&adminLevel=${adminLevel}`;
+        } else {
+          console.warn(
+            "Kode administrasi tidak tersedia untuk filter GeoJSON:",
+            deepestAreas,
+          );
+        }
+
         console.log(
-          " Loading layer with admin filtering:",
+          " Loading layer with admin code filtering:",
           tableName,
           adminLevel,
-          adminNames,
+          adminCodes,
         );
       }
 
@@ -4183,7 +4631,7 @@ const Kerawanan = () => {
     // Jika ada layer yang sebelumnya di-hover, reset hanya layer tersebut
     if (hoveredLayerType && dataLayers.includes(hoveredLayerType)) {
       const layerGroup = layerGroupsRef.current[hoveredLayerType];
-      if (layerGroup) {
+      if (layerGroup && typeof layerGroup.eachLayer === "function") {
         layerGroup.eachLayer((layer: any) => {
           if (layer.setStyle && layer.feature) {
             const zoom = mapInstanceRef.current
@@ -4383,7 +4831,7 @@ const Kerawanan = () => {
       dataLayers.includes(highlightType)
     ) {
       const layerGroup = layerGroupsRef.current[highlightType];
-      if (layerGroup) {
+      if (layerGroup && typeof layerGroup.eachLayer === "function") {
         layerGroup.eachLayer((layer: any) => {
           if (layer.feature && layer.setStyle) {
             let shouldHighlight = false;
@@ -5873,6 +6321,24 @@ const Kerawanan = () => {
           geoJsonLayer.addTo(mapInstanceRef.current);
           layerGroupsRef.current[boundaryKey] = geoJsonLayer;
           const polygonBounds = geoJsonLayer.getBounds?.();
+
+          try {
+            console.info("SIMITI ADMIN GEOMETRY DIAGNOSTIC:", {
+              label: area.label,
+              level: area.level,
+              geometryType: area.geom?.type,
+              nestedGeometryType: area.geom?.geometry?.type,
+              coordinateType: Array.isArray(area.geom?.coordinates)
+                ? "array"
+                : typeof area.geom?.coordinates,
+              coordinateCount: area.geom?.coordinates?.length,
+              renderedLayerCount: geoJsonLayer.getLayers?.().length,
+              boundsValid: polygonBounds?.isValid?.(),
+              bounds: polygonBounds?.toBBoxString?.(),
+            });
+          } catch (diagnosticError) {
+            console.warn("SIMITI admin geometry diagnostic failed:", diagnosticError);
+          }
           if (polygonBounds?.isValid?.()) {
             mapInstanceRef.current.fitBounds(polygonBounds, {
               padding: [36, 36],
@@ -6450,17 +6916,62 @@ const Kerawanan = () => {
                 properties: {},
               });
               const bounds = areaLayer.getBounds();
+              console.info("SIMITI LAYER FOCUS BOUNDS DIAGNOSTIC:", {
+                label: area?.label,
+                level: area?.level,
+                geometryType: area.geom?.type,
+                nestedGeometryType: area.geom?.geometry?.type,
+                boundsValid: bounds?.isValid?.(),
+                boundsBox: bounds?.toBBoxString?.(),
+                southWest: bounds?.getSouthWest?.(),
+                northEast: bounds?.getNorthEast?.(),
+              });
               if (!bounds?.isValid?.()) continue;
               focusBounds = focusBounds ? focusBounds.extend(bounds) : bounds;
             }
             if (focusBounds?.isValid?.()) {
               try {
                 if (focusBounds?.isValid?.()) {
-                  map.fitBounds(focusBounds, {
-                    padding: [40, 40],
-                    maxZoom: 14,
-                    animate: true,
+                  console.info("SIMITI FINAL FITBOUNDS DIAGNOSTIC:", {
+                    leafletVersion: window.L?.version,
+                    mapExists: Boolean(map),
+                    mapIsLeafletMap: Boolean(
+                      window.L?.Map && map instanceof window.L.Map
+                    ),
+                    boundsIsLeafletBounds: Boolean(
+                      window.L?.LatLngBounds &&
+                      focusBounds instanceof window.L.LatLngBounds
+                    ),
+                    boundsValid: focusBounds?.isValid?.(),
+                    boundsBox: focusBounds?.toBBoxString?.(),
+                    southWest: focusBounds?.getSouthWest?.(),
+                    northEast: focusBounds?.getNorthEast?.(),
+                    mapHasGetBounds: typeof map?.getBounds === "function",
                   });
+                  const focusSouthWest = focusBounds.getSouthWest();
+                  const focusNorthEast = focusBounds.getNorthEast();
+
+                  const focusBoundsArray: [[number, number], [number, number]] = [
+                    [focusSouthWest.lat, focusSouthWest.lng],
+                    [focusNorthEast.lat, focusNorthEast.lng],
+                  ];
+
+                  if (
+                    focusBoundsArray.every((point) =>
+                      point.every(Number.isFinite)
+                    )
+                  ) {
+                    map.fitBounds(focusBoundsArray, {
+                      padding: [40, 40],
+                      maxZoom: 14,
+                      animate: true,
+                    });
+                  } else {
+                    console.warn(
+                      "SIMITI: koordinat focusBounds tidak valid:",
+                      focusBoundsArray
+                    );
+                  }
                 }
               } catch (fitError) {
                 console.warn("SIMITI: fitBounds bencana dilewati:", fitError);
@@ -6725,7 +7236,7 @@ const Kerawanan = () => {
           color: classColor,
           weight: zoom > 10 ? 2.2 : 1.6,
           opacity: 0.98,
-          fillColor: color,
+          fillColor: classColor,
           fillOpacity: 0.16,
           lineCap: "round" as const,
           lineJoin: "round" as const,
@@ -11309,7 +11820,21 @@ const Kerawanan = () => {
                     {risikoLayerData.map((item, idx) => (
                       <tr
                         key={idx}
-                        className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                        className={`border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors ${activeBottomTab === "risiko_banjir" && selectedLegendKey === item.kelas ? "bg-blue-100 ring-1 ring-inset ring-blue-300" : ""}`}
+                        onClick={() => {
+                          if (
+                            activeBottomTab === "risiko_banjir" &&
+                            !selectedDas.length &&
+                            layerGroupsRef.current?.risiko_banjir
+                          ) {
+                            const nextClass = selectedLegendKey === item.kelas ? null : item.kelas;
+                            if (applyNationalRiskBanjirLegendClass(nextClass)) {
+                              setSelectedLegendKey(nextClass);
+                              return;
+                            }
+                          }
+                          handleLegendClick(item.kelas, activeBottomTab, item.color || "#808080");
+                        }}
                         onMouseEnter={() =>
                           handleRowMouseEnter(
                             item.kelas,
