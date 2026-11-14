@@ -1438,7 +1438,7 @@ const Kerawanan = () => {
 
   // SLD dinamis untuk WMS nasional: warna polygon berasal dari atribut kelas
   // yang sama dengan legenda, bukan dari style default GeoServer.
-  const buildNationalRiskBanjirSld = (items: Array<{ kelas: string; color: string }>) => {
+  const buildNationalRiskBanjirSld = (items: Array<{ kelas: string; color: string }>, layerName: string = "risiko_banjir") => {
     const xmlEscape = (value: string) =>
       String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;")
         .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
@@ -1466,8 +1466,8 @@ const Kerawanan = () => {
         xmlns:xlink="http://www.w3.org/1999/xlink"
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:schemaLocation="http://www.opengis.net/sld http://schemas.opengis.net/sld/1.0.0/StyledLayerDescriptor.xsd">
-        <NamedLayer><Name>simiti:risiko_banjir</Name><UserStyle>
-          <Title>SIMITI Risiko Banjir berdasarkan kelas</Title>
+        <NamedLayer><Name>simiti:${layerName}</Name><UserStyle>
+          <Title>SIMITI ${layerName === "risiko_kekeringan" ? "Risiko Kekeringan" : "Risiko Banjir"} berdasarkan kelas</Title>
           <FeatureTypeStyle>${rules}</FeatureTypeStyle>
         </UserStyle></NamedLayer>
       </StyledLayerDescriptor>`;
@@ -1604,57 +1604,40 @@ const Kerawanan = () => {
       ? `kelas = '${String(kelas).replace(/'/g, "''")}'`
       : "";
 
+    // Tanpa area administrasi terpilih, perilaku nasional tetap dipertahankan.
     if (!areas.length) return classFilter || "INCLUDE";
 
     const deepestAreas = getDeepestSelectedAdminAreas(areas);
     if (!deepestAreas.length) return null;
 
     try {
-      const features = deepestAreas
-        .map((area: any) => {
-          const geom = area?.geom?.type === "Feature"
-            ? area.geom.geometry
-            : area?.geom;
+      // Gunakan polygon administrasi sebenarnya, bukan bounding box.
+      const adminWkt = buildRiskBanjirAdminWkt(deepestAreas);
 
-          if (!geom?.type || !geom.coordinates) return null;
-
-          return {
-            type: "Feature",
-            properties: {},
-            geometry: geom,
-          };
-        })
-        .filter(Boolean) as any[];
-
-      if (!features.length) return null;
-
-      const [minX, minY, maxX, maxY] = turfBbox(
-        turfFeatureCollection(features),
-      );
-
-      if (![minX, minY, maxX, maxY].every(Number.isFinite)) {
+      // Gagal secara aman: jangan tampilkan data dari area lain.
+      if (!adminWkt) {
+        console.warn("SIMITI: WKT administrasi tidak tersedia; WMS tidak ditampilkan.");
         return null;
       }
 
-      const spatialFilter =
-        `BBOX(geom_valid,${minX},${minY},${maxX},${maxY},'EPSG:4326')`;
+      const spatialFilter = `INTERSECTS(geom_valid, ${adminWkt})`;
 
-      console.info("SIMITI WMS ADMIN BBOX:", {
-        minX, minY, maxX, maxY,
-        areaCount: features.length,
+      console.info("SIMITI WMS ADMIN INTERSECTS:", {
+        areaCount: deepestAreas.length,
+        wktLength: adminWkt.length,
+        hasClassFilter: Boolean(classFilter),
       });
 
       return classFilter
         ? `(${spatialFilter}) AND (${classFilter})`
         : spatialFilter;
     } catch (error) {
-      console.warn("SIMITI: gagal membentuk BBOX WMS:", error);
+      console.warn("SIMITI: gagal membentuk INTERSECTS WMS:", error);
       return null;
     }
   };
-
-  const applyNationalRiskBanjirLegendClass = (kelas: string | null) => {
-    const wmsLayer: any = layerGroupsRef.current?.risiko_banjir;
+  const applyNationalRiskBanjirLegendClass = (kelas: string | null, tableName: string = "risiko_banjir") => {
+    const wmsLayer: any = layerGroupsRef.current?.[tableName];
     if (!wmsLayer || typeof wmsLayer.setParams !== "function") return false;
 
     const cqlFilter = buildRiskBanjirWmsCqlFilter(kelas);
@@ -2156,6 +2139,27 @@ const Kerawanan = () => {
     const geometryType = selected.feature.geometry.type;
     if (geometryType !== "Polygon" && geometryType !== "MultiPolygon") return;
 
+    // WMS risiko banjir memakai clipping tile, bukan eachLayer/SVG.
+    if (
+      tableName === "risiko_banjir" &&
+      selected.layerType === "admin-village"
+    ) {
+      applyBencanaClipToLayer("risiko_banjir", [{
+        geom: selected.feature.geometry,
+        level: "kelurahan",
+      }]);
+
+      return;
+    }
+
+    // Proteksi: tile layer tidak memiliki eachLayer().
+    if (typeof (layerGroup as any).eachLayer !== "function") {
+      console.warn(
+        "SIMITI: clipping SVG dilewati karena layer bukan LayerGroup",
+        { tableName, layerType: selected.layerType },
+      );
+      return;
+    }
     try {
       const d = buildBencanaClipD(map, [{ geom: selected.feature.geometry }]);
       if (!d) return;
@@ -2205,10 +2209,22 @@ const Kerawanan = () => {
 
     const update = () => {
       Array.from(activeLayersRef.current).forEach((activeName) => {
-        if (BENCANA_FOCUS_LAYERS.has(String(activeName))) {
-          applyBencanaClipToSelectedKhdtk(String(activeName));
+        if (!BENCANA_FOCUS_LAYERS.has(String(activeName))) return;
+
+        if (
+          selected.layerType === "admin-village" &&
+          String(activeName) === "risiko_banjir"
+        ) {
+          applyBencanaClipToLayer("risiko_banjir", [{
+            geom: selected.feature.geometry,
+            level: "kelurahan",
+          }]);
+          return;
         }
+
+        applyBencanaClipToSelectedKhdtk(String(activeName));
       });
+
     };
 
     update();
@@ -2498,18 +2514,48 @@ const Kerawanan = () => {
       // Nasional: WMS pada zoom rendah.
       // Administrasi: WMS memakai INTERSECTS pada geometri wilayah terpilih.
       // DAS dan fokus KHDTK tetap memakai jalur lama.
+      const hasAdminVillageWmsFocus =
+        activeSpatialFocus?.layerType === "admin-village" &&
+        Boolean(activeSpatialFocus?.feature?.geometry);
+
+      const riskBanjirWmsAreas = hasAdminVillageWmsFocus
+        ? [{
+            geom: activeSpatialFocus.feature.geometry,
+            level: "kelurahan",
+          }]
+        : selectedAreas;
+
       const isRiskBanjirWmsCandidate =
-        tableName === "risiko_banjir" &&
+        (tableName === "risiko_banjir" || tableName === "risiko_kekeringan") &&
         selectedDas.length === 0 &&
         (
           selectedAreas.length > 0
             ? activeSpatialFocus?.layerType !== "khdtk"
-            : !activeSpatialFocus?.feature?.geometry && zoom <= 5
+            : hasAdminVillageWmsFocus ||
+              (!activeSpatialFocus?.feature?.geometry && zoom <= 5)
         );
 
       const riskBanjirWmsCqlFilter = isRiskBanjirWmsCandidate
-        ? buildRiskBanjirWmsCqlFilter(selectedLegendKey)
+        ? buildRiskBanjirWmsCqlFilter(
+            selectedLegendKey,
+            riskBanjirWmsAreas,
+          )
         : null;
+      console.log("SIMITI DEBUG WMS RISIKO BANJIR:", JSON.stringify({
+        tableName,
+        selectedDasCount: selectedDas.length,
+        selectedAreasCount: selectedAreas.length,
+        focusLayerType: activeSpatialFocus?.layerType,
+        focusName:
+          activeSpatialFocus?.feature?.properties?.namobj ||
+          activeSpatialFocus?.feature?.properties?.nama ||
+          activeSpatialFocus?.name,
+        hasFocusGeometry: Boolean(activeSpatialFocus?.feature?.geometry),
+        zoom,
+        selectedLegendKey,
+        isRiskBanjirWmsCandidate,
+        riskBanjirWmsCqlFilter,
+      }, null, 2));
 
       const isNationalRawanBanjirWms =
         isRiskBanjirWmsCandidate && Boolean(riskBanjirWmsCqlFilter);
@@ -2535,7 +2581,7 @@ const Kerawanan = () => {
         layerCacheRef.current.delete(tableName);
 
         const wmsLayer = window.L.tileLayer.wms(geoserverWmsUrl, {
-          layers: "simiti:risiko_banjir",
+          layers: `simiti:${tableName}`,
           styles: "",
           format: "image/png",
           transparent: true,
@@ -2547,6 +2593,35 @@ const Kerawanan = () => {
 
         layerGroupsRef.current[tableName] = wmsLayer;
         wmsLayer.addTo(mapAtRequest);
+
+        // Clip tile WMS risiko banjir mengikuti polygon desa terpilih.
+        const selectedVillageForWms = selectedSpatialFeatureRef.current;
+
+        if (
+          selectedDas.length === 0 &&
+          selectedVillageForWms?.layerType === "admin-village" &&
+          selectedVillageForWms?.feature?.geometry
+        ) {
+          const villageClipAreas = [{
+            geom: selectedVillageForWms.feature.geometry,
+            level: "kelurahan",
+          }];
+
+          requestAnimationFrame(() => {
+            applyBencanaClipToLayer(tableName, villageClipAreas);
+          });
+
+          console.log(
+            "SIMITI: WMS risiko banjir memakai clipping polygon desa",
+            {
+              layer: tableName,
+              name:
+                selectedVillageForWms.feature?.properties?.kel_desa ||
+                selectedVillageForWms.feature?.properties?.nama ||
+                "Polygon desa terpilih",
+            },
+          );
+        }
 
         // WMS hanya menggambar raster/peta; ia tidak mengirim feature GeoJSON
         // sehingga legenda kelas harus diisi dari endpoint agregasi backend.
@@ -2560,7 +2635,7 @@ const Kerawanan = () => {
           if (token) legendHeaders.Authorization = `Bearer ${token}`;
 
           const legendResponse = await fetch(
-            `${API_URL}/api/layers/risiko_banjir/statistics`,
+            `${API_URL}/api/layers/${tableName}/statistics`,
             {
               method: "GET",
               headers: legendHeaders,
@@ -2575,7 +2650,7 @@ const Kerawanan = () => {
           const legendRows = Array.isArray(legendPayload?.classes)
             ? legendPayload.classes
             : [];
-          const fallbackRiskColor = getBencanaLayerColor("risiko_banjir");
+          const fallbackRiskColor = getBencanaLayerColor(tableName);
           const legendItems = legendRows
             .filter((row: any) => String(row?.kelas ?? "").trim())
             .map((row: any) => {
@@ -2583,24 +2658,27 @@ const Kerawanan = () => {
               const color = getRiskClassColor(kelas, fallbackRiskColor);
               return {
                 kelas,
-                luas: Number(row.luas_total ?? row.shape_area ?? row.shape_leng ?? 0) || 0,
+                luas: Number(row.luasHa ?? 0) || 0,
                 color,
               };
             });
 
           setRisikoData((prev) => ({
             ...prev,
-            risiko_banjir: legendItems,
+            [tableName]: legendItems,
           }));
-          colorMappingRef.current.risikoBanjir.clear();
+          const riskColorMapping = tableName === "risiko_kekeringan"
+            ? colorMappingRef.current.risikoKekeringan
+            : colorMappingRef.current.risikoBanjir;
+          riskColorMapping.clear();
           legendItems.forEach((item: any) => {
-            colorMappingRef.current.risikoBanjir.set(item.kelas, item.color);
+            riskColorMapping.set(item.kelas, item.color);
           });
           // Pakai SLD yang sama untuk seluruh kelas agar warna WMS nasional
           // identik dengan kotak warna pada legenda.
           (wmsLayer as any).setParams({
             styles: "",
-            SLD_BODY: buildNationalRiskBanjirSld(legendItems),
+            SLD_BODY: buildNationalRiskBanjirSld(legendItems, tableName),
             CQL_FILTER: riskBanjirWmsCqlFilter,
           });
 
@@ -2613,7 +2691,7 @@ const Kerawanan = () => {
             "SIMITI: gagal memuat agregasi legenda risiko banjir nasional:",
             legendError,
           );
-          setRisikoData((prev) => ({ ...prev, risiko_banjir: [] }));
+          setRisikoData((prev) => ({ ...prev, [tableName]: [] }));
         }
 
         console.log("SIMITI: risiko banjir nasional menggunakan GeoServer WMS", {
@@ -11820,15 +11898,15 @@ const Kerawanan = () => {
                     {risikoLayerData.map((item, idx) => (
                       <tr
                         key={idx}
-                        className={`border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors ${activeBottomTab === "risiko_banjir" && selectedLegendKey === item.kelas ? "bg-blue-100 ring-1 ring-inset ring-blue-300" : ""}`}
+                        className={`border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors ${(activeBottomTab === "risiko_banjir" || activeBottomTab === "risiko_kekeringan") && selectedLegendKey === item.kelas ? "bg-blue-100 ring-1 ring-inset ring-blue-300" : ""}`}
                         onClick={() => {
                           if (
-                            activeBottomTab === "risiko_banjir" &&
+                            (activeBottomTab === "risiko_banjir" || activeBottomTab === "risiko_kekeringan") &&
                             !selectedDas.length &&
-                            layerGroupsRef.current?.risiko_banjir
+                            layerGroupsRef.current?.[activeBottomTab]
                           ) {
                             const nextClass = selectedLegendKey === item.kelas ? null : item.kelas;
-                            if (applyNationalRiskBanjirLegendClass(nextClass)) {
+                            if (applyNationalRiskBanjirLegendClass(nextClass, activeBottomTab)) {
                               setSelectedLegendKey(nextClass);
                               return;
                             }
@@ -17600,3 +17678,4 @@ const Kerawanan = () => {
 };
 
 export default Kerawanan;
+
