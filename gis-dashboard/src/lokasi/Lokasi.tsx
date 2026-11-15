@@ -33,6 +33,7 @@ import {
   Search,
   ShieldCheck,
   Target,
+  Tags,
   Trees,
   X,
 } from "lucide-react";
@@ -2302,6 +2303,7 @@ const pageNumbers = useMemo(() => {
               description="Kelola foto dan dokumen pendukung kegiatan."
               href="/lokasi/dokumentasi"
             />
+  <QuickModule icon={Tags} title="Master Klasifikasi Kegiatan" description="Kelola klasifikasi kegiatan Mitigasi dan Adaptasi." href="/lokasi/master-klasifikasi-kegiatan" />
           </div>
         </section>
 

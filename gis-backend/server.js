@@ -23590,6 +23590,430 @@ app.get("/api/tma/history/stats", async (req, res) => {
   }
 });
 
+// MASTER KLASIFIKASI KEGIATAN
+// ============================================================
+
+async function ensureMasterKlasifikasiKegiatanTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS master_klasifikasi_kegiatan (
+      id BIGSERIAL PRIMARY KEY,
+      nama_kegiatan VARCHAR(200) NOT NULL,
+      kelompok VARCHAR(20) NOT NULL
+        CHECK (kelompok IN ('Mitigasi', 'Adaptasi')),
+      deskripsi TEXT,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      urutan INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS
+      uq_master_klasifikasi_kegiatan_nama
+    ON master_klasifikasi_kegiatan (LOWER(BTRIM(nama_kegiatan)))
+  `);
+
+  const seedData = [
+    ["Mitigasi banjir", "Mitigasi", 1],
+    ["Mitigasi tanah longsor", "Mitigasi", 2],
+    ["Mitigasi kekeringan", "Mitigasi", 3],
+    ["Mitigasi kebakaran hutan dan lahan", "Mitigasi", 4],
+    ["Rehabilitasi hutan dan lahan", "Mitigasi", 5],
+    ["Pengembangan hutan mangrove", "Mitigasi", 6],
+    ["Konservasi daerah tangkapan air", "Mitigasi", 7],
+    ["Pembangunan sarana konservasi tanah dan air", "Mitigasi", 8],
+    ["Adaptasi perubahan iklim pada kawasan hutan", "Adaptasi", 9],
+    ["Kegiatan perhutanan sosial yang mendukung ketahanan bencana", "Mitigasi", 10]
+  ];
+
+  for (const item of seedData) {
+    await pool.query(
+      `
+        INSERT INTO master_klasifikasi_kegiatan
+          (nama_kegiatan, kelompok, urutan)
+        VALUES ($1, $2, $3)
+        ON CONFLICT DO NOTHING
+      `,
+      item
+    );
+  }
+
+  console.log("[MASTER KLASIFIKASI] Tabel siap.");
+}
+
+function validateKlasifikasiPayload(body, partial = false) {
+  const result = {};
+
+  if (!partial || body.nama_kegiatan !== undefined) {
+    const nama = String(body.nama_kegiatan || "").trim();
+
+    if (!nama || nama.length > 200) {
+      return {
+        error: "Nama kegiatan wajib diisi dan maksimal 200 karakter."
+      };
+    }
+
+    result.nama_kegiatan = nama;
+  }
+
+  if (!partial || body.kelompok !== undefined) {
+    const kelompok = String(body.kelompok || "").trim();
+
+    if (!["Mitigasi", "Adaptasi"].includes(kelompok)) {
+      return {
+        error: "Kelompok harus Mitigasi atau Adaptasi."
+      };
+    }
+
+    result.kelompok = kelompok;
+  }
+
+  if (!partial || body.deskripsi !== undefined) {
+    result.deskripsi =
+      body.deskripsi == null
+        ? null
+        : String(body.deskripsi).trim();
+  }
+
+  if (body.urutan !== undefined) {
+    const urutan = Number(body.urutan);
+
+    if (!Number.isInteger(urutan) || urutan < 0) {
+      return { error: "Urutan harus berupa bilangan bulat >= 0." };
+    }
+
+    result.urutan = urutan;
+  }
+
+  return { data: result };
+}
+
+function isAdminKlasifikasi(req, res, next) {
+  if (!isPrivilegedLayerToken(req.user)) {
+    return res.status(403).json({
+      success: false,
+      message: "Akses hanya untuk Admin atau Super Admin."
+    });
+  }
+
+  next();
+}
+
+// GET: pilihan aktif untuk form Tambah Lokasi
+app.get("/api/master/klasifikasi-kegiatan", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        id,
+        nama_kegiatan,
+        kelompok,
+        deskripsi,
+        is_active,
+        urutan,
+        created_at,
+        updated_at
+      FROM master_klasifikasi_kegiatan
+      WHERE is_active = TRUE
+      ORDER BY urutan ASC, nama_kegiatan ASC
+    `);
+
+    return res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error("[MASTER KLASIFIKASI GET]", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Gagal mengambil klasifikasi kegiatan."
+    });
+  }
+});
+
+// GET ADMIN: seluruh data termasuk yang nonaktif
+app.get(
+  "/api/master/klasifikasi-kegiatan/admin",
+  verifyToken,
+  isAdminKlasifikasi,
+  async (req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT
+          id,
+          nama_kegiatan,
+          kelompok,
+          deskripsi,
+          is_active,
+          urutan,
+          created_at,
+          updated_at
+        FROM master_klasifikasi_kegiatan
+        ORDER BY urutan ASC, nama_kegiatan ASC
+      `);
+
+      return res.json({
+        success: true,
+        data: result.rows
+      });
+    } catch (error) {
+      console.error("[MASTER KLASIFIKASI ADMIN GET]", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Gagal mengambil data master klasifikasi."
+      });
+    }
+  }
+);
+
+// CREATE
+app.post(
+  "/api/master/klasifikasi-kegiatan",
+  verifyToken,
+  isAdminKlasifikasi,
+  async (req, res) => {
+    try {
+      const validation = validateKlasifikasiPayload(req.body || {});
+
+      if (validation.error) {
+        return res.status(400).json({
+          success: false,
+          message: validation.error
+        });
+      }
+
+      const data = validation.data;
+
+      const result = await pool.query(
+        `
+          INSERT INTO master_klasifikasi_kegiatan
+            (nama_kegiatan, kelompok, deskripsi, urutan)
+          VALUES ($1, $2, $3, $4)
+          RETURNING *
+        `,
+        [
+          data.nama_kegiatan,
+          data.kelompok,
+          data.deskripsi,
+          data.urutan || 0
+        ]
+      );
+
+      return res.status(201).json({
+        success: true,
+        message: "Klasifikasi kegiatan berhasil ditambahkan.",
+        data: result.rows[0]
+      });
+    } catch (error) {
+      if (error.code === "23505") {
+        return res.status(409).json({
+          success: false,
+          message: "Nama klasifikasi kegiatan sudah tersedia."
+        });
+      }
+
+      console.error("[MASTER KLASIFIKASI CREATE]", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Gagal menambahkan klasifikasi kegiatan."
+      });
+    }
+  }
+);
+
+// UPDATE
+app.put(
+  "/api/master/klasifikasi-kegiatan/:id",
+  verifyToken,
+  isAdminKlasifikasi,
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "ID klasifikasi tidak valid."
+        });
+      }
+
+      const validation = validateKlasifikasiPayload(req.body || {});
+
+      if (validation.error) {
+        return res.status(400).json({
+          success: false,
+          message: validation.error
+        });
+      }
+
+      const data = validation.data;
+
+      const result = await pool.query(
+        `
+          UPDATE master_klasifikasi_kegiatan
+          SET
+            nama_kegiatan = $1,
+            kelompok = $2,
+            deskripsi = $3,
+            urutan = $4,
+            updated_at = NOW()
+          WHERE id = $5
+          RETURNING *
+        `,
+        [
+          data.nama_kegiatan,
+          data.kelompok,
+          data.deskripsi,
+          data.urutan || 0,
+          id
+        ]
+      );
+
+      if (!result.rowCount) {
+        return res.status(404).json({
+          success: false,
+          message: "Klasifikasi kegiatan tidak ditemukan."
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: "Klasifikasi kegiatan berhasil diperbarui.",
+        data: result.rows[0]
+      });
+    } catch (error) {
+      if (error.code === "23505") {
+        return res.status(409).json({
+          success: false,
+          message: "Nama klasifikasi kegiatan sudah digunakan."
+        });
+      }
+
+      console.error("[MASTER KLASIFIKASI UPDATE]", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Gagal memperbarui klasifikasi kegiatan."
+      });
+    }
+  }
+);
+
+// AKTIF / NONAKTIF
+app.patch(
+  "/api/master/klasifikasi-kegiatan/:id/status",
+  verifyToken,
+  isAdminKlasifikasi,
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "ID klasifikasi tidak valid."
+        });
+      }
+
+      if (typeof req.body?.is_active !== "boolean") {
+        return res.status(400).json({
+          success: false,
+          message: "is_active harus bernilai true atau false."
+        });
+      }
+
+      const result = await pool.query(
+        `
+          UPDATE master_klasifikasi_kegiatan
+          SET
+            is_active = $1,
+            updated_at = NOW()
+          WHERE id = $2
+          RETURNING *
+        `,
+        [req.body.is_active, id]
+      );
+
+      if (!result.rowCount) {
+        return res.status(404).json({
+          success: false,
+          message: "Klasifikasi kegiatan tidak ditemukan."
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: "Status klasifikasi berhasil diperbarui.",
+        data: result.rows[0]
+      });
+    } catch (error) {
+      console.error("[MASTER KLASIFIKASI STATUS]", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Gagal memperbarui status klasifikasi."
+      });
+    }
+  }
+);
+
+// DELETE = NONAKTIFKAN, BUKAN HAPUS FISIK
+app.delete(
+  "/api/master/klasifikasi-kegiatan/:id",
+  verifyToken,
+  isAdminKlasifikasi,
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "ID klasifikasi tidak valid."
+        });
+      }
+
+      const result = await pool.query(
+        `
+          UPDATE master_klasifikasi_kegiatan
+          SET
+            is_active = FALSE,
+            updated_at = NOW()
+          WHERE id = $1
+          RETURNING *
+        `,
+        [id]
+      );
+
+      if (!result.rowCount) {
+        return res.status(404).json({
+          success: false,
+          message: "Klasifikasi kegiatan tidak ditemukan."
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: "Klasifikasi kegiatan berhasil dinonaktifkan.",
+        data: result.rows[0]
+      });
+    } catch (error) {
+      console.error("[MASTER KLASIFIKASI DELETE]", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Gagal menonaktifkan klasifikasi kegiatan."
+      });
+    }
+  }
+);
+
+// ============================================================
+// END MASTER KLASIFIKASI KEGIATAN
+
 // 404 handler
 app.use((req, res) => {
   console.warn(`ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¯ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â [404] ${req.method} ${req.originalUrl}`);
@@ -23607,6 +24031,7 @@ const startServer = async () => {
   try {
     await layerMetadataInitialization;
     await ensureLokasiKegiatanTable();
+    await ensureMasterKlasifikasiKegiatanTable();
 
   const server = app.listen(PORT, () => {
     console.log(`ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¥ SIMITIGASI API READY`);

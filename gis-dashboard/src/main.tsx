@@ -91,6 +91,7 @@ import IndexDataSpasial from "./IndexDataSpasial";
 import Datakejadian from "./DataKejadian";
 import Lokasi from "./lokasi/Lokasi";
 import TambahLokasi from "./lokasi/TambahLokasi";
+import MasterKlasifikasiKegiatan from "./lokasi/MasterKlasifikasiKegiatan";
 
 // ======================================================
 // ROOT ELEMENT
@@ -209,6 +210,7 @@ createRoot(rootElement).render(
 
             {/* Dokumentasi kegiatan */}
             <Route path="/lokasi/dokumentasi" element={<Lokasi />} />
+            <Route path="/lokasi/master-klasifikasi-kegiatan" element={<MasterKlasifikasiKegiatan />} />
 
             {/* Import data */}
             <Route path="/lokasi/import" element={<Lokasi />} />

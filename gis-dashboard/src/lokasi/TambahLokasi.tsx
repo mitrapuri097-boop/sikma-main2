@@ -33,6 +33,7 @@ import {
   Target,
   Upload,
   X,
+  Tags,
 } from "lucide-react";
 
 import {
@@ -110,6 +111,12 @@ interface DasItem {
   village?: string;
 }
 
+interface ActivityClassification {
+  id: number;
+  nama_kegiatan: string;
+  kelompok: "Mitigasi" | "Adaptasi";
+}
+
 interface MasterOptions {
   provinces: MasterItem[];
   districts: MasterItem[];
@@ -118,22 +125,7 @@ interface MasterOptions {
   das: DasItem[];
 }
 
-const ACTIVITY_TYPES = [
-  "Mitigasi banjir",
-  "Mitigasi tanah longsor",
-  "Mitigasi kekeringan",
-  "Mitigasi kebakaran hutan dan lahan",
-  "Rehabilitasi hutan dan lahan",
-  "Pengembangan hutan mangrove",
-  "Konservasi daerah tangkapan air",
-  "Pembangunan sarana konservasi tanah dan air",
-  "Adaptasi perubahan iklim pada kawasan hutan",
-  "Kegiatan perhutanan sosial yang mendukung ketahanan bencana",
-];
-
 const ACTIVITY_GROUPS = ["Mitigasi", "Adaptasi"];
-const getActivityGroup = (activity: string) =>
-  activity.toLowerCase().startsWith("adaptasi") ? "Adaptasi" : "Mitigasi";
 
 const ACTIVITY_STATUSES = [
   "Draft",
@@ -327,6 +319,7 @@ export default function TambahLokasi() {
   const [gpsError, setGpsError] = useState("");
   const [detectingLocation, setDetectingLocation] = useState(false);
   const [activityGroupFilter, setActivityGroupFilter] = useState("Mitigasi");
+  const [activityTypes, setActivityTypes] = useState<ActivityClassification[]>([]);
   const [locationDetectionMessage, setLocationDetectionMessage] = useState("");
   const [files, setFiles] = useState<DocumentationFile[]>([]);
   const [draggingCategory, setDraggingCategory] =
@@ -375,6 +368,17 @@ export default function TambahLokasi() {
 
     return (j.data ?? j) as T;
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchJson<ActivityClassification[]>(`${API_URL}/api/master/klasifikasi-kegiatan`)
+      .then((rows) => {
+        if (!cancelled) setActivityTypes(Array.isArray(rows) ? rows : []);
+      })
+      .catch((error) => console.error("Gagal memuat klasifikasi kegiatan:", error));
+
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1209,6 +1213,7 @@ export default function TambahLokasi() {
                   const complete = stepCompletion[s.id];
 
                   return (
+                    <div key={s.id} className="contents">
                     <button
                       key={s.id}
                       type="button"
@@ -1251,6 +1256,27 @@ export default function TambahLokasi() {
                         </div>
                       </div>
                     </button>
+
+                    {s.id === "documentation" && (
+                      <button
+                        type="button"
+                        onClick={() => navigate("/lokasi/master-klasifikasi-kegiatan")}
+                        className="mt-1 flex w-full items-start gap-3 rounded-xl p-3 text-left text-[#64748B] transition hover:bg-[#F8FAFC]"
+                      >
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] text-[#64748B]">
+                          <Tags size={13} />
+                        </div>
+                        <div className="pt-0.5">
+                          <div className="text-[13px] font-bold">
+                            Master Klasifikasi Kegiatan
+                          </div>
+                          <div className="mt-1 text-[11px] text-[#94A3B8]">
+                            Kelola klasifikasi Mitigasi dan Adaptasi
+                          </div>
+                        </div>
+                      </button>
+                    )}
+                    </div>
                   );
                 })}
               </div>
@@ -1315,13 +1341,9 @@ export default function TambahLokasi() {
                       value={form.jenis_kegiatan}
                       onChange={(v) => update("jenis_kegiatan", v)}
                       placeholder="Pilih jenis kegiatan"
-                      options={
-                        ACTIVITY_TYPES.filter(
-                              (activity) =>
-                                getActivityGroup(activity) ===
-                                activityGroupFilter,
-                            )
-                      }
+                      options={activityTypes
+                        .filter((item) => item.kelompok === activityGroupFilter)
+                        .map((item) => item.nama_kegiatan)}
                     />
                     <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
                       Jenis: <strong>{activityGroupFilter}</strong>.
