@@ -1467,7 +1467,7 @@ const Kerawanan = () => {
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:schemaLocation="http://www.opengis.net/sld http://schemas.opengis.net/sld/1.0.0/StyledLayerDescriptor.xsd">
         <NamedLayer><Name>simiti:${layerName}</Name><UserStyle>
-          <Title>SIMITI ${layerName === "risiko_kekeringan" ? "Risiko Kekeringan" : "Risiko Banjir"} berdasarkan kelas</Title>
+          <Title>SIMITI ${layerName === "risiko_kekeringan" ? "Risiko Kekeringan" : layerName === "risiko_banjir_bandang" ? "Risiko Banjir Bandang" : "Risiko Banjir"} berdasarkan kelas</Title>
           <FeatureTypeStyle>${rules}</FeatureTypeStyle>
         </UserStyle></NamedLayer>
       </StyledLayerDescriptor>`;
@@ -1596,9 +1596,21 @@ const Kerawanan = () => {
     return null;
   };
 
+  const NATIONAL_HAZARD_WMS_LAYERS = new Set<string>([
+    "bahaya_abrasi_dan_gelombang_ekstrim",
+    "bahaya_banjir_bandang",
+    "bahaya_banjir",
+    "bahaya_kekeringan",
+    "rawan_longsor",
+    "rawan_limpasan",
+    "rawan_karhutla",
+    "rawan_erosi",
+  ]);
+
   const buildRiskBanjirWmsCqlFilter = (
     kelas: string | null,
-    areas: Array<any> = selectedAreas
+    areas: Array<any> = selectedAreas,
+    geometryColumn: string = "geom_valid"
   ): string | null => {
     const classFilter = kelas
       ? `kelas = '${String(kelas).replace(/'/g, "''")}'`
@@ -1620,7 +1632,7 @@ const Kerawanan = () => {
         return null;
       }
 
-      const spatialFilter = `INTERSECTS(geom_valid, ${adminWkt})`;
+      const spatialFilter = `INTERSECTS(${geometryColumn}, ${adminWkt})`;
 
       console.info("SIMITI WMS ADMIN INTERSECTS:", {
         areaCount: deepestAreas.length,
@@ -1636,11 +1648,23 @@ const Kerawanan = () => {
       return null;
     }
   };
-  const applyNationalRiskBanjirLegendClass = (kelas: string | null, tableName: string = "risiko_banjir") => {
+  const applyNationalRiskBanjirLegendClass = (
+    kelas: string | null,
+    tableName: string = "risiko_banjir",
+    areas: Array<any> = selectedAreas,
+  ) => {
     const wmsLayer: any = layerGroupsRef.current?.[tableName];
     if (!wmsLayer || typeof wmsLayer.setParams !== "function") return false;
 
-    const cqlFilter = buildRiskBanjirWmsCqlFilter(kelas);
+    const geometryColumn = NATIONAL_HAZARD_WMS_LAYERS.has(tableName)
+      ? "geom"
+      : "geom_valid";
+
+    const cqlFilter = buildRiskBanjirWmsCqlFilter(
+      kelas,
+      areas,
+      geometryColumn,
+    );
     if (!cqlFilter) {
       console.warn("SIMITI: filter legenda WMS tidak dapat dibentuk.");
       return false;
@@ -2526,7 +2550,15 @@ const Kerawanan = () => {
         : selectedAreas;
 
       const isRiskBanjirWmsCandidate =
-        (tableName === "risiko_banjir" || tableName === "risiko_kekeringan") &&
+        (
+          tableName === "risiko_banjir" ||
+          tableName === "risiko_kekeringan" ||
+          tableName === "risiko_banjir_bandang" ||
+          tableName === "risiko_abrasi" ||
+          tableName === "risiko_longsor" ||
+          tableName === "risiko_karhutla" ||
+          NATIONAL_HAZARD_WMS_LAYERS.has(tableName)
+        ) &&
         selectedDas.length === 0 &&
         (
           selectedAreas.length > 0
@@ -2535,10 +2567,15 @@ const Kerawanan = () => {
               (!activeSpatialFocus?.feature?.geometry && zoom <= 5)
         );
 
+      const wmsGeometryColumn = NATIONAL_HAZARD_WMS_LAYERS.has(tableName)
+        ? "geom"
+        : "geom_valid";
+
       const riskBanjirWmsCqlFilter = isRiskBanjirWmsCandidate
         ? buildRiskBanjirWmsCqlFilter(
             selectedLegendKey,
             riskBanjirWmsAreas,
+            wmsGeometryColumn,
           )
         : null;
       console.log("SIMITI DEBUG WMS RISIKO BANJIR:", JSON.stringify({
@@ -2581,7 +2618,21 @@ const Kerawanan = () => {
         layerCacheRef.current.delete(tableName);
 
         const wmsLayer = window.L.tileLayer.wms(geoserverWmsUrl, {
-          layers: `simiti:${tableName}`,
+          layers: ({
+            risiko_banjir_bandang: "simiti:vw_risiko_banjir_bandang_wms",
+            risiko_abrasi: "simiti:vw_risiko_abrasi_wms",
+            risiko_longsor: "simiti:vw_risiko_longsor_wms",
+            risiko_karhutla: "simiti:vw_risiko_karhutla_wms",
+
+            bahaya_abrasi_dan_gelombang_ekstrim: "simiti:vw_bahaya_abrasi_wms",
+            bahaya_banjir_bandang: "simiti:vw_bahaya_banjir_bandang_wms",
+            bahaya_banjir: "simiti:vw_bahaya_banjir_wms",
+            bahaya_kekeringan: "simiti:vw_bahaya_kekeringan_wms",
+            rawan_longsor: "simiti:vw_rawan_longsor_wms",
+            rawan_limpasan: "simiti:vw_rawan_limpasan_wms",
+            rawan_karhutla: "simiti:vw_rawan_karhutla_wms",
+            rawan_erosi: "simiti:vw_rawan_erosi_wms",
+          } as Record<string, string>)[tableName] || `simiti:${tableName}`,
           styles: "",
           format: "image/png",
           transparent: true,
@@ -2667,20 +2718,39 @@ const Kerawanan = () => {
             ...prev,
             [tableName]: legendItems,
           }));
-          const riskColorMapping = tableName === "risiko_kekeringan"
-            ? colorMappingRef.current.risikoKekeringan
-            : colorMappingRef.current.risikoBanjir;
+          const riskColorMapping =
+            ({
+              risiko_kekeringan: colorMappingRef.current.risikoKekeringan,
+              risiko_banjir_bandang: colorMappingRef.current.risikoBanjirBandang,
+              risiko_abrasi: colorMappingRef.current.risikoAbrasi,
+              risiko_longsor: colorMappingRef.current.risikoLongsor,
+              risiko_karhutla: colorMappingRef.current.risikoKarhutla,
+            } as Record<string, Map<string, string>>)[tableName] ||
+            colorMappingRef.current.risikoBanjir;
           riskColorMapping.clear();
           legendItems.forEach((item: any) => {
             riskColorMapping.set(item.kelas, item.color);
           });
           // Pakai SLD yang sama untuk seluruh kelas agar warna WMS nasional
           // identik dengan kotak warna pada legenda.
-          (wmsLayer as any).setParams({
-            styles: "",
-            SLD_BODY: buildNationalRiskBanjirSld(legendItems, tableName),
-            CQL_FILTER: riskBanjirWmsCqlFilter,
-          });
+          // Delapan view nasional memakai default SLD yang sudah
+          // dipasang langsung pada layer GeoServer.
+          // Layer risiko lama tetap menggunakan SLD dinamis aplikasi.
+          if (!NATIONAL_HAZARD_WMS_LAYERS.has(tableName)) {
+            (wmsLayer as any).setParams({
+              styles: "",
+              SLD_BODY: buildNationalRiskBanjirSld(
+                legendItems,
+                ({
+                  risiko_banjir_bandang: "vw_risiko_banjir_bandang_wms",
+                  risiko_abrasi: "vw_risiko_abrasi_wms",
+                  risiko_longsor: "vw_risiko_longsor_wms",
+                  risiko_karhutla: "vw_risiko_karhutla_wms",
+                } as Record<string, string>)[tableName] || tableName,
+              ),
+              CQL_FILTER: riskBanjirWmsCqlFilter,
+            });
+          }
 
           console.log("SIMITI: legenda risiko banjir nasional berhasil dimuat", {
             jumlahKelas: legendItems.length,
@@ -11898,15 +11968,36 @@ const Kerawanan = () => {
                     {risikoLayerData.map((item, idx) => (
                       <tr
                         key={idx}
-                        className={`border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors ${(activeBottomTab === "risiko_banjir" || activeBottomTab === "risiko_kekeringan") && selectedLegendKey === item.kelas ? "bg-blue-100 ring-1 ring-inset ring-blue-300" : ""}`}
+                        className={`border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors ${(activeBottomTab === "risiko_banjir" || activeBottomTab === "risiko_banjir_bandang" || activeBottomTab === "risiko_kekeringan" || activeBottomTab === "risiko_abrasi" || activeBottomTab === "risiko_longsor" || activeBottomTab === "risiko_karhutla" || NATIONAL_HAZARD_WMS_LAYERS.has(activeBottomTab)) && selectedLegendKey === item.kelas ? "bg-blue-100 ring-1 ring-inset ring-blue-300" : ""}`}
                         onClick={() => {
                           if (
-                            (activeBottomTab === "risiko_banjir" || activeBottomTab === "risiko_kekeringan") &&
+                            (
+                              activeBottomTab === "risiko_banjir" ||
+                              activeBottomTab === "risiko_banjir_bandang" ||
+                              activeBottomTab === "risiko_kekeringan" ||
+                              activeBottomTab === "risiko_abrasi" ||
+                              activeBottomTab === "risiko_longsor" ||
+                              activeBottomTab === "risiko_karhutla" ||
+                              NATIONAL_HAZARD_WMS_LAYERS.has(activeBottomTab)
+                            ) &&
                             !selectedDas.length &&
                             layerGroupsRef.current?.[activeBottomTab]
                           ) {
                             const nextClass = selectedLegendKey === item.kelas ? null : item.kelas;
-                            if (applyNationalRiskBanjirLegendClass(nextClass, activeBottomTab)) {
+                            const activeSpatialFocus = selectedSpatialFeatureRef.current;
+                            const legendWmsAreas =
+                              activeSpatialFocus?.layerType === "admin-village" &&
+                              activeSpatialFocus?.feature?.geometry
+                                ? [{
+                                    geom: activeSpatialFocus.feature.geometry,
+                                    level: "kelurahan",
+                                  }]
+                                : selectedAreas;
+                            if (applyNationalRiskBanjirLegendClass(
+                              nextClass,
+                              activeBottomTab,
+                              legendWmsAreas,
+                            )) {
                               setSelectedLegendKey(nextClass);
                               return;
                             }
