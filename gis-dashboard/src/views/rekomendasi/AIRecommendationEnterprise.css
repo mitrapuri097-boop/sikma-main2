@@ -99,3 +99,23 @@
 @media(max-width:1250px){.ai-workspace{grid-template-columns:minmax(0,1fr) 340px}.simiti-map-stage{height:560px}.ai-kpi-strip{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:980px){.simiti-enterprise-main{padding:16px}.ai-workspace,.simiti-dashboard-grid{grid-template-columns:1fr}.ai-recommendation-panel{min-height:520px}.simiti-map-stage{height:500px}.process-flow{grid-template-columns:1fr 1fr}.process-flow>i{display:none}}
 @media(max-width:650px){.ai-module-header{align-items:flex-start;flex-direction:column}.ai-kpi-strip{grid-template-columns:1fr 1fr}.ai-map-toolbar{flex-wrap:wrap}.ai-area-search{width:210px}.simiti-map-layer-card{width:220px}.rank-row{grid-template-columns:28px 1fr 75px 55px}.rank-row:nth-child(1)>span:nth-child(4){display:none}.hazard-kpi-grid{grid-template-columns:repeat(3,1fr)}.hazard-five{grid-template-columns:repeat(2,1fr)}.enterprise-model-columns{grid-template-columns:1fr}}
+
+/* MCDA breakdown & daftar rekomendasi (AI Mitigation V5) */
+.enterprise-mcda{margin-top:10px;padding:10px;border:1px solid #e5ebf1;border-radius:9px}
+.enterprise-mcda-head{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px}
+.enterprise-mcda-head span{font-weight:700;color:#0f766e}
+.mcda-coverage{display:block;margin:4px 0 8px;font-size:10px;color:#5b6b7f}
+.mcda-coverage.low{color:#b45309}
+.mcda-row{display:grid;grid-template-columns:minmax(0,1.6fr) 1fr 34px;gap:8px;align-items:center;font-size:10px;margin-top:5px}
+.mcda-row em{font-style:normal;color:#8a99ab}
+.mcda-row i{display:block;height:6px;border-radius:99px;background:#eef2f6;overflow:hidden}
+.mcda-row i b{display:block;height:100%;background:#0f9b7a;border-radius:99px}
+.mcda-row strong{text-align:right}
+.mcda-row.missing{color:#9aa7b6}
+.enterprise-reco-list{margin-top:10px;padding:10px;border:1px solid #e5ebf1;border-radius:9px;font-size:12px}
+.enterprise-reco-list ol{margin:6px 0 0;padding-left:18px}
+.enterprise-reco-list li{margin-bottom:8px}
+.enterprise-reco-list li>div{display:flex;justify-content:space-between;gap:8px}
+.enterprise-reco-list li span{color:#0f766e;font-size:11px;white-space:nowrap}
+.enterprise-reco-list p{margin:3px 0;color:#425466;font-size:11px}
+.enterprise-reco-list small{color:#728398;font-size:10px}

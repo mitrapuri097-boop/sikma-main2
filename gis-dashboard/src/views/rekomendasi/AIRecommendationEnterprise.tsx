@@ -190,11 +190,11 @@ const hazardMarkerColor = (hazard: Hazard | null) => {
 };
 
 const hazardMarkerGlyph = (hazard: Hazard | null) => {
-  if (hazard === "Banjir") return "ðŸ’§";
-  if (hazard === "Longsor") return "â›°";
-  if (hazard === "Karhutla") return "ðŸ”¥";
-  if (hazard === "Kekeringan") return "ã€½";
-  return "â—†";
+  if (hazard === "Banjir") return "💧";
+  if (hazard === "Longsor") return "⛰";
+  if (hazard === "Karhutla") return "🔥";
+  if (hazard === "Kekeringan") return "〽";
+  return "◆";
 };
 
 type AiRecommendation = {
@@ -213,9 +213,33 @@ type AiRecommendation = {
     expected_effect: string;
     why: string;
     evidence: string[];
-    implementation_notes: string;
+    implementation_notes: string[];
   }>;
-  meta?: { model?: string; source?: string; generated_at?: string };
+  adaptation_measures?: string[];
+  data_gaps?: string[];
+  mcda?: McdaResult;
+  meta?: {
+    model?: string;
+    source?: string;
+    generated_at?: string;
+    cached?: boolean;
+  };
+};
+
+type McdaResult = {
+  score: number | null;
+  category: string;
+  coverage_percent: number;
+  low_coverage?: boolean;
+  indicators: Array<{
+    key: string;
+    label: string;
+    weight: number;
+    available: boolean;
+    value: number | null;
+    contribution: number;
+    basis: string;
+  }>;
 };
 
 const normalizeHazard = (category = ""): Hazard | null => {
@@ -284,6 +308,10 @@ export default function AIRecommendationEnterprise() {
   const [aiResult, setAiResult] = useState<AiRecommendation | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
+  // MCDA tetap dikirim backend walaupun langkah OpenAI gagal.
+  const [aiFallbackMcda, setAiFallbackMcda] = useState<McdaResult | null>(
+    null,
+  );
   const [recommendationLayerVisible, setRecommendationLayerVisible] =
     useState(false);
   const [recommendationLimit, setRecommendationLimit] = useState(10);
@@ -321,7 +349,7 @@ export default function AIRecommendationEnterprise() {
   const [bnpbFlood, setBnpbFlood] = useState<BnpbFloodEvidence>({
     available: false,
     value: null,
-    service: "InaRISK BNPB â€” layer_risiko_banjir",
+    service: "InaRISK BNPB — layer_risiko_banjir",
   });
   const [bnpbFloodLoading, setBnpbFloodLoading] = useState(false);
 
@@ -377,7 +405,7 @@ export default function AIRecommendationEnterprise() {
         setBnpbFlood({
           available: false,
           value: null,
-          service: "InaRISK BNPB â€” layer_risiko_banjir",
+          service: "InaRISK BNPB — layer_risiko_banjir",
         });
         return;
       }
@@ -386,7 +414,7 @@ export default function AIRecommendationEnterprise() {
       setBnpbFlood({
         available: false,
         value: null,
-        service: "InaRISK BNPB â€” layer_risiko_banjir",
+        service: "InaRISK BNPB — layer_risiko_banjir",
       });
 
       try {
@@ -433,7 +461,7 @@ export default function AIRecommendationEnterprise() {
           available: Number.isFinite(value),
           value: Number.isFinite(value) ? value : null,
           rawValue: raw == null ? null : String(raw),
-          service: "InaRISK BNPB â€” layer_risiko_banjir",
+          service: "InaRISK BNPB — layer_risiko_banjir",
           queriedAt: new Date().toISOString(),
           geometryType: "polygon",
           catalogItemCount,
@@ -448,7 +476,7 @@ export default function AIRecommendationEnterprise() {
         setBnpbFlood({
           available: false,
           value: null,
-          service: "InaRISK BNPB â€” layer_risiko_banjir",
+          service: "InaRISK BNPB — layer_risiko_banjir",
           geometryType: "polygon",
           error: "Data risiko banjir BNPB gagal dibaca untuk wilayah terpilih.",
         });
@@ -576,7 +604,7 @@ export default function AIRecommendationEnterprise() {
         title: "Verifikasi risiko BNPB",
         status: "VERIFIKASI",
         text: "Indeks risiko banjir BNPB belum terbaca pada titik tengah wilayah; jangan menjadikan nilai BNPB sebagai dasar tunggal sebelum data berhasil diverifikasi.",
-        source: "BNPB / InaRISK â€” belum terbaca",
+        source: "BNPB / InaRISK — belum terbaca",
       });
     }
 
@@ -585,14 +613,14 @@ export default function AIRecommendationEnterprise() {
         title: "Mitigasi berbasis DAS",
         status: "EVIDENCE DAS",
         text: `Kelola banjir berbasis DAS ${dasName}: kurangi limpasan di hulu, tingkatkan retensi/infiltrasi, dan jaga kapasitas saluran menuju hilir.`,
-        source: `DAS â€” ${dasName}`,
+        source: `DAS — ${dasName}`,
       });
     } else {
       recommendations.push({
         title: "Identifikasi DAS",
         status: "DATA BELUM TERSEDIA",
         text: "Identifikasi DAS terlebih dahulu agar intervensi tidak berhenti pada titik terdampak dan dapat mencakup sumber limpasan dari hulu.",
-        source: "SIMITI DAS â€” belum teridentifikasi",
+        source: "SIMITI DAS — belum teridentifikasi",
       });
     }
 
@@ -608,7 +636,7 @@ export default function AIRecommendationEnterprise() {
         title: "Integrasikan curah hujan",
         status: "DATA BELUM TERSEDIA",
         text: "Data curah hujan kejadian belum tersedia; hubungkan data hujan historis/real-time sebelum menetapkan ambang operasional lokal.",
-        source: "Curah hujan â€” belum tersedia",
+        source: "Curah hujan — belum tersedia",
       });
     }
 
@@ -821,6 +849,7 @@ export default function AIRecommendationEnterprise() {
       }
       setAiLoading(true);
       setAiError("");
+      setAiFallbackMcda(null);
       try {
         let areaForAi: {
           label: string;
@@ -923,7 +952,13 @@ export default function AIRecommendationEnterprise() {
         );
         const data = await response.json().catch(() => null);
         if (!response.ok || !data?.success) {
-          throw new Error(data?.message || `HTTP ${response.status}`);
+          if (data?.mcda) setAiFallbackMcda(data.mcda);
+          throw new Error(
+            data?.message ||
+              (response.status === 401
+                ? "Sesi login berakhir. Silakan login ulang."
+                : `HTTP ${response.status}`),
+          );
         }
         setAiResult(data);
       } catch (error: any) {
@@ -1046,7 +1081,7 @@ export default function AIRecommendationEnterprise() {
       });
 
       const marker = L.marker(group.center, { icon });
-      const hazardText = hazardList.join(" Â· ");
+      const hazardText = hazardList.join(" · ");
       marker.bindTooltip(
         `<strong>${escapeHtml(group.label)}</strong><br/>${count} kejadian<br/>${escapeHtml(
           hazardText,
@@ -1120,9 +1155,9 @@ export default function AIRecommendationEnterprise() {
 
       const marker = L.marker(item.center, { icon });
       marker.bindTooltip(
-        `<strong>${escapeHtml(item.label)}</strong><br/>Prioritas #${index + 1} Â· ${item.score}/100<br/>${escapeHtml(
+        `<strong>${escapeHtml(item.label)}</strong><br/>Prioritas #${index + 1} · ${item.score}/100<br/>${escapeHtml(
           hazard || "Multi-risiko",
-        )} Â· ${item.count} kejadian`,
+        )} · ${item.count} kejadian`,
         {
           direction: "top",
           offset: [0, -21],
@@ -1691,6 +1726,15 @@ export default function AIRecommendationEnterprise() {
   }, [candidates]);
 
   const topRecommendations = aiResult?.recommendations?.slice(0, 3) || [];
+  const mcdaInfo: McdaResult | null = aiResult?.mcda || aiFallbackMcda;
+  const aiAdaptation = aiResult?.adaptation_measures ?? [];
+  const adaptationMeasures = aiAdaptation.length
+    ? aiAdaptation.slice(0, 4)
+    : [
+        "Early Warning System",
+        "Peningkatan kesiapsiagaan",
+        "Jalur evakuasi",
+      ];
 
   const runAnalysis = () => {
     const topSpatial = spatialRecommendations[0];
@@ -1730,7 +1774,7 @@ export default function AIRecommendationEnterprise() {
               </div>
               <div>
                 <div className="ai-eyebrow">
-                  SIMITI â€¢ DECISION SUPPORT SYSTEM
+                  SIMITI • DECISION SUPPORT SYSTEM
                 </div>
                 <h1>
                   Rekomendasi Lokasi Mitigasi &amp; Adaptasi{" "}
@@ -1803,7 +1847,7 @@ export default function AIRecommendationEnterprise() {
               <div>
                 <small>RISIKO DOMINAN</small>
                 <strong>
-                  {spatialRecommendations[0]?.dominantHazard || "â€”"}
+                  {spatialRecommendations[0]?.dominantHazard || "—"}
                 </strong>
                 <em>
                   {spatialRecommendations[0]
@@ -1821,9 +1865,13 @@ export default function AIRecommendationEnterprise() {
                 <strong>
                   {aiResult?.confidence != null
                     ? `${Math.round(Number(aiResult.confidence))}%`
-                    : "â€”"}
+                    : "—"}
                 </strong>
-                <em>{aiResult?.meta?.model || "Menunggu analisis"}</em>
+                <em>
+                  {aiResult?.meta?.model
+                    ? `${aiResult.meta.model}${aiResult.meta.cached ? " (cache)" : ""}`
+                    : "Menunggu analisis"}
+                </em>
               </div>
             </div>
           </section>
@@ -1878,7 +1926,7 @@ export default function AIRecommendationEnterprise() {
                             autoComplete="off"
                             placeholder={
                               parentReady
-                                ? `Cari ${titles[level].toLowerCase()}â€¦`
+                                ? `Cari ${titles[level].toLowerCase()}…`
                                 : `Pilih ${titles[cascadeLevels[idx - 1]].toLowerCase()} dulu`
                             }
                             onFocus={() => {
@@ -1977,7 +2025,7 @@ export default function AIRecommendationEnterprise() {
                                         normalizeSearchText(v) !==
                                           normalizeSearchText(label),
                                     )
-                                    .join(" Â· ");
+                                    .join(" · ");
                                   return (
                                     <button
                                       type="button"
@@ -1995,7 +2043,7 @@ export default function AIRecommendationEnterprise() {
                               ) : (
                                 <div className="ai-cascade-empty">
                                   {cascadeLoading === level
-                                    ? "Mencari wilayahâ€¦"
+                                    ? "Mencari wilayah…"
                                     : "Tidak ada hasil. Periksa ejaan atau coba nama lebih lengkap."}
                                 </div>
                               )}
@@ -2049,32 +2097,32 @@ export default function AIRecommendationEnterprise() {
                       </button>
                     </div>
                     <div className="layer-check active">
-                      <span>âœ“</span>
+                      <span>✓</span>
                       <b>Batas Administrasi</b>
                       <ChevronRight size={13} />
                     </div>
                     <div className="layer-check active">
-                      <span>âœ“</span>
+                      <span>✓</span>
                       <b>Risiko Bencana</b>
                       <ChevronRight size={13} />
                     </div>
                     <div className="layer-check">
-                      <span>âœ“</span>
+                      <span>✓</span>
                       <b>DAS</b>
                       <ChevronRight size={13} />
                     </div>
                     <div className="layer-check">
-                      <span>â–¡</span>
+                      <span>□</span>
                       <b>Kerentanan</b>
                       <ChevronRight size={13} />
                     </div>
                     <div className="layer-check">
-                      <span>â–¡</span>
+                      <span>□</span>
                       <b>Paparan</b>
                       <ChevronRight size={13} />
                     </div>
                     <div className="layer-check">
-                      <span>â–¡</span>
+                      <span>□</span>
                       <b>Tutupan Lahan</b>
                       <ChevronRight size={13} />
                     </div>
@@ -2084,7 +2132,7 @@ export default function AIRecommendationEnterprise() {
                       role="button"
                       tabIndex={0}
                     >
-                      <span>{recommendationLayerVisible ? "âœ“" : "â–¡"}</span>
+                      <span>{recommendationLayerVisible ? "✓" : "□"}</span>
                       <b>Titik Rekomendasi AI</b>
                       <ChevronRight size={13} />
                     </div>
@@ -2103,7 +2151,7 @@ export default function AIRecommendationEnterprise() {
                   <span>
                     {filteredCandidates.length.toLocaleString("id-ID")} kandidat
                   </span>
-                  <span>{layersCount ?? "â€”"} layer</span>
+                  <span>{layersCount ?? "—"} layer</span>
                 </div>
               </div>
 
@@ -2112,18 +2160,18 @@ export default function AIRecommendationEnterprise() {
                   <span>01</span>
                   <div>
                     <b>Integrasi Data Peta</b>
-                    <small>PostGIS Â· layer risiko Â· DAS Â· kejadian</small>
+                    <small>PostGIS · layer risiko · DAS · kejadian</small>
                   </div>
                 </div>
-                <i>â†’</i>
+                <i>→</i>
                 <div className="workflow-step done">
                   <span>02</span>
                   <div>
                     <b>Analisis Spasial</b>
-                    <small>Overlay Â· evidence Â· spatial scoring</small>
+                    <small>Overlay · evidence · spatial scoring</small>
                   </div>
                 </div>
-                <i>â†’</i>
+                <i>→</i>
                 <div className="workflow-step active">
                   <span>03</span>
                   <div>
@@ -2131,7 +2179,7 @@ export default function AIRecommendationEnterprise() {
                     <small>Model mitigasi &amp; adaptasi</small>
                   </div>
                 </div>
-                <i>â†’</i>
+                <i>→</i>
                 <div className="workflow-step">
                   <span>04</span>
                   <div>
@@ -2139,12 +2187,12 @@ export default function AIRecommendationEnterprise() {
                     <small>Titik / layer rekomendasi</small>
                   </div>
                 </div>
-                <i>â†’</i>
+                <i>→</i>
                 <div className="workflow-step">
                   <span>05</span>
                   <div>
                     <b>Output</b>
-                    <small>GeoJSON Â· laporan Â· evidence</small>
+                    <small>GeoJSON · laporan · evidence</small>
                   </div>
                 </div>
               </div>
@@ -2234,7 +2282,7 @@ export default function AIRecommendationEnterprise() {
                   aria-label="Cari kandidat lokasi"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Cari lokasi, kejadian, atau DASâ€¦"
+                  placeholder="Cari lokasi, kejadian, atau DAS…"
                 />
                 {query && (
                   <button
@@ -2354,7 +2402,7 @@ export default function AIRecommendationEnterprise() {
                         <strong>{item.title || item.area}</strong>
                         <small>{item.area}</small>
                         <em>
-                          <b>{item.hazard}</b> Â·{" "}
+                          <b>{item.hazard}</b> ·{" "}
                           {item.das || "DAS belum teridentifikasi"}
                         </em>
                       </span>
@@ -2458,7 +2506,7 @@ export default function AIRecommendationEnterprise() {
               <div className="dash-title">
                 <div>
                   <small>AI INSIGHT</small>
-                  <h3>Detail Rekomendasi #{selected ? "01" : "â€”"}</h3>
+                  <h3>Detail Rekomendasi #{selected ? "01" : "—"}</h3>
                 </div>
                 {recommendationScore !== null && (
                   <span className="score-badge">{recommendationScore}/100</span>
@@ -2474,7 +2522,7 @@ export default function AIRecommendationEnterprise() {
                       <small>{selected.hazard.toUpperCase()}</small>
                       <h4>{selected.title || selected.area}</h4>
                       <p>
-                        {selected.area} Â·{" "}
+                        {selected.area} ·{" "}
                         {selected.date || "Tanggal tidak tersedia"}
                       </p>
                     </div>
@@ -2483,7 +2531,7 @@ export default function AIRecommendationEnterprise() {
                       <strong>
                         {aiResult?.confidence != null
                           ? `${Math.round(Number(aiResult.confidence))}%`
-                          : "â€”"}
+                          : "—"}
                       </strong>
                     </div>
                   </div>
@@ -2493,7 +2541,7 @@ export default function AIRecommendationEnterprise() {
                       <i>
                         <b style={{ width: `${selectedSpatialScore ?? 0}%` }} />
                       </i>
-                      <strong>{selectedSpatialScore ?? "â€”"}</strong>
+                      <strong>{selectedSpatialScore ?? "—"}</strong>
                     </div>
                     <div>
                       <span>Curah Hujan</span>
@@ -2504,7 +2552,7 @@ export default function AIRecommendationEnterprise() {
                           }}
                         />
                       </i>
-                      <strong>{selected.curah_hujan ?? "â€”"}</strong>
+                      <strong>{selected.curah_hujan ?? "—"}</strong>
                     </div>
                     <div>
                       <span>Evidence Kejadian</span>
@@ -2530,20 +2578,79 @@ export default function AIRecommendationEnterprise() {
                     </div>
                     <div>
                       <small>MODEL ADAPTASI</small>
-                      <span>
-                        <ShieldCheck size={13} />
-                        Early Warning System
-                      </span>
-                      <span>
-                        <ShieldCheck size={13} />
-                        Peningkatan kesiapsiagaan
-                      </span>
-                      <span>
-                        <ShieldCheck size={13} />
-                        Jalur evakuasi
-                      </span>
+                      {adaptationMeasures.map((measure) => (
+                        <span key={measure}>
+                          <ShieldCheck size={13} />
+                          {measure}
+                        </span>
+                      ))}
                     </div>
                   </div>
+                  {mcdaInfo && (
+                    <div className="enterprise-mcda">
+                      <div className="enterprise-mcda-head">
+                        <strong>Skor Prioritas Wilayah (MCDA)</strong>
+                        <span>
+                          {mcdaInfo.score ?? "—"}
+                          {mcdaInfo.score != null ? "/100" : ""} ·{" "}
+                          {mcdaInfo.category}
+                        </span>
+                      </div>
+                      <small
+                        className={
+                          mcdaInfo.low_coverage ? "mcda-coverage low" : "mcda-coverage"
+                        }
+                      >
+                        Kelengkapan data indikator: {mcdaInfo.coverage_percent}%
+                        {mcdaInfo.low_coverage
+                          ? " — skor perlu dikonfirmasi data/survei tambahan"
+                          : ""}
+                      </small>
+                      {mcdaInfo.indicators.map((indicator) => (
+                        <div
+                          key={indicator.key}
+                          className={
+                            indicator.available ? "mcda-row" : "mcda-row missing"
+                          }
+                          title={indicator.basis}
+                        >
+                          <span>
+                            {indicator.label} <em>({indicator.weight}%)</em>
+                          </span>
+                          <i>
+                            <b style={{ width: `${indicator.value ?? 0}%` }} />
+                          </i>
+                          <strong>
+                            {indicator.available
+                              ? Math.round(Number(indicator.value))
+                              : "n/a"}
+                          </strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {topRecommendations.length > 0 && (
+                    <div className="enterprise-reco-list">
+                      <strong>Rekomendasi Intervensi</strong>
+                      <ol>
+                        {topRecommendations.map((r) => (
+                          <li key={r.intervention_id}>
+                            <div>
+                              <b>{r.intervention}</b>
+                              <span>
+                                {Math.round(Number(r.priority_score) || 0)}/100 ·
+                                urgensi {r.urgency}
+                              </span>
+                            </div>
+                            <p>{r.why}</p>
+                            {r.evidence?.length > 0 && (
+                              <small>Bukti: {r.evidence.join("; ")}</small>
+                            )}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
                   <div className="enterprise-reason">
                     <strong>Alasan Rekomendasi</strong>
                     <p>
@@ -2579,19 +2686,19 @@ export default function AIRecommendationEnterprise() {
                   <b>PostGIS</b>
                   <small>Data spasial &amp; layer risiko</small>
                 </div>
-                <i>â†’</i>
+                <i>→</i>
                 <div>
                   <span>02</span>
                   <b>Spatial Engine</b>
                   <small>Overlay, evidence, scoring</small>
                 </div>
-                <i>â†’</i>
+                <i>→</i>
                 <div>
                   <span>03</span>
                   <b>AI Engine</b>
                   <small>Reasoning &amp; model rekomendasi</small>
                 </div>
-                <i>â†’</i>
+                <i>→</i>
                 <div>
                   <span>04</span>
                   <b>SIMITI UI</b>
@@ -2638,7 +2745,7 @@ export default function AIRecommendationEnterprise() {
               <Sparkles size={16} />
             </div>
             <div>
-              <strong>AI Assistant â€” DSS Mitigasi</strong>
+              <strong>AI Assistant — DSS Mitigasi</strong>
               <small>Evidence SIMITI</small>
             </div>
             <button type="button" onClick={() => setDrawerOpen(false)}>
