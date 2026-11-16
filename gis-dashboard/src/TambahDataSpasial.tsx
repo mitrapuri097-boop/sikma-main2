@@ -448,7 +448,7 @@ const TambahDataSpasial = () => {
    */
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
+    <div className="min-h-screen bg-[#f4f7fb] text-slate-900">
       {/* ======================================================
           HEADER
       ====================================================== */}
@@ -469,12 +469,12 @@ const TambahDataSpasial = () => {
           MAIN
       ====================================================== */}
 
-      <main className="mx-auto max-w-6xl px-3 py-4 sm:px-6 sm:py-7">
+      <main className="mx-auto w-full max-w-[1440px] px-4 py-6 sm:px-7 sm:py-8 xl:px-10">
         {/* ====================================================
             PAGE TITLE
         ==================================================== */}
 
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="mb-6 flex flex-col gap-5 border-b border-slate-200/80 pb-6 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <button
               onClick={goBack}
@@ -498,7 +498,7 @@ const TambahDataSpasial = () => {
             </button>
 
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
+              <h1 className="text-2xl font-extrabold tracking-tight text-slate-950 sm:text-[28px]">
                 Tambah Data Spasial
               </h1>
 
@@ -507,26 +507,74 @@ const TambahDataSpasial = () => {
               </span>
             </div>
 
-            <p className="mt-1 text-xs text-slate-500 sm:text-sm">
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
               Publikasikan dataset Shapefile menjadi layer GIS baru tanpa
               menggunakan modal.
             </p>
           </div>
 
-          {/* MODULE */}
+          {/* MODULE DESTINATION */}
 
-          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-
-            <div>
+          <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)] sm:min-w-[310px]">
+            <div className="flex items-center justify-between gap-3">
               <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
                 Modul tujuan
               </div>
-
-              <div className="text-xs font-bold text-slate-700">
-                {getSectionTitle(currentSection)}
-              </div>
+              <span className="text-[9px] font-semibold text-slate-400">
+                Pilih lokasi publikasi
+              </span>
             </div>
+
+            <div className="text-sm font-semibold text-slate-800">
+              Tujuan aktif: {getSectionTitle(currentSection)}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setCurrentSection("mitigasiAdaptasi")}
+              disabled={isUploading}
+              aria-pressed={currentSection === "mitigasiAdaptasi"}
+              className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                currentSection === "mitigasiAdaptasi"
+                  ? "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-500/10"
+                  : "border-slate-200 bg-slate-50 hover:border-emerald-300 hover:bg-emerald-50/60"
+              }`}
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
+                  currentSection === "mitigasiAdaptasi"
+                    ? "bg-emerald-600 text-white"
+                    : "bg-white text-emerald-700 ring-1 ring-slate-200"
+                }`}>
+                  <svg
+                    className="h-4 w-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v18M3 12h18" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5.5 5.5l13 13m0-13l-13 13" />
+                  </svg>
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[11px] font-bold text-slate-800">
+                    Mitigasi & Adaptasi
+                  </span>
+                  <span className="mt-0.5 block text-[9px] text-slate-500">
+                    Publikasikan layer ke modul ini
+                  </span>
+                </span>
+              </span>
+
+              <span className={`shrink-0 rounded-full px-2 py-1 text-[8px] font-black ${
+                currentSection === "mitigasiAdaptasi"
+                  ? "bg-emerald-600 text-white"
+                  : "bg-white text-slate-500 ring-1 ring-slate-200"
+              }`}>
+                {currentSection === "mitigasiAdaptasi" ? "AKTIF" : "PILIH"}
+              </span>
+            </button>
           </div>
         </div>
 
@@ -534,18 +582,18 @@ const TambahDataSpasial = () => {
             GRID
         ==================================================== */}
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
           {/* ==================================================
               LEFT
           ================================================== */}
 
-          <div className="space-y-4">
+          <div className="space-y-6">
             {/* =================================================
                 LAYER DEFINITION
             ================================================= */}
 
-            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-100 bg-gradient-to-r from-slate-950 to-emerald-950 px-5 py-5 text-white sm:px-6">
+            <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.045)]">
+              <div className="border-b border-slate-800 bg-gradient-to-r from-[#101c2e] via-[#142b3b] to-[#123c3a] px-6 py-6 text-white sm:px-7">
                 <div className="flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/15">
                     <svg
@@ -574,7 +622,7 @@ const TambahDataSpasial = () => {
                       01 · Layer Definition
                     </div>
 
-                    <h2 className="mt-1 text-base font-bold sm:text-lg">
+                    <h2 className="mt-1 text-lg font-bold tracking-tight sm:text-xl">
                       Identitas layer
                     </h2>
 
@@ -589,12 +637,12 @@ const TambahDataSpasial = () => {
                 </div>
               </div>
 
-              <div className="space-y-5 p-5 sm:p-6">
+              <div className="space-y-6 p-6 sm:p-7">
                 {/* NAME */}
 
                 <div>
                   <div className="mb-2 flex items-center justify-between gap-3">
-                    <label className="text-xs font-bold text-slate-700">
+                    <label className="text-sm font-semibold text-slate-800">
                       Nama Layer / Tabel{" "}
                       <span className="text-rose-500">*</span>
                     </label>
@@ -613,7 +661,7 @@ const TambahDataSpasial = () => {
                       }
                       disabled={isUploading}
                       placeholder="contoh: bahaya_banjir_kabupaten_bogor"
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm font-medium outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-slate-100"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3.5 pr-10 text-sm font-medium outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-slate-100"
                     />
 
                     {newLayerName.trim() && (
@@ -626,8 +674,8 @@ const TambahDataSpasial = () => {
 
                 {/* MODULE INFO */}
 
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="rounded-xl border border-slate-200/70 bg-slate-50/80 p-4">
                     <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
                       Modul tujuan
                     </div>
@@ -637,7 +685,7 @@ const TambahDataSpasial = () => {
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <div className="rounded-xl border border-slate-200/70 bg-slate-50/80 p-4">
                     <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
                       Publisher
                     </div>
@@ -655,8 +703,8 @@ const TambahDataSpasial = () => {
                 DATASET
             ================================================= */}
 
-            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6">
+            <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.045)]">
+              <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5 sm:px-7">
                 <div>
                   <div className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-600">
                     02 · Spatial Dataset
@@ -674,7 +722,7 @@ const TambahDataSpasial = () => {
                 )}
               </div>
 
-              <div className="p-5 sm:p-6">
+              <div className="p-6 sm:p-7">
                 <input
                   ref={inputRef}
                   id="shapefileInput"
@@ -693,7 +741,7 @@ const TambahDataSpasial = () => {
                     htmlFor="shapefileInput"
                     onDrop={handleDrop}
                     onDragOver={(event) => event.preventDefault()}
-                    className="group flex min-h-64 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center transition hover:border-emerald-400 hover:bg-emerald-50/30"
+                    className="group flex min-h-[280px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-gradient-to-b from-slate-50 to-white px-6 py-10 text-center transition hover:border-emerald-400 hover:bg-emerald-50/30"
                   >
                     <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 group-hover:ring-emerald-200">
                       <svg
@@ -887,11 +935,11 @@ const TambahDataSpasial = () => {
               RIGHT
           ================================================== */}
 
-          <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+          <aside className="space-y-6 xl:sticky xl:top-6 xl:self-start">
             {/* PIPELINE */}
 
-            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-100 px-5 py-4">
+            <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.045)]">
+              <div className="border-b border-slate-100 px-6 py-5">
                 <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
                   03 · Publication Pipeline
                 </div>
@@ -941,7 +989,7 @@ const TambahDataSpasial = () => {
                 {/* PROGRESS */}
 
                 {isUploading && (
-                  <div className="mt-5 space-y-4 border-t border-slate-100 pt-5">
+                  <div className="mt-5 space-y-6 border-t border-slate-100 pt-5">
                     {/* UPLOAD */}
 
                     <div>
@@ -1035,7 +1083,7 @@ const TambahDataSpasial = () => {
 
             {/* INFO */}
 
-            <section className="rounded-2xl border border-slate-200 bg-slate-900 p-5 text-white shadow-sm">
+            <section className="rounded-2xl border border-slate-800 bg-gradient-to-br from-[#101c2e] to-[#173b3b] p-6 text-white shadow-[0_12px_30px_rgba(15,23,42,0.12)]">
               <div className="text-[9px] font-black uppercase tracking-[0.18em] text-emerald-300">
                 GIS Publisher
               </div>
@@ -1056,7 +1104,7 @@ const TambahDataSpasial = () => {
             BOTTOM ACTION
         ==================================================== */}
 
-        <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div className="mt-6 flex flex-col gap-4 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_8px_28px_rgba(15,23,42,0.045)] sm:flex-row sm:items-center sm:justify-between sm:p-6">
           <div className="flex items-start gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
               i
@@ -1078,7 +1126,7 @@ const TambahDataSpasial = () => {
               type="button"
               onClick={goBack}
               disabled={isUploading}
-              className="flex-1 rounded-xl border border-slate-200 bg-white px-5 py-3 text-[10px] font-bold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none"
+              className="flex-1 rounded-xl border border-slate-200 bg-white px-6 py-3.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none"
             >
               Batal
             </button>
@@ -1087,7 +1135,7 @@ const TambahDataSpasial = () => {
               type="button"
               onClick={handleCreateLayer}
               disabled={!canPublish}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-[10px] font-black text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 sm:flex-none"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#142b3b] px-6 py-3.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 sm:flex-none"
             >
               {isUploading ? (
                 <>
