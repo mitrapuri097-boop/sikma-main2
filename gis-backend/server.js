@@ -13127,6 +13127,9 @@ app.post("/api/layers", verifyToken, shapefileUpload.array("files"), async (req,
     // ============================================================
     console.log("\n--- STEP 2: Creating Table ---");
 
+    const quoteIdentifier = (value) =>
+      '"' + String(value).replace(/"/g, '""') + '"';
+
     const columnDefs = [];
 
     for (const [colName, value] of Object.entries(firstResult.value)) {
@@ -13164,13 +13167,13 @@ app.post("/api/layers", verifyToken, shapefileUpload.array("files"), async (req,
         }
       }
 
-      columnDefs.push(`${sanitizedColName} ${colType}`);
+      columnDefs.push(`${quoteIdentifier(sanitizedColName)} ${colType}`);
     }
 
     columnDefs.push("geom_valid geometry(Geometry, 4326)");
 
     const createTableSQL = `
-      CREATE TABLE ${sanitizedTableName} (
+      CREATE TABLE ${quoteIdentifier(sanitizedTableName)} (
         gid SERIAL PRIMARY KEY,
         ${columnDefs.join(",\n        ")}
       )
@@ -13183,8 +13186,8 @@ app.post("/api/layers", verifyToken, shapefileUpload.array("files"), async (req,
 
     // Create spatial index
     await client.query(`
-      CREATE INDEX ${sanitizedTableName}_geom_valid_idx 
-      ON ${sanitizedTableName} USING GIST (geom_valid)
+      CREATE INDEX ${quoteIdentifier(`${sanitizedTableName}_geom_valid_idx`)} 
+      ON ${quoteIdentifier(sanitizedTableName)} USING GIST (geom_valid)
     `);
     console.log("ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ Spatial index created");
 
@@ -13225,7 +13228,7 @@ app.post("/api/layers", verifyToken, shapefileUpload.array("files"), async (req,
             const sanitizedCol = colName
               .toLowerCase()
               .replace(/[^a-z0-9_]/g, "_");
-            cols.push(sanitizedCol);
+            cols.push(quoteIdentifier(sanitizedCol));
 
             // Convert value
             let convertedValue = value;
@@ -13244,14 +13247,14 @@ app.post("/api/layers", verifyToken, shapefileUpload.array("files"), async (req,
           }
 
           // Geometry dengan ST_MakeValid dan ST_Transform
-          cols.push("geom_valid");
+          cols.push(quoteIdentifier("geom_valid"));
           vals.push(JSON.stringify(feature.geometry));
           placeholders.push(
             `ST_MakeValid(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON($${idx}::json), 4326), 4326))`,
           );
 
           const insertSQL = `
-            INSERT INTO ${sanitizedTableName} (${cols.join(", ")})
+            INSERT INTO ${quoteIdentifier(sanitizedTableName)} (${cols.join(", ")})
             VALUES (${placeholders.join(", ")})
           `;
 
@@ -24130,8 +24133,7 @@ const PORT = process.env.PORT || 3001;
 
 const startServer = async () => {
   try {
-    await layerMetadataInitialization;
-
+    await layerMetadataInitialization;
     await ensureMasterKlasifikasiKegiatanTable();
     await ensureLokasiKegiatanTable();
 
@@ -24162,3 +24164,11 @@ const startServer = async () => {
 };
 
 void startServer();
+
+
+
+
+
+
+
+
