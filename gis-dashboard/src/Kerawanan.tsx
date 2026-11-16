@@ -1607,13 +1607,24 @@ const Kerawanan = () => {
     "rawan_erosi",
   ]);
 
+  const VERIFIED_NATIONAL_HAZARD_WMS_LAYERS = new Set<string>([
+    "bahaya_banjir",
+    "bahaya_banjir_bandang",
+    "bahaya_abrasi_dan_gelombang_ekstrim",
+    "bahaya_kekeringan",
+    "rawan_longsor",
+  ]);
   const buildRiskBanjirWmsCqlFilter = (
     kelas: string | null,
     areas: Array<any> = selectedAreas,
-    geometryColumn: string = "geom_valid"
+    geometryColumn: string = "geom_valid",
+    classColumn: string = "kelas"
   ): string | null => {
+    const safeClassColumn =
+      classColumn === "unsur" ? "unsur" : "kelas";
+
     const classFilter = kelas
-      ? `kelas = '${String(kelas).replace(/'/g, "''")}'`
+      ? `${safeClassColumn} = '${String(kelas).replace(/'/g, "''")}'`
       : "";
 
     // Tanpa area administrasi terpilih, perilaku nasional tetap dipertahankan.
@@ -1656,14 +1667,15 @@ const Kerawanan = () => {
     const wmsLayer: any = layerGroupsRef.current?.[tableName];
     if (!wmsLayer || typeof wmsLayer.setParams !== "function") return false;
 
-    const geometryColumn = NATIONAL_HAZARD_WMS_LAYERS.has(tableName)
-      ? "geom"
-      : "geom_valid";
+    const geometryColumn = "geom_valid";
+    const classColumn =
+      tableName === "rawan_longsor" ? "unsur" : "kelas";
 
     const cqlFilter = buildRiskBanjirWmsCqlFilter(
       kelas,
       areas,
       geometryColumn,
+      classColumn,
     );
     if (!cqlFilter) {
       console.warn("SIMITI: filter legenda WMS tidak dapat dibentuk.");
@@ -2549,11 +2561,14 @@ const Kerawanan = () => {
           }]
         : selectedAreas;
 
+      const isVerifiedNationalHazardLayer =
+        VERIFIED_NATIONAL_HAZARD_WMS_LAYERS.has(tableName);
+
       const isRiskBanjirWmsCandidate =
         (
           tableName === "risiko_banjir" ||
-          tableName === "risiko_kekeringan" ||
           tableName === "risiko_banjir_bandang" ||
+          tableName === "risiko_kekeringan" ||
           tableName === "risiko_abrasi" ||
           tableName === "risiko_longsor" ||
           tableName === "risiko_karhutla" ||
@@ -2561,21 +2576,35 @@ const Kerawanan = () => {
         ) &&
         selectedDas.length === 0 &&
         (
-          selectedAreas.length > 0
-            ? activeSpatialFocus?.layerType !== "khdtk"
-            : hasAdminVillageWmsFocus ||
-              (!activeSpatialFocus?.feature?.geometry && zoom <= 5)
-        );
+          isVerifiedNationalHazardLayer
+            ? (
+                selectedAreas.length > 0
+                  ? activeSpatialFocus?.layerType !== "khdtk"
+                  : activeSpatialFocus?.layerType !== "khdtk" &&
+                    (
+                      !activeSpatialFocus?.feature?.geometry ||
+                      hasAdminVillageWmsFocus
+                    )
+              )
+            : (
+                selectedAreas.length > 0
+                  ? activeSpatialFocus?.layerType !== "khdtk"
+                  : hasAdminVillageWmsFocus ||
+                    (!activeSpatialFocus?.feature?.geometry && zoom <= 5)
+              )
+        ) &&
+        !(tableName === "risiko_karhutla" && selectedAreas.length > 0);
 
-      const wmsGeometryColumn = NATIONAL_HAZARD_WMS_LAYERS.has(tableName)
-        ? "geom"
-        : "geom_valid";
+      const wmsGeometryColumn = "geom_valid";
+      const wmsClassColumn =
+        tableName === "rawan_longsor" ? "unsur" : "kelas";
 
       const riskBanjirWmsCqlFilter = isRiskBanjirWmsCandidate
         ? buildRiskBanjirWmsCqlFilter(
             selectedLegendKey,
             riskBanjirWmsAreas,
             wmsGeometryColumn,
+            wmsClassColumn,
           )
         : null;
       console.log("SIMITI DEBUG WMS RISIKO BANJIR:", JSON.stringify({
@@ -2622,13 +2651,13 @@ const Kerawanan = () => {
             risiko_banjir_bandang: "simiti:vw_risiko_banjir_bandang_wms",
             risiko_abrasi: "simiti:vw_risiko_abrasi_wms",
             risiko_longsor: "simiti:vw_risiko_longsor_wms",
-            risiko_karhutla: "simiti:vw_risiko_karhutla_wms",
+            risiko_karhutla: "simiti:vw_risiko_karhutla_repaired_wms",
 
-            bahaya_abrasi_dan_gelombang_ekstrim: "simiti:vw_bahaya_abrasi_wms",
-            bahaya_banjir_bandang: "simiti:vw_bahaya_banjir_bandang_wms",
-            bahaya_banjir: "simiti:vw_bahaya_banjir_wms",
-            bahaya_kekeringan: "simiti:vw_bahaya_kekeringan_wms",
-            rawan_longsor: "simiti:vw_rawan_longsor_wms",
+            bahaya_abrasi_dan_gelombang_ekstrim: "simiti:bahaya_abrasi_dan_gelombang_ekstrim",
+            bahaya_banjir_bandang: "simiti:bahaya_banjir_bandang",
+            bahaya_banjir: "simiti:bahaya_banjir",
+            bahaya_kekeringan: "simiti:bahaya_kekeringan",
+            rawan_longsor: "simiti:rawan_longsor",
             rawan_limpasan: "simiti:vw_rawan_limpasan_wms",
             rawan_karhutla: "simiti:vw_rawan_karhutla_wms",
             rawan_erosi: "simiti:vw_rawan_erosi_wms",
@@ -2745,7 +2774,7 @@ const Kerawanan = () => {
                   risiko_banjir_bandang: "vw_risiko_banjir_bandang_wms",
                   risiko_abrasi: "vw_risiko_abrasi_wms",
                   risiko_longsor: "vw_risiko_longsor_wms",
-                  risiko_karhutla: "vw_risiko_karhutla_wms",
+                  risiko_karhutla: "vw_risiko_karhutla_repaired_wms",
                 } as Record<string, string>)[tableName] || tableName,
               ),
               CQL_FILTER: riskBanjirWmsCqlFilter,
@@ -4147,8 +4176,15 @@ const Kerawanan = () => {
         tableName === "kawasan_hutan" && window.L.canvas
           ? window.L.canvas({ padding: 0.5 })
           : undefined;
+      const sekatKanalCanvasRenderer =
+        tableName === "sekat_kanal" && window.L.canvas
+          ? window.L.canvas({ padding: 0.5 })
+          : undefined;
+
       const activeGeoJsonRenderer =
-        kawasanHutanCanvasRenderer || nationalCanvasRenderer;
+        kawasanHutanCanvasRenderer ||
+        sekatKanalCanvasRenderer ||
+        nationalCanvasRenderer;
 
       const isValidGeoJsonPosition = (position: any): boolean => {
         if (!Array.isArray(position) || position.length < 2) return false;
@@ -4222,6 +4258,7 @@ const Kerawanan = () => {
 
       const layerGroup = window.L.geoJSON(geojsonData, {
         pane: "overlayPane",
+        smoothFactor: BENCANA_FOCUS_LAYERS.has(String(tableName)) ? 0 : 1,
         renderer: activeGeoJsonRenderer,
         style: styleFunction,
         filter: function (feature: any) {
@@ -17769,4 +17806,3 @@ const Kerawanan = () => {
 };
 
 export default Kerawanan;
-

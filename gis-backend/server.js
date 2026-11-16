@@ -15038,25 +15038,94 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
 
 // SIMITI: statistik agregat layer kerawanan tanpa batas pagination GeoJSON
 app.get("/api/layers/:tableName/statistics", async (req, res) => {
-  const allowedLayers = [
-    "risiko_banjir",
-    "risiko_banjir_bandang",
-    "risiko_kekeringan",
-    "risiko_abrasi",
-    "risiko_longsor",
-    "risiko_karhutla",
-  ];
+  // Allowlist eksplisit: tabel lama dan delapan view WMS nasional.
+  const layerConfig = {
+    risiko_banjir: {
+      relation: '"public"."risiko_banjir"',
+      geometryColumn: "geom_valid",
+    },
+    risiko_banjir_bandang: {
+      relation: '"public"."risiko_banjir_bandang"',
+      geometryColumn: "geom_valid",
+    },
+    risiko_kekeringan: {
+      relation: '"public"."risiko_kekeringan"',
+      geometryColumn: "geom_valid",
+    },
+    risiko_abrasi: {
+      relation: '"public"."risiko_abrasi"',
+      geometryColumn: "geom_valid",
+    },
+    risiko_longsor: {
+      relation: '"public"."risiko_longsor"',
+      geometryColumn: "geom_valid",
+    },
+    risiko_karhutla: {
+      relation: '"public"."risiko_karhutla"',
+      geometryColumn: "geom_valid",
+    },
+
+    bahaya_abrasi_dan_gelombang_ekstrim: {
+      relation: '"public"."bahaya_abrasi_dan_gelombang_ekstrim"',
+      geometryColumn: "geom_valid",
+      classColumn: "kelas",
+    },
+    bahaya_banjir_bandang: {
+      relation: '"public"."bahaya_banjir_bandang"',
+      geometryColumn: "geom_valid",
+      classColumn: "kelas",
+    },
+    bahaya_banjir: {
+      relation: '"public"."bahaya_banjir"',
+      geometryColumn: "geom_valid",
+      classColumn: "kelas",
+    },
+    bahaya_kekeringan: {
+      relation: '"public"."bahaya_kekeringan"',
+      geometryColumn: "geom_valid",
+      classColumn: "kelas",
+    },
+    rawan_longsor: {
+      relation: '"public"."rawan_longsor"',
+      geometryColumn: "geom_valid",
+      classColumn: "unsur",
+    },
+    rawan_limpasan: {
+      relation: '"public"."vw_rawan_limpasan_wms"',
+      geometryColumn: "geom",
+    },
+    rawan_karhutla: {
+      relation: '"public"."vw_rawan_karhutla_wms"',
+      geometryColumn: "geom",
+    },
+    rawan_erosi: {
+      relation: '"public"."vw_rawan_erosi_wms"',
+      geometryColumn: "geom",
+    },
+  };
 
   const tableName = String(req.params.tableName || "");
-  if (!allowedLayers.includes(tableName)) {
-    return res.status(400).json({ success: false, message: "Layer statistik tidak diizinkan." });
+  const layerConfigEntry = layerConfig[tableName];
+
+  if (!layerConfigEntry) {
+    return res.status(400).json({
+      success: false,
+      message: "Layer statistik tidak diizinkan.",
+    });
   }
 
+  const geometryColumn = layerConfigEntry.geometryColumn;
+  const classColumn =
+    layerConfigEntry.classColumn === "unsur" ? "unsur" : "kelas";
+
   let client;
+
   try {
     client = await pool.connect();
 
+    // Pertahankan otorisasi layer yang sudah berlaku.
     const auth = await authorizeLayerByTable(req, tableName, client);
+
     if (!auth.ok) {
       return res.status(auth.status).json({
         success: false,
@@ -15065,16 +15134,25 @@ app.get("/api/layers/:tableName/statistics", async (req, res) => {
     }
 
     const parseArray = (value, label) => {
-      if (value === undefined || value === null || value === "") return [];
+      if (value === undefined || value === null || value === "") {
+        return [];
+      }
+
       let parsed;
+
       try {
         parsed = typeof value === "string" ? JSON.parse(value) : value;
       } catch {
         throw new Error(`${label} harus berupa JSON array.`);
       }
-      if (!Array.isArray(parsed) || parsed.some(v => typeof v !== "string" || !v.trim())) {
+
+      if (
+        !Array.isArray(parsed) ||
+        parsed.some(v => typeof v !== "string" || !v.trim())
+      ) {
         throw new Error(`${label} harus berupa array teks yang valid.`);
       }
+
       return [...new Set(parsed.map(v => v.trim()))];
     };
 
@@ -15090,30 +15168,42 @@ app.get("/api/layers/:tableName/statistics", async (req, res) => {
     };
 
     if (adminNames.length && !adminConfig[adminLevel]) {
-      return res.status(400).json({ success: false, message: "adminLevel tidak valid." });
+      return res.status(400).json({
+        success: false,
+        message: "adminLevel tidak valid.",
+      });
     }
 
     const params = [];
-    const conditions = ["l.geom_valid IS NOT NULL"];
-    let adminJoin = "";
-    let measuredGeom = "l.geom_valid";
+    const conditions = [`l.${geometryColumn} IS NOT NULL`];
 
+    let adminJoin = "";
+    let measuredGeom = `l.${geometryColumn}`;
+
+    // Filter DAS tetap menggunakan geometri administrasi DAS.
     if (dasNames.length) {
       params.push(dasNames);
+
       conditions.push(`
         EXISTS (
           SELECT 1
           FROM das_adm d
           WHERE d.nama_das = ANY($${params.length}::text[])
             AND d.geom_valid IS NOT NULL
-            AND ST_Intersects(l.geom_valid, d.geom_valid)
+            AND ST_Intersects(
+              l.${geometryColumn},
+              d.geom_valid
+            )
         )
       `);
     }
 
+    // Pemotongan geometri berdasarkan administrasi tetap dipertahankan.
     if (adminNames.length) {
       const config = adminConfig[adminLevel];
+
       params.push(adminNames);
+
       const adminParam = `$${params.length}`;
 
       adminJoin = `
@@ -15129,7 +15219,7 @@ app.get("/api/layers/:tableName/statistics", async (req, res) => {
         ST_CollectionExtract(
           ST_MakeValid(
             ST_Intersection(
-              ST_MakeValid(l.geom_valid),
+              ST_MakeValid(l.${geometryColumn}),
               admin_scope.clip_geom
             )
           ),
@@ -15143,9 +15233,9 @@ app.get("/api/layers/:tableName/statistics", async (req, res) => {
     const sql = `
       WITH measured AS (
         SELECT
-          l.kelas,
+          l.${classColumn} AS kelas,
           ${measuredGeom} AS geom
-        FROM "${tableName}" l
+        FROM ${layerConfigEntry.relation} l
         ${adminJoin}
         WHERE ${conditions.join(" AND ")}
       )
@@ -15178,8 +15268,15 @@ app.get("/api/layers/:tableName/statistics", async (req, res) => {
       luasHa: Number(row.luas_ha || 0),
     }));
 
-    const totalFeatures = classes.reduce((sum, item) => sum + item.jumlahFitur, 0);
-    const totalAreaHa = classes.reduce((sum, item) => sum + item.luasHa, 0);
+    const totalFeatures = classes.reduce(
+      (sum, item) => sum + item.jumlahFitur,
+      0
+    );
+
+    const totalAreaHa = classes.reduce(
+      (sum, item) => sum + item.luasHa,
+      0
+    );
 
     return res.json({
       success: true,
@@ -15196,6 +15293,7 @@ app.get("/api/layers/:tableName/statistics", async (req, res) => {
     });
   } catch (error) {
     console.error("[LAYER STATISTICS]", error);
+
     return res.status(500).json({
       success: false,
       message: error.message || "Gagal menghitung statistik layer.",
@@ -23590,6 +23688,8 @@ app.get("/api/tma/history/stats", async (req, res) => {
   }
 });
 
+
+// ============================================================
 // MASTER KLASIFIKASI KEGIATAN
 // ============================================================
 
@@ -24013,6 +24113,7 @@ app.delete(
 
 // ============================================================
 // END MASTER KLASIFIKASI KEGIATAN
+// ============================================================
 
 // 404 handler
 app.use((req, res) => {
@@ -24030,8 +24131,9 @@ const PORT = process.env.PORT || 3001;
 const startServer = async () => {
   try {
     await layerMetadataInitialization;
-    await ensureLokasiKegiatanTable();
+
     await ensureMasterKlasifikasiKegiatanTable();
+    await ensureLokasiKegiatanTable();
 
   const server = app.listen(PORT, () => {
     console.log(`ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¥ SIMITIGASI API READY`);
