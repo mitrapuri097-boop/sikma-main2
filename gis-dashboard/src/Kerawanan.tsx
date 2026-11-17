@@ -46,6 +46,80 @@ type GpsThreatState = {
 };
 
 const Kerawanan = () => {
+
+  // Palet bulanan Karhutla mengacu pada nama warna NAFI (halaman 12).
+  // Dokumen NAFI menyebut nama warna, bukan kode HEX; HEX berikut adalah
+  // padanan digital perkiraan agar konsisten dipakai pada marker dan legenda.
+  const KARHUTLA_MONTHS = [
+    { name: "Januari", key: "JANUARI", number: "01", colorName: "Mauve-grey", color: "#9B929C" },
+    { name: "Februari", key: "FEBRUARI", number: "02", colorName: "Blue-grey", color: "#8496A8" },
+    { name: "Maret", key: "MARET", number: "03", colorName: "Grey-green", color: "#98A99B" },
+    { name: "April", key: "APRIL", number: "04", colorName: "Pale teal", color: "#B4DAD5" },
+    { name: "Mei", key: "MEI", number: "05", colorName: "Mint green", color: "#A8DCC2" },
+    { name: "Juni", key: "JUNI", number: "06", colorName: "Light green", color: "#B9D98A" },
+    { name: "Juli", key: "JULI", number: "07", colorName: "Sage green", color: "#A3B18A" },
+    { name: "Agustus", key: "AGUSTUS", number: "08", colorName: "Yellow", color: "#F4D35E" },
+    { name: "September", key: "SEPTEMBER", number: "09", colorName: "Peach", color: "#F6B98A" },
+    { name: "Oktober", key: "OKTOBER", number: "10", colorName: "Pink", color: "#E98BAA" },
+    { name: "November", key: "NOVEMBER", number: "11", colorName: "Mauve", color: "#B784A7" },
+    { name: "Desember", key: "DESEMBER", number: "12", colorName: "Grey-purple", color: "#8F829B" },
+  ];
+  const KARHUTLA_MONTH_COLORS: Record<string, string> = Object.fromEntries(
+    KARHUTLA_MONTHS.map((month) => [month.key, month.color]),
+  );
+
+const getKarhutlaMonthColor = (value: any): string => {
+  if (value === null || value === undefined) return "#808080";
+
+  const raw = String(value).trim().toUpperCase();
+  const months = [
+    "JANUARI", "FEBRUARI", "MARET", "APRIL",
+    "MEI", "JUNI", "JULI", "AGUSTUS",
+    "SEPTEMBER", "OKTOBER", "NOVEMBER", "DESEMBER"
+  ];
+
+  const aliases: Record<string, string> = {
+    JAN: "JANUARI", FEB: "FEBRUARI", MAR: "MARET",
+    APR: "APRIL", MAY: "MEI", JUN: "JUNI",
+    JUL: "JULI", AUG: "AGUSTUS", SEP: "SEPTEMBER",
+    OCT: "OKTOBER", NOV: "NOVEMBER", DEC: "DESEMBER"
+  };
+
+  for (const month of months) {
+    if (raw.includes(month)) return KARHUTLA_MONTH_COLORS[month];
+  }
+
+  for (const [alias, month] of Object.entries(aliases)) {
+    if (new RegExp("\\b" + alias + "\\b").test(raw)) {
+      return KARHUTLA_MONTH_COLORS[month];
+    }
+  }
+
+  const yearMonth = raw.match(/\b\d{4}[-/](\d{1,2})\b/);
+  if (yearMonth) {
+    const index = Number(yearMonth[1]) - 1;
+    if (index >= 0 && index < 12) return KARHUTLA_MONTH_COLORS[months[index]];
+  }
+
+  const localDate = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (localDate) {
+    const index = Number(localDate[2]) - 1;
+    if (index >= 0 && index < 12) return KARHUTLA_MONTH_COLORS[months[index]];
+  }
+
+  const numeric = Number(raw);
+  if (Number.isInteger(numeric) && numeric >= 1 && numeric <= 12) {
+    return KARHUTLA_MONTH_COLORS[months[numeric - 1]];
+  }
+
+  const date = new Date(raw);
+  if (!Number.isNaN(date.getTime())) {
+    return KARHUTLA_MONTH_COLORS[months[date.getMonth()]];
+  }
+
+  return "#808080";
+};
+
   // ============================================================
   // ENTERPRISE SIDEBAR — UI ONLY
   // Tidak mengubah logic GIS, API, layer, legend, atau data.
@@ -188,7 +262,7 @@ const Kerawanan = () => {
   const [isRightLayerPanelOpen, setIsRightLayerPanelOpen] = useState(true);
 
   const mapRef = useRef(null);
-  const [baseMapType, setBaseMapType] = useState<"road" | "satellite">("road");
+  const [baseMapType, setBaseMapType] = useState<"road" | "satellite">("satellite");
   const roadBaseLayerRef = useRef<any>(null);
   const satelliteBaseLayerRef = useRef<any>(null);
   const mapInstanceRef = useRef(null);
@@ -3287,7 +3361,11 @@ const Kerawanan = () => {
 
         geojsonData.features.forEach((feature: any) => {
           const unsur = feature.properties.unsur || "";
-          const luas = parseFloat(feature.properties.shape_area) || 0;
+          const shapeAreaM2 = Number(feature.properties.shape_area);
+          const luas =
+            Number.isFinite(shapeAreaM2) && shapeAreaM2 > 0
+              ? shapeAreaM2 / 10000
+              : 0;
 
           if (unsur) {
             unsurMap.set(unsur, (unsurMap.get(unsur) || 0) + luas);
@@ -3330,10 +3408,11 @@ const Kerawanan = () => {
 
         geojsonData.features.forEach((feature: any) => {
           const limpasan = feature.properties.limpasan || "";
+          const shapeAreaM2 = Number(feature.properties.shape_area);
           const luas =
-            parseFloat(feature.properties.shape_area) ||
-            parseFloat(feature.properties.shape_leng) ||
-            0;
+            Number.isFinite(shapeAreaM2) && shapeAreaM2 > 0
+              ? shapeAreaM2 / 10000
+              : 0;
 
           if (limpasan) {
             limpasanMap.set(limpasan, (limpasanMap.get(limpasan) || 0) + luas);
@@ -3396,7 +3475,11 @@ const Kerawanan = () => {
         const kelasMap = new Map<string, number>();
         geojsonData.features.forEach((feature: any) => {
           const kelas = feature.properties.kelas || "";
-          const luas = parseFloat(feature.properties.shape_area) || 0;
+          const shapeAreaM2 = Number(feature.properties.shape_area);
+          const luas =
+            Number.isFinite(shapeAreaM2) && shapeAreaM2 > 0
+              ? shapeAreaM2 / 10000
+              : 0;
           if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
         });
         const order = ["Tinggi", "Sedang", "Rendah"];
@@ -3420,7 +3503,11 @@ const Kerawanan = () => {
         const kelasMap = new Map<string, number>();
         geojsonData.features.forEach((feature: any) => {
           const kelas = feature.properties.kelas || "";
-          const luas = parseFloat(feature.properties.shape_area) || 0;
+          const shapeAreaM2 = Number(feature.properties.shape_area);
+          const luas =
+            Number.isFinite(shapeAreaM2) && shapeAreaM2 > 0
+              ? shapeAreaM2 / 10000
+              : 0;
           if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
         });
         const order = ["Tinggi", "Rendah"];
@@ -3444,7 +3531,11 @@ const Kerawanan = () => {
         const kelasMap = new Map<string, number>();
         geojsonData.features.forEach((feature: any) => {
           const kelas = feature.properties.kelas || "";
-          const luas = parseFloat(feature.properties.shape_area) || 0;
+          const shapeAreaM2 = Number(feature.properties.shape_area);
+          const luas =
+            Number.isFinite(shapeAreaM2) && shapeAreaM2 > 0
+              ? shapeAreaM2 / 10000
+              : 0;
           if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
         });
         const order = ["Tinggi", "Sedang", "Rendah"];
@@ -3468,7 +3559,11 @@ const Kerawanan = () => {
         const kelasMap = new Map<string, number>();
         geojsonData.features.forEach((feature: any) => {
           const kelas = feature.properties.kelas || "";
-          const luas = parseFloat(feature.properties.shape_area) || 0;
+          const shapeAreaM2 = Number(feature.properties.shape_area);
+          const luas =
+            Number.isFinite(shapeAreaM2) && shapeAreaM2 > 0
+              ? shapeAreaM2 / 10000
+              : 0;
           if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
         });
         const order = ["Tinggi", "Sedang", "Rendah"];
@@ -3578,7 +3673,7 @@ const Kerawanan = () => {
         });
         const arr = Array.from(uniquePeriode).map((periode) => ({
           periode,
-          color: getRandomColor(periode, periodeColorMap),
+          color: getKarhutlaMonthColor(periode),
         }));
         setKebakaran2021Data(arr);
         arr.forEach((item) => {
@@ -3597,7 +3692,7 @@ const Kerawanan = () => {
         const arr = Array.from(periodeMap.entries()).map(([periode, luas]) => ({
           periode,
           luas,
-          color: getRandomColor(periode, periodeColorMap),
+          color: getKarhutlaMonthColor(periode),
         }));
         setKebakaran2022Data(arr);
         arr.forEach((item) => {
@@ -3613,7 +3708,7 @@ const Kerawanan = () => {
         });
         const arr = Array.from(uniquePeriode).map((periode) => ({
           periode,
-          color: getRandomColor(periode, periodeColorMap),
+          color: getKarhutlaMonthColor(periode),
         }));
         setKebakaran2023Data(arr);
         arr.forEach((item) => {
@@ -3632,7 +3727,7 @@ const Kerawanan = () => {
         const arr = Array.from(periodeMap.entries()).map(([periode, luas]) => ({
           periode,
           luas,
-          color: getRandomColor(periode, periodeColorMap),
+          color: getKarhutlaMonthColor(periode),
         }));
         setKebakaran2024Data(arr);
         arr.forEach((item) => {
@@ -3651,7 +3746,7 @@ const Kerawanan = () => {
         const arr = Array.from(periodeMap.entries()).map(([periode, luas]) => ({
           periode,
           luas,
-          color: getRandomColor(periode, periodeColorMap),
+          color: getKarhutlaMonthColor(periode),
         }));
         setKebakaran2025Data(arr);
         arr.forEach((item) => {
@@ -3737,10 +3832,11 @@ const Kerawanan = () => {
         const kelasMap = new Map<string, number>();
         geojsonData.features.forEach((feature: any) => {
           const kelas = feature.properties.kelas || "";
+          const shapeAreaM2 = Number(feature.properties.shape_area);
           const luas =
-            parseFloat(feature.properties.shape_area) ||
-            parseFloat(feature.properties.shape_leng) ||
-            0;
+            Number.isFinite(shapeAreaM2) && shapeAreaM2 > 0
+              ? shapeAreaM2 / 10000
+              : 0;
           if (kelas) kelasMap.set(kelas, (kelasMap.get(kelas) || 0) + luas);
         });
         const fallbackRiskColor = getBencanaLayerColor(tableName);
@@ -5792,7 +5888,7 @@ const Kerawanan = () => {
       }
 
       // Function untuk create custom icon berdasarkan category
-      const createKejadianIcon = (category: string) => {
+      const createKejadianIcon = (category: string, incidentDate?: any) => {
         let iconContent = "";
         let bgColor = "#3b82f6"; // default blue
         let hoverColor = "#ef4444"; // default hover red
@@ -5810,9 +5906,13 @@ const Kerawanan = () => {
           hoverColor = "#3b82f6"; // hover blue (dari banjir)
           type = "longsor";
           iconContent = `<img src="/images/landslide-svgrepo-com.svg" style="width: 16px; height: 16px; filter: brightness(0) invert(1);" />`;
-        } else if (category === "Kebakaran Hutan dan Kekeringan") {
-          bgColor = "#ef4444"; // red
-          hoverColor = "#f59e0b"; // hover orange (dari longsor)
+        } else if (
+          String(category || "").toLowerCase().includes("kebakaran") ||
+          String(category || "").toLowerCase().includes("karhutla")
+        ) {
+          // Marker Karhutla mengikuti bulan tanggal kejadian.
+          bgColor = getKarhutlaMonthColor(incidentDate);
+          hoverColor = bgColor;
           type = "kebakaran";
           iconContent = `<img src="/images/fire-svgrepo-com.svg" style="width: 16px; height: 16px; filter: brightness(0) invert(1);" />`;
         }
@@ -5832,7 +5932,7 @@ const Kerawanan = () => {
       </style>
           <div class="marker-container marker-container-kejadian-${type}" style="position: relative; width: 44px; height: 44px; cursor: pointer;">
             <svg class="marker-circle" width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
-              <circle class="marker-bg" cx="22" cy="22" r="20" stroke="white" stroke-width="3" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"/>
+              <circle class="marker-bg" cx="22" cy="22" r="20" stroke="white" stroke-width="3" style="fill:${bgColor}; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"/>
             </svg>
             <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; display: flex; align-items: center; justify-content: center;">
               ${iconContent}
@@ -5853,7 +5953,10 @@ const Kerawanan = () => {
         const props = feature.properties;
 
         const marker = window.L.marker([coordinates[1], coordinates[0]], {
-          icon: createKejadianIcon(props.category),
+          icon: createKejadianIcon(
+            props.category,
+            props.date || props.incident_date || props.tanggal,
+          ),
         });
 
         // Store incident data - LENGKAP dengan semua field (match kejadian.tsx format)
@@ -8191,7 +8294,7 @@ const Kerawanan = () => {
       roadBaseLayerRef.current = roadBaseLayer;
       satelliteBaseLayerRef.current = satelliteBaseLayer;
 
-      roadBaseLayer.addTo(map);
+      satelliteBaseLayer.addTo(map);
 
       mapInstanceRef.current = map;
       mapInitializingRef.current = false;
@@ -8664,19 +8767,22 @@ const Kerawanan = () => {
         formatTableName(layerName) ||
         "Objek GIS",
     );
-    const propertyArea = Number(
-      properties.luas_ha ??
-        properties.lsktap ??
-        properties.luas ??
-        properties.shape_area ??
-        properties.Shape_Area,
+    const luasHaProperty = Number(properties.luas_ha);
+    const legacyArea = Number(properties.lsktap ?? properties.luas);
+    const shapeAreaM2 = Number(
+      properties.shape_area ?? properties.Shape_Area,
     );
+
     const areaHa =
-      Number.isFinite(propertyArea) && propertyArea > 0
-        ? propertyArea > 100000
-          ? propertyArea / 10000
-          : propertyArea
-        : enterpriseGeometryAreaHa(geometry);
+      Number.isFinite(luasHaProperty) && luasHaProperty > 0
+        ? luasHaProperty
+        : Number.isFinite(legacyArea) && legacyArea > 0
+          ? legacyArea > 100000
+            ? legacyArea / 10000
+            : legacyArea
+          : Number.isFinite(shapeAreaM2) && shapeAreaM2 > 0
+            ? shapeAreaM2 / 10000
+            : enterpriseGeometryAreaHa(geometry);
 
     if (enterpriseIdentifyHighlightRef.current) {
       try {
@@ -10674,7 +10780,7 @@ const Kerawanan = () => {
                         className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
                         style={{ width: "140px" }}
                       >
-                        Luas (Shape Area)
+                        Luas (Ha)
                       </th>
                     </tr>
                   </thead>
@@ -10761,7 +10867,7 @@ const Kerawanan = () => {
                         className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
                         style={{ width: "140px" }}
                       >
-                        Luas (Shape Area)
+                        Luas (Ha)
                       </th>
                     </tr>
                   </thead>
@@ -10845,7 +10951,7 @@ const Kerawanan = () => {
                         className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
                         style={{ width: "140px" }}
                       >
-                        Luas (Shape Area)
+                        Luas (Ha)
                       </th>
                     </tr>
                   </thead>
@@ -10932,7 +11038,7 @@ const Kerawanan = () => {
                         className="text-left py-2 px-2 font-medium text-gray-600 bg-white"
                         style={{ width: "140px" }}
                       >
-                        Luas (Shape Area)
+                        Luas (Ha)
                       </th>
                     </tr>
                   </thead>
@@ -12001,7 +12107,7 @@ const Kerawanan = () => {
                         className="text-left py-1 px-2 font-medium text-gray-600 bg-white"
                         style={{ width: "140px" }}
                       >
-                        Luas (Shape Area)
+                        Luas (Ha)
                       </th>
                     </tr>
                   </thead>
@@ -16390,6 +16496,13 @@ const Kerawanan = () => {
                           : section === "lainnya"
                             ? "Lainnya"
                             : "Kejadian";
+                      const visibleLayers = (source || []).filter(enterpriseMatchesLayer);
+                      const hasKarhutlaLayer = section === "kejadian" &&
+                        visibleLayers.some((layer: any) =>
+                          `${layer.category || ""} ${layer.name || ""}`
+                            .toLowerCase()
+                            .match(/karhutla|kebakaran/),
+                        );
                       return (
                         <div key={section} className="mb-4">
                           <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-200">
@@ -16407,9 +16520,7 @@ const Kerawanan = () => {
                           </div>
                           {!enterpriseCollapsedGroups.has(section) && (
                             <div className="space-y-1">
-                              {(source || [])
-                                .filter(enterpriseMatchesLayer)
-                                .map((layer: any) => (
+                              {visibleLayers.map((layer: any) => (
                                   <label
                                     key={layer.id}
                                     className="flex min-w-0 items-start gap-2.5 rounded-lg border border-transparent px-2.5 py-2 hover:border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
@@ -16455,6 +16566,38 @@ const Kerawanan = () => {
                                     </span>
                                   </label>
                                 ))}
+                              {hasKarhutlaLayer && (
+                                <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                                  <div className="mb-2 text-[11px] font-bold text-slate-800">
+                                    Palet warna Karhutla per bulan (acuan NAFI)
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    {KARHUTLA_MONTHS.map((month) => (
+                                      <div
+                                        key={month.key}
+                                        className="flex items-center gap-2.5"
+                                      >
+                                        <span
+                                          className="h-7 w-9 shrink-0 rounded-md"
+                                          style={{ backgroundColor: month.color }}
+                                          aria-label={`Warna ${month.name}`}
+                                        />
+                                        <span className="min-w-0 flex-1">
+                                          <span className="block text-[10px] font-semibold leading-4 text-slate-800">
+                                            {month.name}
+                                          </span>
+                                          <span className="block text-[9px] leading-3 text-slate-500">
+                                            {month.colorName} · {month.color}
+                                          </span>
+                                        </span>
+                                        <span className="text-[10px] tabular-nums text-slate-500">
+                                          {month.number}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -17810,3 +17953,5 @@ const Kerawanan = () => {
 };
 
 export default Kerawanan;
+
+
