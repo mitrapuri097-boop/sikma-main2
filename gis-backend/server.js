@@ -14749,8 +14749,12 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       params.push(wkt);
     }
 
+    // Geometry output harus dideklarasikan sebelum filter DAS,
+    // karena layer risiko tertentu memakai ST_Intersection dengan boundary DAS.
+    let geometrySql = `l.${geometryColumn}`;
+
     // Filter DAS: gunakan boundary union, tetapi tetap kembalikan geometry asli
-    // supaya rendering cepat dan tidak bergantung pada ST_Intersection.
+    // untuk layer selain risiko_banjir dan risiko_kekeringan.
     const dasNames = parseJsonArrayQuery(dasFilter, "dasFilter");
     if (dasNames?.length) {
       const placeholders = dasNames
@@ -14811,8 +14815,6 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
     //
     // Tidak ada hardcode Bogor.
     // ============================================================
-
-    let geometrySql = `l.${geometryColumn}`;
 
     if (adminCodes?.length || adminNames?.length) {
       const adminConfig = {
