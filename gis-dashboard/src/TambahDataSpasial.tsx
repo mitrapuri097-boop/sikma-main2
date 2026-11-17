@@ -1,16 +1,40 @@
 import React, { useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { API_URL } from "./api";
-import Header from "./header";
 
-type Section = "kerawanan" | "mitigasiAdaptasi" | "lainnya" | "kejadian";
+type Section = "kerawanan" | "lainnya" | "kejadian";
 
 const SECTION_TITLES: Record<Section, string> = {
   kerawanan: "Kerawanan",
-  mitigasiAdaptasi: "Mitigasi dan Adaptasi",
   lainnya: "Lainnya",
   kejadian: "Kejadian",
 };
+
+const SECTION_OPTIONS: Array<{
+  value: Section;
+  title: string;
+  description: string;
+  icon: string;
+}> = [
+  {
+    value: "kerawanan",
+    title: "Kerawanan",
+    description: "Data ancaman, bahaya, dan risiko bencana",
+    icon: "◈",
+  },
+  {
+    value: "lainnya",
+    title: "Lainnya",
+    description: "Data spasial pendukung dan referensi",
+    icon: "▦",
+  },
+  {
+    value: "kejadian",
+    title: "Kejadian",
+    description: "Data lokasi dan sebaran kejadian bencana",
+    icon: "⌖",
+  },
+];
 
 const ALLOWED_EXTENSIONS = ["shp", "shx", "dbf", "prj", "cpg", "sbn", "sbx"];
 
@@ -411,20 +435,23 @@ const TambahDataSpasial = () => {
       setInsertStatus("Selesai");
 
       setSuccessMessage(
-        `Layer "${tableName}" berhasil diunggah dan disimpan sebagai Draft.`,
+        `Layer "${tableName}" berhasil dipublikasikan ke modul ${getSectionTitle(currentSection)}.`,
       );
 
       closeEventSource();
 
       /*
-       * Kembali ke Kawasan Rawan
+       * Kembali ke WebGIS. Halaman Kerawanan akan memuat ulang
+       * katalog /api/layers sehingga layer masuk ke kelompok section
+       * yang dikirim saat publikasi.
        */
-
       window.setTimeout(() => {
-        navigate("/tambah-data-spasial", {
+        navigate("/kerawanan", {
+          replace: true,
           state: {
             refreshLayers: true,
-            createdLayer: tableName,
+            publishedLayer: tableName,
+            publishedSection: currentSection,
           },
         });
       }, 900);
@@ -448,33 +475,18 @@ const TambahDataSpasial = () => {
    */
 
   return (
-    <div className="min-h-screen bg-[#f4f7fb] text-slate-900">
-      {/* ======================================================
-          HEADER
-      ====================================================== */}
-
-      <div className="shrink-0 border-b border-slate-200 bg-white">
-        <Header currentPage="kerawanan" />
-
-        <div className="flex items-center gap-2 border-t border-emerald-100 bg-emerald-50 px-4 py-1.5 sm:px-6">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-
-          <span className="text-[10px] font-semibold text-emerald-800">
-            GIS Publisher
-          </span>
-        </div>
-      </div>
+    <div className="w-full bg-[#f4f7fb] px-3 py-4 text-slate-900 sm:px-5 sm:py-5 lg:px-6">
 
       {/* ======================================================
           MAIN
       ====================================================== */}
 
-      <main className="mx-auto w-full max-w-[1440px] px-4 py-6 sm:px-7 sm:py-8 xl:px-10">
+      <main className="mx-auto w-full max-w-none">
         {/* ====================================================
             PAGE TITLE
         ==================================================== */}
 
-        <div className="mb-6 flex flex-col gap-5 border-b border-slate-200/80 pb-6 sm:flex-row sm:items-end sm:justify-between">
+        <div className="mb-5 flex flex-col gap-5 border-b border-slate-200/80 pb-5 2xl:flex-row 2xl:items-start 2xl:justify-between">
           <div>
             <button
               onClick={goBack}
@@ -513,76 +525,14 @@ const TambahDataSpasial = () => {
             </p>
           </div>
 
-          {/* MODULE DESTINATION */}
 
-          <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)] sm:min-w-[310px]">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                Modul tujuan
-              </div>
-              <span className="text-[9px] font-semibold text-slate-400">
-                Pilih lokasi publikasi
-              </span>
-            </div>
-
-            <div className="text-sm font-semibold text-slate-800">
-              Tujuan aktif: {getSectionTitle(currentSection)}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setCurrentSection("mitigasiAdaptasi")}
-              disabled={isUploading}
-              aria-pressed={currentSection === "mitigasiAdaptasi"}
-              className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                currentSection === "mitigasiAdaptasi"
-                  ? "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-500/10"
-                  : "border-slate-200 bg-slate-50 hover:border-emerald-300 hover:bg-emerald-50/60"
-              }`}
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
-                  currentSection === "mitigasiAdaptasi"
-                    ? "bg-emerald-600 text-white"
-                    : "bg-white text-emerald-700 ring-1 ring-slate-200"
-                }`}>
-                  <svg
-                    className="h-4 w-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v18M3 12h18" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5.5 5.5l13 13m0-13l-13 13" />
-                  </svg>
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-[11px] font-bold text-slate-800">
-                    Mitigasi & Adaptasi
-                  </span>
-                  <span className="mt-0.5 block text-[9px] text-slate-500">
-                    Publikasikan layer ke modul ini
-                  </span>
-                </span>
-              </span>
-
-              <span className={`shrink-0 rounded-full px-2 py-1 text-[8px] font-black ${
-                currentSection === "mitigasiAdaptasi"
-                  ? "bg-emerald-600 text-white"
-                  : "bg-white text-slate-500 ring-1 ring-slate-200"
-              }`}>
-                {currentSection === "mitigasiAdaptasi" ? "AKTIF" : "PILIH"}
-              </span>
-            </button>
-          </div>
         </div>
 
         {/* ====================================================
             GRID
         ==================================================== */}
 
-        <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid grid-cols-1 items-start gap-6 2xl:grid-cols-[minmax(0,1fr)_330px]">
           {/* ==================================================
               LEFT
           ================================================== */}
@@ -638,6 +588,86 @@ const TambahDataSpasial = () => {
               </div>
 
               <div className="space-y-6 p-6 sm:p-7">
+                {/* MODULE DESTINATION */}
+          <section className="w-full rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)] w-full 2xl:max-w-[390px] 2xl:shrink-0">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+              <div>
+                <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                  Modul tujuan
+                </div>
+                <div className="mt-0.5 text-[11px] font-medium text-slate-500">
+                  Pilih lokasi publikasi layer
+                </div>
+              </div>
+
+              <div
+                className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2"
+                aria-live="polite"
+              >
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-white">
+                  <svg className="h-3 w-3" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <path d="m5 10 3.2 3.2L15.5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </span>
+                <span className="leading-tight">
+                  <span className="block text-[8px] font-bold uppercase tracking-wider text-emerald-700/75">
+                    Tujuan aktif
+                  </span>
+                  <span className="block text-[11px] font-extrabold text-emerald-800">
+                    {getSectionTitle(currentSection)}
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 gap-2">
+              {SECTION_OPTIONS.map((option) => {
+                const selected = currentSection === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      setCurrentSection(option.value);
+                      setErrorMessage("");
+                      setSuccessMessage("");
+                    }}
+                    disabled={isUploading}
+                    aria-pressed={selected}
+                    className={`flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                      selected
+                        ? "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-500/10"
+                        : "border-slate-200 bg-slate-50 hover:border-emerald-300 hover:bg-emerald-50/60"
+                    }`}
+                  >
+                    <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lg font-bold ${
+                      selected
+                        ? "bg-emerald-600 text-white"
+                        : "bg-white text-slate-500 ring-1 ring-slate-200"
+                    }`}>
+                      {option.icon}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[11px] font-bold text-slate-800">
+                        {option.title}
+                      </span>
+                      <span className="mt-0.5 block text-[9px] leading-4 text-slate-500">
+                        {option.description}
+                      </span>
+                    </span>
+                    <span className={`shrink-0 rounded-full px-2 py-1 text-[8px] font-black ${
+                      selected
+                        ? "bg-emerald-600 text-white"
+                        : "bg-white text-slate-500 ring-1 ring-slate-200"
+                    }`}>
+                      {selected ? "DIPILIH" : "PILIH"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+                </section>
+
                 {/* NAME */}
 
                 <div>
@@ -672,30 +702,7 @@ const TambahDataSpasial = () => {
                   </div>
                 </div>
 
-                {/* MODULE INFO */}
 
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="rounded-xl border border-slate-200/70 bg-slate-50/80 p-4">
-                    <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                      Modul tujuan
-                    </div>
-
-                    <div className="mt-1 text-sm font-bold text-slate-700">
-                      {getSectionTitle(currentSection)}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200/70 bg-slate-50/80 p-4">
-                    <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                      Publisher
-                    </div>
-
-                    <div className="mt-1 flex items-center gap-2 text-sm font-bold text-slate-700">
-                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                      GIS Publisher
-                    </div>
-                  </div>
-                </div>
               </div>
             </section>
 
@@ -704,7 +711,7 @@ const TambahDataSpasial = () => {
             ================================================= */}
 
             <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.045)]">
-              <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5 sm:px-7">
+              <div className="relative flex flex-col gap-4 border-b border-slate-100 px-6 py-5 sm:px-7 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <div className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-600">
                     02 · Spatial Dataset
@@ -714,15 +721,132 @@ const TambahDataSpasial = () => {
                     Upload paket Shapefile
                   </h2>
                 </div>
+                <div className="flex w-full flex-col items-start gap-3 lg:absolute lg:right-6 lg:top-5 lg:w-[360px] lg:items-start">
+<section className="w-full max-w-[360px] shrink-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.045)]">
+              <div className="border-b border-slate-100 px-6 py-5">
+                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                  03 · Publication Pipeline
+                </div>
 
-                {uploadedFiles.length > 0 && (
+                <h2 className="mt-1 text-sm font-bold text-slate-800">
+                  Status publikasi
+                </h2>
+              </div>
+
+              <div className="p-5">
+                <div className="space-y-3">
+                  {[
+                    ["01", "Validasi", hasShp],
+                    ["02", "Upload", uploadProgress >= 100],
+                    ["03", "Import GIS", insertProgress >= 100],
+                    ["04", "Publish", insertProgress >= 100],
+                  ].map(([number, title, done]) => (
+                    <div
+                      key={String(number)}
+                      className={`flex items-center gap-3 rounded-xl border px-3 py-3 ${
+                        done
+                          ? "border-emerald-100 bg-emerald-50/60"
+                          : "border-slate-100 bg-slate-50"
+                      }`}
+                    >
+                      <div
+                        className={`flex h-8 w-8 items-center justify-center rounded-lg text-[9px] font-black ${
+                          done
+                            ? "bg-emerald-500 text-white"
+                            : "bg-white text-slate-400 ring-1 ring-slate-200"
+                        }`}
+                      >
+                        {done ? "✓" : number}
+                      </div>
+
+                      <div
+                        className={`text-[10px] font-bold ${
+                          done ? "text-emerald-700" : "text-slate-500"
+                        }`}
+                      >
+                        {title}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* PROGRESS */}
+
+                {isUploading && (
+                  <div className="mt-5 space-y-6 border-t border-slate-100 pt-5">
+                    {/* UPLOAD */}
+
+                    <div>
+                      <div className="mb-1.5 flex justify-between">
+                        <span className="text-[10px] font-semibold text-slate-700">
+                          Upload Dataset
+                        </span>
+
+                        <b className="text-[10px] text-slate-600">
+                          {uploadProgress}%
+                        </b>
+                      </div>
+
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-300"
+                          style={{
+                            width: `${uploadProgress}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* IMPORT */}
+
+                    <div>
+                      <div className="mb-1.5 flex justify-between">
+                        <span className="text-[10px] font-semibold text-slate-700">
+                          Import Features
+                        </span>
+
+                        <b className="text-[10px] text-slate-600">
+                          {insertProgress}%
+                        </b>
+                      </div>
+
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-300"
+                          style={{
+                            width: `${insertProgress}%`,
+                          }}
+                        />
+                      </div>
+
+                      {insertStatus && (
+                        <div className="mt-1 text-[9px] text-slate-400">
+                          {insertStatus}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* WARNING */}
+
+                    <div className="rounded-xl border border-amber-100 bg-amber-50 p-3 text-[9px] leading-relaxed text-amber-700">
+                      <b className="text-amber-800">Jangan tutup halaman.</b>{" "}
+                      Dataset sedang dikirim dan diproses ke database GIS.
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+{uploadedFiles.length > 0 && (
                   <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-black text-emerald-700">
                     {uploadedFiles.length} FILE
                   </span>
                 )}
+                </div>
+
+
               </div>
 
-              <div className="p-6 sm:p-7">
+              <div className="px-6 pb-6 pt-3 sm:px-7 sm:pb-7 sm:pt-3 lg:mr-[380px]">
                 <input
                   ref={inputRef}
                   id="shapefileInput"
@@ -935,123 +1059,8 @@ const TambahDataSpasial = () => {
               RIGHT
           ================================================== */}
 
-          <aside className="space-y-6 xl:sticky xl:top-6 xl:self-start">
-            {/* PIPELINE */}
+          <aside className="space-y-6 self-start">
 
-            <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.045)]">
-              <div className="border-b border-slate-100 px-6 py-5">
-                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
-                  03 · Publication Pipeline
-                </div>
-
-                <h2 className="mt-1 text-sm font-bold text-slate-800">
-                  Status publikasi
-                </h2>
-              </div>
-
-              <div className="p-5">
-                <div className="space-y-3">
-                  {[
-                    ["01", "Validasi", hasShp],
-                    ["02", "Upload", uploadProgress >= 100],
-                    ["03", "Import GIS", insertProgress >= 100],
-                    ["04", "Publish", insertProgress >= 100],
-                  ].map(([number, title, done]) => (
-                    <div
-                      key={String(number)}
-                      className={`flex items-center gap-3 rounded-xl border px-3 py-3 ${
-                        done
-                          ? "border-emerald-100 bg-emerald-50/60"
-                          : "border-slate-100 bg-slate-50"
-                      }`}
-                    >
-                      <div
-                        className={`flex h-8 w-8 items-center justify-center rounded-lg text-[9px] font-black ${
-                          done
-                            ? "bg-emerald-500 text-white"
-                            : "bg-white text-slate-400 ring-1 ring-slate-200"
-                        }`}
-                      >
-                        {done ? "✓" : number}
-                      </div>
-
-                      <div
-                        className={`text-[10px] font-bold ${
-                          done ? "text-emerald-700" : "text-slate-500"
-                        }`}
-                      >
-                        {title}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* PROGRESS */}
-
-                {isUploading && (
-                  <div className="mt-5 space-y-6 border-t border-slate-100 pt-5">
-                    {/* UPLOAD */}
-
-                    <div>
-                      <div className="mb-1.5 flex justify-between">
-                        <span className="text-[10px] font-semibold text-slate-700">
-                          Upload Dataset
-                        </span>
-
-                        <b className="text-[10px] text-slate-600">
-                          {uploadProgress}%
-                        </b>
-                      </div>
-
-                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-300"
-                          style={{
-                            width: `${uploadProgress}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* IMPORT */}
-
-                    <div>
-                      <div className="mb-1.5 flex justify-between">
-                        <span className="text-[10px] font-semibold text-slate-700">
-                          Import Features
-                        </span>
-
-                        <b className="text-[10px] text-slate-600">
-                          {insertProgress}%
-                        </b>
-                      </div>
-
-                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-300"
-                          style={{
-                            width: `${insertProgress}%`,
-                          }}
-                        />
-                      </div>
-
-                      {insertStatus && (
-                        <div className="mt-1 text-[9px] text-slate-400">
-                          {insertStatus}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* WARNING */}
-
-                    <div className="rounded-xl border border-amber-100 bg-amber-50 p-3 text-[9px] leading-relaxed text-amber-700">
-                      <b className="text-amber-800">Jangan tutup halaman.</b>{" "}
-                      Dataset sedang dikirim dan diproses ke database GIS.
-                    </div>
-                  </div>
-                )}
-              </div>
-            </section>
 
             {/* MESSAGE */}
 
@@ -1144,7 +1153,7 @@ const TambahDataSpasial = () => {
                   {uploadProgress < 100 ? "Mengupload..." : "Memproses..."}
                 </>
               ) : (
-                <>＋ Publikasikan Layer</>
+                <>ï¼‹ Publikasikan Layer</>
               )}
             </button>
           </div>

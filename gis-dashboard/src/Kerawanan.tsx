@@ -4186,6 +4186,11 @@ const Kerawanan = () => {
         sekatKanalCanvasRenderer ||
         nationalCanvasRenderer;
 
+      // Satu Canvas renderer bersama untuk semua fitur Point dalam satu layer.
+      const sharedPointCanvasRenderer = window.L.canvas
+        ? window.L.canvas({ padding: 0.5 })
+        : undefined;
+
       const isValidGeoJsonPosition = (position: any): boolean => {
         if (!Array.isArray(position) || position.length < 2) return false;
         const lng = position[0];
@@ -4328,9 +4333,8 @@ const Kerawanan = () => {
           // SIMITI: Point/CircleMarker wajib memakai Canvas renderer.
           // Renderer SVG dapat masuk ke Bounds.js dengan _pxBounds yang belum
           // terbentuk ketika map sedang add/remove/invalidateSize.
-          const pointRenderer = window.L.canvas({ padding: 0.5 });
           return window.L.circleMarker([lat, lng], {
-            renderer: pointRenderer,
+            renderer: activeGeoJsonRenderer || sharedPointCanvasRenderer,
             radius: zoom > 10 ? 6 : 4,
             fillColor: tableColor,
             color: "#000",

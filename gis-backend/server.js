@@ -10103,7 +10103,7 @@ const createLayerMetadataTable = async () => {
     throw error;
   }
 };
- 
+
 // Inisialisasi metadata ditangani agar kegagalan tidak menjadi unhandled rejection.
 const layerMetadataInitialization = createLayerMetadataTable().catch((error) => {
   console.error("[layer_metadata] Inisialisasi gagal:", error.message);
@@ -10640,7 +10640,7 @@ app.post(
 
       const insertQuery = `
       INSERT INTO kejadian (
-        title, category, date, location, das, 
+        title, category, date, location, das,
         longitude, latitude, curah_hujan, featured, description,
         thumbnail_path, images_paths
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -10701,13 +10701,13 @@ app.get("/api/tutupan-lahan/by-coordinates", async (req, res) => {
     // Query dengan JOIN ke mapping_penutupan_lahan untuk deskripsi DAN sum luas_ha
     // Cast both sides untuk ensure matching
     const query = `
-      SELECT 
+      SELECT
         tl.pl2024_id,
         COALESCE(mpl.deskripsi_domain, 'Tutupan Lahan ' || tl.pl2024_id::text) as deskripsi_domain,
         COUNT(*) as count,
         SUM(tl.luas_ha) as total_luas_ha
       FROM tutupan_lahan tl
-      LEFT JOIN mapping_penutupan_lahan mpl 
+      LEFT JOIN mapping_penutupan_lahan mpl
         ON tl.pl2024_id::text = mpl.kode_domain::text
       WHERE ST_Intersects(
         tl.geom,
@@ -10756,13 +10756,13 @@ app.get("/api/tutupan-lahan/by-das", async (req, res) => {
     console.log("Fetching tutupan lahan for DAS:", das);
 
     const query = `
-      SELECT 
+      SELECT
         tl.pl2024_id,
         COALESCE(mpl.deskripsi_domain, 'Tutupan Lahan ' || tl.pl2024_id::text) as deskripsi_domain,
         COUNT(*) as count,
         SUM(tl.luas_ha) as total_luas_ha
       FROM penutupan_lahan_2024 tl
-      LEFT JOIN mapping_penutupan_lahan mpl 
+      LEFT JOIN mapping_penutupan_lahan mpl
         ON tl.pl2024_id::text = mpl.kode_domain::text
         WHERE tl.geom_valid IS NOT NULL
       AND ST_Intersects(
@@ -10804,7 +10804,7 @@ app.get("/api/das/geometry-by-name", async (req, res) => {
 
     const result = await pool.query(
       `
-      SELECT 
+      SELECT
         nama_das,
         ST_AsGeoJSON(ST_Union(ST_Force2D(geom)))::json as geom
       FROM das_adm
@@ -10923,7 +10923,7 @@ app.get("/api/das/geometry-by-coordinates", async (req, res) => {
 
     // Query dengan ST_Intersects dan buffer kecil untuk menghindari SRID issue
     const query = `
-      SELECT 
+      SELECT
         nama_das,
         ST_AsGeoJSON(ST_SetSRID(geom, 4326))::json as geom
       FROM das_adm
@@ -11042,7 +11042,7 @@ app.get("/api/kerawanan/by-das", async (req, res) => {
       queries.push({
         type: "limpasan",
         query: `
-          SELECT 
+          SELECT
             'limpasan' as type,
             limpasan as tingkat,
             SUM(ST_Area(
@@ -11057,7 +11057,7 @@ app.get("/api/kerawanan/by-das", async (req, res) => {
             (SELECT ST_Union(geom) FROM das_adm WHERE nama_das = $1)
           )
           GROUP BY limpasan
-          ORDER BY 
+          ORDER BY
             CASE limpasan
               WHEN 'Ekstrim' THEN 1
               WHEN 'Tinggi' THEN 2
@@ -11071,7 +11071,7 @@ app.get("/api/kerawanan/by-das", async (req, res) => {
       queries.push({
         type: "karhutla",
         query: `
-          SELECT 
+          SELECT
             'karhutla' as type,
             kelas as tingkat,
             SUM(luas_ha) as luas_total
@@ -11081,7 +11081,7 @@ app.get("/api/kerawanan/by-das", async (req, res) => {
             (SELECT ST_Union(geom) FROM das_adm WHERE nama_das = $1)
           )
           GROUP BY kelas
-          ORDER BY 
+          ORDER BY
             CASE kelas
               WHEN 'Sangat Tinggi' THEN 1
               WHEN 'Tinggi' THEN 2
@@ -11095,7 +11095,7 @@ app.get("/api/kerawanan/by-das", async (req, res) => {
       queries.push({
         type: "longsor",
         query: `
-          SELECT 
+          SELECT
             'longsor' as type,
             unsur as tingkat,
             SUM(shape_area) as luas_total
@@ -11105,7 +11105,7 @@ app.get("/api/kerawanan/by-das", async (req, res) => {
             (SELECT ST_Union(geom) FROM das_adm WHERE nama_das = $1)
           )
           GROUP BY unsur
-          ORDER BY 
+          ORDER BY
             CASE unsur
               WHEN 'Tinggi' THEN 1
               WHEN 'Menengah' THEN 2
@@ -11119,12 +11119,12 @@ app.get("/api/kerawanan/by-das", async (req, res) => {
         type: "erosi",
         query: `
           WITH erosi_classified AS (
-            SELECT 
+            SELECT
               'erosi' as type,
-              CASE 
+              CASE
                 WHEN kls_a = '>480' THEN 'Sangat Tinggi'
                 WHEN kls_a ~ '^[0-9]+\.?[0-9]*$' THEN
-                  CASE 
+                  CASE
                     WHEN kls_a::numeric <= 15 THEN 'Sangat Rendah'
                     WHEN kls_a::numeric <= 60 THEN 'Rendah'
                     WHEN kls_a::numeric <= 180 THEN 'Sedang'
@@ -11140,13 +11140,13 @@ app.get("/api/kerawanan/by-das", async (req, res) => {
               (SELECT ST_Union(geom) FROM das_adm WHERE nama_das = $1)
             )
           )
-          SELECT 
+          SELECT
             type,
             tingkat,
             SUM(n_a) as luas_total
           FROM erosi_classified
           GROUP BY type, tingkat
-          ORDER BY 
+          ORDER BY
             CASE tingkat
               WHEN 'Sangat Tinggi' THEN 1
               WHEN 'Tinggi' THEN 2
@@ -11208,7 +11208,7 @@ app.get("/api/kerawanan/by-coordinates", async (req, res) => {
       areaColumn = "shape_leng";
 
       query = `
-        SELECT 
+        SELECT
           ${groupByColumn} as tingkat,
           SUM(${areaColumn}) as luas_total
         FROM ${tableName}
@@ -11220,7 +11220,7 @@ app.get("/api/kerawanan/by-coordinates", async (req, res) => {
           )::geometry
         )
         GROUP BY ${groupByColumn}
-        ORDER BY 
+        ORDER BY
           CASE ${groupByColumn}
             WHEN 'Ekstrim' THEN 1
             WHEN 'Tinggi' THEN 2
@@ -11234,7 +11234,7 @@ app.get("/api/kerawanan/by-coordinates", async (req, res) => {
       areaColumn = "luas_ha";
 
       query = `
-        SELECT 
+        SELECT
           ${groupByColumn} as tingkat,
           SUM(${areaColumn}) as luas_total
         FROM ${tableName}
@@ -11246,7 +11246,7 @@ app.get("/api/kerawanan/by-coordinates", async (req, res) => {
           )::geometry
         )
         GROUP BY ${groupByColumn}
-        ORDER BY 
+        ORDER BY
           CASE ${groupByColumn}
             WHEN 'Rendah' THEN 1
             WHEN 'Sedang' THEN 2
@@ -11258,7 +11258,7 @@ app.get("/api/kerawanan/by-coordinates", async (req, res) => {
       tableName = "rawan_erosi";
 
       query = `
-        SELECT 
+        SELECT
           kls_a,
           SUM(n_a) as luas_total
         FROM ${tableName}
@@ -11338,7 +11338,7 @@ app.get("/api/kerawanan/by-coordinates", async (req, res) => {
 
       // TAMBAHAN: Fetch data rawan longsor dan gabungkan
       const longsorQuery = `
-        SELECT 
+        SELECT
           unsur as tingkat,
           SUM(shape_area) as luas_total
         FROM rawan_longsor
@@ -11350,7 +11350,7 @@ app.get("/api/kerawanan/by-coordinates", async (req, res) => {
           )::geometry
         )
         GROUP BY unsur
-        ORDER BY 
+        ORDER BY
           CASE unsur
             WHEN 'Sangat Tinggi' THEN 1
             WHEN 'Tinggi' THEN 2
@@ -11419,7 +11419,7 @@ app.get("/api/kerawanan/geojson", async (req, res) => {
       queries.push({
         name: "rawan_limpasan",
         query: `
-          SELECT 
+          SELECT
             limpasan as tingkat,
             ST_AsGeoJSON(
               ${
@@ -11449,7 +11449,7 @@ app.get("/api/kerawanan/geojson", async (req, res) => {
       queries.push({
         name: "rawan_karhutla",
         query: `
-          SELECT 
+          SELECT
             kelas as tingkat,
             ST_AsGeoJSON(
               ${
@@ -11480,11 +11480,11 @@ app.get("/api/kerawanan/geojson", async (req, res) => {
       queries.push({
         name: "rawan_erosi",
         query: `
-          SELECT 
-            CASE 
+          SELECT
+            CASE
               WHEN kls_a = '>480' THEN 'Sangat Tinggi'
               WHEN kls_a ~ '^[0-9]+\.?[0-9]*$' THEN
-                CASE 
+                CASE
                   WHEN kls_a::numeric <= 15 THEN 'Sangat Rendah'
                   WHEN kls_a::numeric <= 60 THEN 'Rendah'
                   WHEN kls_a::numeric <= 180 THEN 'Sedang'
@@ -11523,7 +11523,7 @@ app.get("/api/kerawanan/geojson", async (req, res) => {
       queries.push({
         name: "rawan_longsor",
         query: `
-          SELECT 
+          SELECT
             unsur as tingkat,
             ST_AsGeoJSON(
               ${
@@ -11661,7 +11661,7 @@ app.post("/api/kejadian/check-years-availability", async (req, res) => {
     );
 
     let query = `
-      SELECT DISTINCT 
+      SELECT DISTINCT
         category,
         EXTRACT(YEAR FROM date)::integer as year,
         COUNT(*) as count
@@ -11804,7 +11804,7 @@ app.get("/api/kejadian/photos", async (req, res) => {
     }
 
     let query = `
-      SELECT 
+      SELECT
         id,
         images_paths,
         latitude,
@@ -11815,7 +11815,7 @@ app.get("/api/kejadian/photos", async (req, res) => {
       FROM kejadian
       WHERE EXTRACT(YEAR FROM date) = $1
         AND images_paths IS NOT NULL
-        AND CASE 
+        AND CASE
           WHEN images_paths::text = '' THEN FALSE
           WHEN images_paths::text = '{}' THEN FALSE
           WHEN images_paths::text = '""' THEN FALSE
@@ -12116,7 +12116,7 @@ app.get("/api/kejadian/by-year/:year", async (req, res) => {
     }
 
     const query = `
-      SELECT 
+      SELECT
         id,
         title,
         category,
@@ -12354,8 +12354,8 @@ app.put(
 
       // Update kejadian
       const updateQuery = `
-      UPDATE kejadian 
-      SET 
+      UPDATE kejadian
+      SET
         title = $1,
         category = $2,
         date = $3,
@@ -12571,7 +12571,7 @@ app.get("/api/layers", async (req, res) => {
 
     // Get kejadian grouped by category and year (dari tabel kejadian - auto)
     const kejadianResult = await pool.query(`
-      SELECT 
+      SELECT
         category,
         EXTRACT(YEAR FROM date) as year,
         COUNT(*) as count
@@ -12646,7 +12646,7 @@ async function monitorTableInsertProgress(tableName, checkInterval = 1000) {
     try {
       const client = await pool.connect();
       const result = await client.query(`
-        SELECT COUNT(*) as count 
+        SELECT COUNT(*) as count
         FROM ${tableName}
       `);
       const currentCount = parseInt(result.rows[0].count);
@@ -13028,18 +13028,35 @@ app.post("/api/layers", verifyToken, shapefileUpload.array("files"), async (req,
   let tableCreated = false;
 
   try {
-    const { tableName, section } = req.body;
+    const { tableName } = req.body;
+    const section = String(req.body?.section || "").trim();
     const files = req.files;
 
     console.log("Table Name:", tableName);
     console.log("Section:", section);
     console.log("Files Count:", files?.length);
 
-    // Validasi input
+    // Tujuan modul yang valid. mitigasiAdaptasi tetap didukung
+    // untuk menjaga kompatibilitas layer lama / pemanggil API lain.
+    const allowedSections = [
+      "kerawanan",
+      "lainnya",
+      "kejadian",
+      "mitigasiAdaptasi",
+    ];
+
     if (!tableName || !section) {
       return res
         .status(400)
         .json({ error: "Table name and section are required" });
+    }
+
+    if (!allowedSections.includes(section)) {
+      return res.status(400).json({
+        success: false,
+        error: "Modul tujuan tidak valid.",
+        allowedSections: ["kerawanan", "lainnya", "kejadian"],
+      });
     }
 
     if (!files || files.length === 0) {
@@ -13186,7 +13203,7 @@ app.post("/api/layers", verifyToken, shapefileUpload.array("files"), async (req,
 
     // Create spatial index
     await client.query(`
-      CREATE INDEX ${quoteIdentifier(`${sanitizedTableName}_geom_valid_idx`)} 
+      CREATE INDEX ${quoteIdentifier(`${sanitizedTableName}_geom_valid_idx`)}
       ON ${quoteIdentifier(sanitizedTableName)} USING GIST (geom_valid)
     `);
     console.log("ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ Spatial index created");
@@ -13358,7 +13375,7 @@ app.post("/api/layers", verifyToken, shapefileUpload.array("files"), async (req,
     const metaResult = await client.query(
       `
       INSERT INTO layer_metadata (table_name, section, original_files, status)
-      VALUES ($1, $2, $3, 'draft')
+      VALUES ($1, $2, $3, 'published')
       RETURNING id, table_name, section, status, created_at
     `,
       [sanitizedTableName, section, files.map((f) => f.originalname)],
@@ -13385,11 +13402,12 @@ app.post("/api/layers", verifyToken, shapefileUpload.array("files"), async (req,
 
     res.json({
       success: true,
-      message: `Layer created: ${inserted} features`,
+      message: `Layer berhasil dipublikasikan ke modul ${metaResult.rows[0].section}: ${inserted} fitur.`,
       layer: {
         id: metaResult.rows[0].id.toString(),
         name: metaResult.rows[0].table_name,
         section: metaResult.rows[0].section,
+        status: metaResult.rows[0].status,
         createdAt: metaResult.rows[0].created_at,
       },
       featureCount: inserted,
@@ -14741,6 +14759,37 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       fromSql += ` JOIN (SELECT ST_Union(geom_valid) AS geom_valid FROM das_adm WHERE nama_das IN (${placeholders})) b_das ON 1=1`;
       params.push(...dasNames);
       conditions.push(`ST_Intersects(l.${geometryColumn}, b_das.geom_valid)`);
+
+      // TRUE DAS GEOMETRY CLIP khusus Risiko Banjir dan Risiko Kekeringan.
+      // Layer lain tetap memakai geometri asli seperti perilaku sebelumnya.
+      if (["risiko_banjir", "risiko_kekeringan"].includes(tableName)) {
+        const riskGeomForDasClip = `
+          CASE
+            WHEN ST_SRID(l.${geometryColumn}) = 0
+              THEN ST_SetSRID(ST_Force2D(l.${geometryColumn}), 4326)
+            ELSE ST_Force2D(l.${geometryColumn})
+          END
+        `;
+
+        const dasGeomForClip = `
+          CASE
+            WHEN ST_SRID(b_das.geom_valid) = 0
+              THEN ST_SetSRID(ST_Force2D(b_das.geom_valid), 4326)
+            ELSE ST_Force2D(b_das.geom_valid)
+          END
+        `;
+
+        geometrySql = `
+          ST_Intersection(
+            ${riskGeomForDasClip},
+            ${dasGeomForClip}
+          )
+        `;
+
+        conditions.push(`NOT ST_IsEmpty(${geometrySql})`);
+
+        console.log(`[DAS GEOMETRY CLIP] ${tableName}: ST_Intersection aktif`);
+      }
     }
 
     const adminNames = parseJsonArrayQuery(adminFilter, "adminFilter");
@@ -15441,9 +15490,9 @@ app.get("/api/penutupan-lahan-2024-by-das", async (req, res) => {
 
     // Query untuk cek kolom yang ada
     const checkColumnsQuery = `
-      SELECT column_name 
-      FROM information_schema.columns 
-      WHERE table_name = 'penutupan_lahan_2024' 
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'penutupan_lahan_2024'
         AND column_name IN ('n_a', 'luas_ha', 'shape_area', 'luasan')
     `;
 
@@ -15468,13 +15517,13 @@ app.get("/api/penutupan-lahan-2024-by-das", async (req, res) => {
     console.log("Using area column:", luasColumn);
 
     const query = `
-      SELECT 
+      SELECT
         pl.pl2024_id,
         COALESCE(mpl.deskripsi_domain, 'Penutupan Lahan ' || pl.pl2024_id::text) as deskripsi_domain,
         COUNT(*) as count,
         SUM(pl.${luasColumn}) as total_luas_ha
       FROM penutupan_lahan_2024 pl
-      LEFT JOIN mapping_penutupan_lahan mpl 
+      LEFT JOIN mapping_penutupan_lahan mpl
         ON pl.pl2024_id::text = mpl.kode_domain::text
       WHERE pl.geom_valid IS NOT NULL
         AND ST_Intersects(
@@ -15535,9 +15584,9 @@ app.get("/api/das/by-coordinates", async (req, res) => {
 
     // Query yang lebih aman - cek SRID dan set jika perlu
     const query = `
-      SELECT 
+      SELECT
         nama_das,
-        CASE 
+        CASE
           WHEN ST_SRID(geom) = 0 OR ST_SRID(geom) IS NULL THEN
             ST_Distance(
               ST_Transform(ST_SetSRID(geom, 4326), 4326)::geography,
@@ -15550,8 +15599,8 @@ app.get("/api/das/by-coordinates", async (req, res) => {
             )
         END as distance
       FROM das_adm
-      WHERE 
-        CASE 
+      WHERE
+        CASE
           WHEN ST_SRID(geom) = 0 OR ST_SRID(geom) IS NULL THEN
             ST_Contains(
               ST_SetSRID(geom, 4326),
@@ -15578,9 +15627,9 @@ app.get("/api/das/by-coordinates", async (req, res) => {
     } else {
       // Cari DAS terdekat
       const nearestQuery = `
-        SELECT 
+        SELECT
           nama_das,
-          CASE 
+          CASE
             WHEN ST_SRID(geom) = 0 OR ST_SRID(geom) IS NULL THEN
               ST_Distance(
                 ST_Transform(ST_SetSRID(geom, 4326), 4326)::geography,
@@ -15659,7 +15708,7 @@ app.get("/api/areas/search", async (req, res) => {
         console.log("ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂºÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¯ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  [SEARCH] Searching provinsi...");
         const provinsiResult = await client.query(
           `
-          SELECT 
+          SELECT
             kode_prov,
             provinsi,
             ST_AsGeoJSON(ST_SetSRID(ST_Union(geom_valid), 4326)) as geom_json
@@ -15696,7 +15745,7 @@ app.get("/api/areas/search", async (req, res) => {
         console.log("ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂºÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¯ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  [SEARCH] Searching kabupaten...");
         const kabupatenResult = await client.query(
           `
-          SELECT 
+          SELECT
             kode_kk,
             kab_kota,
             provinsi,
@@ -15735,7 +15784,7 @@ app.get("/api/areas/search", async (req, res) => {
         console.log("ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂºÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¯ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  [SEARCH] Searching kecamatan...");
         const kecamatanResult = await client.query(
           `
-          SELECT 
+          SELECT
             kode_kec,
             kecamatan,
             kab_kota,
@@ -15776,7 +15825,7 @@ app.get("/api/areas/search", async (req, res) => {
         console.log("ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂºÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¯ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  [SEARCH] Searching kelurahan...");
         const kelurahanResult = await client.query(
           `
-          SELECT 
+          SELECT
             kode_kd,
             kel_desa,
             kecamatan,
@@ -15935,7 +15984,7 @@ app.post("/api/areas/bounds", async (req, res) => {
 
     // Combine all extents
     const finalQuery = `
-      SELECT 
+      SELECT
         ST_XMin(ST_Extent(extent)) as min_lng,
         ST_YMin(ST_Extent(extent)) as min_lat,
         ST_XMax(ST_Extent(extent)) as max_lng,
@@ -16159,7 +16208,7 @@ app.get("/api/das/search", async (req, res) => {
     // GROUP BY nama_das, lalu union semua geometri
     const result = await client.query(
       `
-      SELECT 
+      SELECT
         nama_das,
         ST_AsGeoJSON(ST_SetSRID(ST_Union(geom), 4326)) as geom_json
       FROM das_adm
@@ -16206,7 +16255,7 @@ app.post("/api/das/bounds", async (req, res) => {
       .join(", ");
 
     const query = `
-      SELECT 
+      SELECT
         ST_XMin(ST_Extent(geom_valid)) as min_lng,
         ST_YMin(ST_Extent(geom_valid)) as min_lat,
         ST_XMax(ST_Extent(geom_valid)) as max_lng,
@@ -16247,7 +16296,7 @@ app.get("/api/tutupan-lahan/data", async (req, res) => {
     const { bounds, dasFilter } = req.query;
 
     let query = `
-      SELECT DISTINCT 
+      SELECT DISTINCT
         tl.pl2024_id,
         mpl.deskripsi_domain,
         SUM(tl.luas_ha) as luas_total
@@ -16318,7 +16367,7 @@ app.get("/api/penutupan-lahan-2024/data", async (req, res) => {
     const { bounds, dasFilter } = req.query;
 
     let query = `
-      SELECT DISTINCT 
+      SELECT DISTINCT
         tl.pl2024_id,
         mpl.deskripsi_domain,
         SUM(tl.luas_ha) as luas_total
@@ -16392,7 +16441,7 @@ app.get("/api/pl-2024/data", async (req, res) => {
     const { bounds, dasFilter } = req.query;
 
     let query = `
-      SELECT DISTINCT 
+      SELECT DISTINCT
         tl.pl2024_id,
         mpl.deskripsi_domain,
         SUM(tl.luas_ha) as luas_total
@@ -16464,7 +16513,7 @@ app.get("/api/geologi/data", async (req, res) => {
     const { bounds, dasFilter } = req.query;
 
     let query = `
-      SELECT DISTINCT 
+      SELECT DISTINCT
         g.namobj,
         g.umurobj,
         SUM(g.keliling_m) as keliling_total
@@ -16659,7 +16708,7 @@ app.post("/api/debug/layers-in-bounds", async (req, res) => {
     // Jika tableName spesifik diberikan
     if (tableName) {
       const query = `
-        SELECT 
+        SELECT
           COUNT(*) as feature_count,
           ST_AsGeoJSON(ST_Extent(geom_valid)) as bbox
         FROM ${tableName}
@@ -16690,8 +16739,8 @@ app.post("/api/debug/layers-in-bounds", async (req, res) => {
 
     // Jika tidak ada tableName, cek semua layer
     const layersQuery = await client.query(`
-      SELECT table_name, section 
-      FROM layer_metadata 
+      SELECT table_name, section
+      FROM layer_metadata
       ORDER BY section, table_name
     `);
 
@@ -16700,7 +16749,7 @@ app.post("/api/debug/layers-in-bounds", async (req, res) => {
     for (const layer of layersQuery.rows) {
       try {
         const query = `
-          SELECT 
+          SELECT
             COUNT(*) as feature_count,
             ST_AsGeoJSON(ST_Extent(geom_valid)) as bbox
           FROM ${layer.table_name}
@@ -16814,7 +16863,7 @@ app.post("/api/debug/layers-in-admin", async (req, res) => {
     // Jika tableName spesifik diberikan
     if (tableName) {
       const query = `
-        SELECT 
+        SELECT
           COUNT(*) as feature_count,
           ST_AsGeoJSON(ST_Extent(l.geom_valid)) as bbox
         FROM ${tableName} l, ${adminTable} a
@@ -16840,8 +16889,8 @@ app.post("/api/debug/layers-in-admin", async (req, res) => {
 
     // Jika tidak ada tableName, cek semua layer
     const layersQuery = await client.query(`
-      SELECT table_name, section 
-      FROM layer_metadata 
+      SELECT table_name, section
+      FROM layer_metadata
       ORDER BY section, table_name
     `);
 
@@ -16850,7 +16899,7 @@ app.post("/api/debug/layers-in-admin", async (req, res) => {
     for (const layer of layersQuery.rows) {
       try {
         const query = `
-          SELECT 
+          SELECT
             COUNT(*) as feature_count,
             ST_AsGeoJSON(ST_Extent(l.geom_valid)) as bbox
           FROM ${layer.table_name} l, ${adminTable} a
@@ -16922,7 +16971,7 @@ app.post("/api/debug/layers-in-das", async (req, res) => {
     // Jika tableName spesifik diberikan
     if (tableName) {
       const query = `
-        SELECT 
+        SELECT
           COUNT(*) as feature_count,
           ST_AsGeoJSON(ST_Extent(l.geom_valid)) as bbox
         FROM ${tableName} l, das_adm d
@@ -16948,8 +16997,8 @@ app.post("/api/debug/layers-in-das", async (req, res) => {
 
     // Jika tidak ada tableName, cek semua layer
     const layersQuery = await client.query(`
-      SELECT table_name, section 
-      FROM layer_metadata 
+      SELECT table_name, section
+      FROM layer_metadata
       ORDER BY section, table_name
     `);
 
@@ -16958,7 +17007,7 @@ app.post("/api/debug/layers-in-das", async (req, res) => {
     for (const layer of layersQuery.rows) {
       try {
         const query = `
-          SELECT 
+          SELECT
             COUNT(*) as feature_count,
             ST_AsGeoJSON(ST_Extent(l.geom_valid)) as bbox
           FROM ${layer.table_name} l, das_adm d
@@ -24133,7 +24182,8 @@ const PORT = process.env.PORT || 3001;
 
 const startServer = async () => {
   try {
-    await layerMetadataInitialization;
+    await layerMetadataInitialization;
+
     await ensureMasterKlasifikasiKegiatanTable();
     await ensureLokasiKegiatanTable();
 
@@ -24150,11 +24200,11 @@ const startServer = async () => {
     console.log(`ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¥ LAYER OVERLAY DATA: GET /api/layer-overlay/data/:layerId`);
     console.log(`ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¥ LAYER OVERLAY HEALTH: GET /api/layer-overlay/health`);
   });
-  
+
   server.timeout = 7200000; // 2 hours
   server.keepAliveTimeout = 7200000; // 2 hours
   server.headersTimeout = 7210000; // Slightly higher than keepAliveTimeout
-  
+
   // Increase max headers count for large multipart uploads
   server.maxHeadersCount = 3000;
   } catch (error) {
