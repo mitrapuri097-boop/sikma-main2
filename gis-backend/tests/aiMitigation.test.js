@@ -310,3 +310,91 @@ test("parseModelJson: tahan terhadap item pesan ganda dan refusal", { skip: !isS
   );
   assert.throws(() => _internal.parseModelJson({ status: "incomplete", output: [] }), (e) => e.code === "incomplete");
 });
+
+// ------------------------------------------------- perbaikan dari uji lokal
+test("MCDA: lahan kritis 8% wilayah tidak lagi terbaca 90+", () => {
+  const { _internal } = require("../aiMitigationScoring");
+  const r = _internal.scoreCriticalLand({
+    available: true,
+    source_table: "lahan_kritis",
+    area_m2: 489186200,
+    classes: [
+      { kelas: "Sangat Kritis", luas_m2: 27900000 },
+      { kelas: "Kritis", luas_m2: 12200000 },
+    ],
+  });
+  // (100×27.9 + 80×12.2) / 489.2 ≈ 7.7
+  assert.ok(r.value > 7 && r.value < 8.5, String(r.value));
+});
+
+test("MCDA: proxy hidrologi tanpa kelas tidak diskor 100", () => {
+  const { _internal } = require("../aiMitigationScoring");
+  const classless = { available: true, source_table: "rawan_limpasan", classes: [], coverage_ratio: 1, area_m2: 100 };
+  assert.equal(_internal.scoreHydroProxy([classless]), null);
+  const peat = { available: true, source_table: "ekosistem_gambut", classes: [], coverage_ratio: 0.4, area_m2: 100 };
+  assert.equal(_internal.scoreHydroProxy([peat]).value, 40);
+});
+
+test("pickClassColumn: teks deskriptif diutamakan, kolom DAS ditolak untuk geologi", { skip: !isStub }, () => {
+  const { _internal } = require("../aiMitigationRecommendation");
+  const landCover = {
+    columns: [
+      { name: "pl2024_id", type: "integer" },
+      { name: "pl24_desc", type: "text" },
+    ],
+  };
+  assert.equal(_internal.pickClassColumn(landCover, ["pl24", "pl2024", "kelas"]), "pl24_desc");
+  const onlyCode = { columns: [{ name: "pl2024_id", type: "integer" }] };
+  assert.equal(_internal.pickClassColumn(onlyCode, ["pl2024"]), "pl2024_id");
+  const geologi = { columns: [{ name: "nama_das", type: "text" }, { name: "keterangan", type: "text" }] };
+  assert.equal(_internal.pickClassColumn(geologi, ["nama", "keterangan"], ["das"]), "keterangan");
+  assert.equal(_internal.pickClassColumn({ columns: [{ name: "nama_das", type: "text" }] }, ["nama"], ["das"]), null);
+});
+
+function scriptedPool(handler) {
+  const sqls = [];
+  const client = {
+    async query(sql, params) {
+      if (/^(BEGIN|COMMIT|ROLLBACK|SET LOCAL)/.test(sql.trim())) return { rows: [] };
+      sqls.push(sql);
+      return handler(sql, sqls.length);
+    },
+    release() {},
+  };
+  return { sqls, connect: async () => client, query: client.query };
+}
+
+test("summarizeLayer: deteksi kolom kelas otomatis bila nama kolom tak dikenal", { skip: !isStub }, async () => {
+  const { _internal } = require("../aiMitigationRecommendation");
+  const entry = {
+    table: "curah_hujan_tahunan", geomColumn: "geom", srid: 4326,
+    columns: [{ name: "provinsi", type: "text" }, { name: "kls_ch", type: "text" }, { name: "remark", type: "text" }],
+  };
+  const pool = scriptedPool((sql) => {
+    if (/COUNT\(DISTINCT/.test(sql)) return { rows: [{ d0: 1, d1: 3, d2: 120 }] };
+    return { rows: [{ kelas: "2500 - 3000", jumlah_fitur: 2, luas_m2: 50 }] };
+  });
+  const r = await _internal.summarizeLayer(pool, entry, "{}", 100, ["zzz"], []);
+  assert.equal(r.class_column, "kls_ch");
+  assert.equal(r.class_column_source, "deteksi otomatis nilai unik");
+  assert.equal(r.classes[0].kelas, "2500 - 3000");
+});
+
+test("summarizeLayer: TopologyException dicoba ulang dengan ST_MakeValid, error dilaporkan", { skip: !isStub }, async () => {
+  const { _internal } = require("../aiMitigationRecommendation");
+  const entry = { table: "penutupan_lahan_2024", geomColumn: "geom", srid: 4326, columns: [{ name: "pl24_desc", type: "text" }] };
+
+  const recovering = scriptedPool((sql, n) => {
+    if (n === 1) throw Object.assign(new Error("GEOSIntersects: TopologyException"), { code: "XX000" });
+    return { rows: [{ kelas: "Hutan", jumlah_fitur: 1, luas_m2: 10 }] };
+  });
+  const ok = await _internal.summarizeLayer(recovering, entry, "{}", 100, ["pl24"], []);
+  assert.equal(ok.available, true);
+  assert.match(recovering.sqls[1], /ST_Intersects\(ST_MakeValid\(t\."geom"\)/);
+
+  const failing = scriptedPool(() => { throw Object.assign(new Error("Geometry has Z dimension but column does not"), { code: "22023" }); });
+  const bad = await _internal.summarizeLayer(failing, entry, "{}", 100, ["pl24"], []);
+  assert.equal(bad.available, false);
+  assert.equal(bad.error.code, "22023");
+  assert.match(bad.note, /Z dimension/);
+});

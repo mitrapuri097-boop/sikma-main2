@@ -105,11 +105,14 @@ function scoreCriticalLand(layer) {
     .map((row) => ({ value: criticalLandValue(row.kelas), area: Number(row.luas_m2) || 0 }))
     .filter((row) => row.value !== null && row.area > 0);
   if (!rows.length) return null;
-  const area = rows.reduce((sum, row) => sum + row.area, 0);
-  const mean = rows.reduce((sum, row) => sum + row.value * row.area, 0) / area;
+  const covered = rows.reduce((sum, row) => sum + row.area, 0);
+  // Area wilayah yang tidak tercakup layer lahan kritis dihitung bernilai 0
+  // (tidak teridentifikasi kritis); tanpa ini 8% lahan kritis bisa terbaca 90+.
+  const denominator = Math.max(covered, Number(layer.area_m2) || 0);
+  const mean = rows.reduce((sum, row) => sum + row.value * row.area, 0) / denominator;
   return {
     value: round1(mean),
-    basis: `kelas lahan kritis tertimbang luas (${layer.source_table})`,
+    basis: `kelas lahan kritis tertimbang luas seluruh wilayah; ${round1((covered / denominator) * 100)}% wilayah terpetakan kritis (${layer.source_table})`,
   };
 }
 
@@ -132,7 +135,15 @@ function scoreHistory(eventHistory) {
  * sama sekali bila layer tidak mempunyai kolom kelas.
  */
 function scoreHydroProxy(layers) {
-  const usable = (layers || []).filter((layer) => layer && layer.available);
+  // Layer tanpa kelas hanya dipakai bila keberadaannya sendiri bermakna
+  // (ekosistem gambut). Layer "rawan_*" tanpa kelas tidak diskor, karena
+  // cakupan 100% tidak berarti kerawanan tinggi.
+  const usable = (layers || []).filter((layer) => {
+    if (!layer || !layer.available) return false;
+    const hasClasses = Array.isArray(layer.classes) &&
+      layer.classes.some((row) => riskClassValue(row.kelas) !== null);
+    return hasClasses || /gambut/i.test(String(layer.source_table || ""));
+  });
   if (!usable.length) return null;
   const parts = usable.map((layer) => {
     if (Array.isArray(layer.classes) && layer.classes.length && layer.area_m2 > 0) {

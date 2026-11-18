@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import { booleanPointInPolygon, point, centroid } from "@turf/turf";
 const API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
@@ -1604,7 +1604,7 @@ export default function AIRecommendationEnterprise() {
 
     if (area?.geom) {
       const boundary = L.geoJSON(
-        { type: "Feature", geometry: area.geom, properties: area },
+        { type: "Feature", geometry: area.geom, properties: area } as any,
         {
           style: {
             color: "#0f766e",

@@ -139,7 +139,8 @@ const SUPPORTING_LAYERS = Object.freeze({
     label: "Geologi",
     tables: ["geologi"],
     patterns: ["geologi", "litologi"],
-    classHints: ["litologi", "satuan", "formasi", "nama", "keterangan", "kelas", "deskripsi"],
+    classHints: ["litologi", "lithology", "batuan", "jenis_batuan", "satuan", "nama_satuan", "formasi", "nama_formasi", "keterangan", "kelas", "deskripsi"],
+    excludeColumns: ["das"],
   },
   soil: {
     label: "Jenis tanah",
@@ -265,12 +266,14 @@ async function loadSpatialCatalog(pool) {
     if (entry) entry.columns.push({ name: row.column_name, type: row.data_type });
   }
   for (const entry of catalog.values()) {
+    const withKnownSrid = entry.geoms.find((g) => g.srid > 0);
+    const tableSrid = withKnownSrid ? withKnownSrid.srid : (entry.geoms[0]?.srid || 0);
     const preferred =
       entry.geoms.find((g) => g.column === "geom_valid") ||
       entry.geoms.find((g) => g.column === "geom") ||
       entry.geoms[0];
     entry.geomColumn = preferred.column;
-    entry.srid = preferred.srid;
+    entry.srid = preferred.srid || tableSrid;
   }
 
   spatialCatalogCache = catalog;
@@ -278,19 +281,40 @@ async function loadSpatialCatalog(pool) {
   return catalog;
 }
 
-function pickClassColumn(entry, hints) {
-  const usable = entry.columns.filter((c) => {
+const TEXT_TYPES = new Set(["text", "character varying", "character"]);
+const isCodeLike = (name) => /(^|_)(id|kode|kd|code|fid|objectid)$|^(kode|kd)_/i.test(name);
+
+/** Kolom kandidat kelas: tipe sesuai, bukan kolom teknis, tidak dikecualikan. */
+function classColumnCandidates(entry, excludeColumns = []) {
+  return entry.columns.filter((c) => {
     const n = c.name.toLowerCase();
-    return CLASS_COLUMN_TYPES.has(c.type) && !EXCLUDED_CLASS_COLUMNS.has(n);
+    return CLASS_COLUMN_TYPES.has(c.type) &&
+      !EXCLUDED_CLASS_COLUMNS.has(n) &&
+      !excludeColumns.some((x) => n.includes(x));
   });
-  for (const hint of hints || []) {
-    const exact = usable.find((c) => c.name.toLowerCase() === hint);
-    if (exact) return exact.name;
-  }
-  for (const hint of hints || []) {
-    if (hint.length < 3) continue;
-    const partial = usable.find((c) => c.name.toLowerCase().includes(hint));
-    if (partial) return partial.name;
+}
+
+/**
+ * Pilih kolom kelas dari petunjuk nama. Kolom teks deskriptif diutamakan
+ * daripada kolom kode/ID numerik (mis. pl2024_id) yang tidak bisa dibaca AI.
+ */
+function pickClassColumn(entry, hints, excludeColumns = []) {
+  const usable = classColumnCandidates(entry, excludeColumns);
+  const tiers = [
+    usable.filter((c) => TEXT_TYPES.has(c.type) && !isCodeLike(c.name)),
+    usable.filter((c) => !isCodeLike(c.name)),
+    usable,
+  ];
+  for (const pool of tiers) {
+    for (const hint of hints || []) {
+      const exact = pool.find((c) => c.name.toLowerCase() === hint);
+      if (exact) return exact.name;
+    }
+    for (const hint of hints || []) {
+      if (hint.length < 3) continue;
+      const partial = pool.find((c) => c.name.toLowerCase().includes(hint));
+      if (partial) return partial.name;
+    }
   }
   return null;
 }
@@ -334,73 +358,140 @@ const SELECTED_AREA_CTE = `
  * Ringkas satu layer pendukung terhadap wilayah: luas cakupan, porsi wilayah,
  * dan kelas dominan (bila kolom kelas dapat diidentifikasi).
  */
-async function summarizeLayer(pool, entry, geometry, selectedAreaM2, classHints) {
+/**
+ * Bila tidak ada kolom yang cocok dengan petunjuk nama, pilih kolom teks
+ * dengan jumlah nilai unik paling wajar (2–40) pada fitur yang beririsan.
+ */
+async function detectClassColumnByData(pool, entry, geometry, excludeColumns, whereSql) {
+  const textCols = classColumnCandidates(entry, excludeColumns)
+    .filter((c) => TEXT_TYPES.has(c.type) && !isCodeLike(c.name))
+    .slice(0, 12);
+  if (!textCols.length) return null;
+  const qTable = quoteIdent(entry.table);
+  const selects = textCols
+    .map((c, i) => `COUNT(DISTINCT NULLIF(BTRIM(t.${quoteIdent(c.name)}::text), '')) AS d${i}`)
+    .join(", ");
+  try {
+    const result = await queryWithTimeout(
+      pool,
+      `${SELECTED_AREA_CTE}
+       SELECT ${selects} FROM (
+         SELECT t.* FROM ${qTable} t CROSS JOIN a WHERE ${whereSql} LIMIT 5000
+       ) t`,
+      [geometry],
+    );
+    const row = result.rows?.[0] || {};
+    const ranked = textCols
+      .map((c, i) => ({ name: c.name, distinct: Number(row[`d${i}`] || 0) }))
+      .filter((c) => c.distinct >= 2 && c.distinct <= 40)
+      .sort((x, y) => x.distinct - y.distinct);
+    return ranked[0]?.name || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
+ * Ringkas satu layer pendukung terhadap wilayah: luas cakupan, porsi wilayah,
+ * dan kelas dominan (bila kolom kelas dapat diidentifikasi).
+ */
+async function summarizeLayer(pool, entry, geometry, selectedAreaM2, classHints, excludeColumns = []) {
   const srid = entry.srid; // 0 = tidak diketahui
   const qTable = quoteIdent(entry.table);
   const qGeom = quoteIdent(entry.geomColumn);
-  const geomExpr = entry.geomColumn === "geom_valid" ? `t.${qGeom}` : `ST_MakeValid(t.${qGeom})`;
   const areaExpr = areaInTableSrid(srid);
-  const interExpr = `ST_CollectionExtract(ST_Intersection(${geomExpr}, ${areaExpr}), 3)`;
-  const classColumn = pickClassColumn(entry, classHints);
+
+  const rawGeom = srid === 4326 ? `ST_SetSRID(t.${qGeom}, 4326)` : `t.${qGeom}`;
+  const buildWhere = (geomRef) => `t.${qGeom} IS NOT NULL
+      AND ${rawGeom} && ${areaExpr}
+      AND ST_Intersects(${geomRef}, ${areaExpr})`;
+
+  let classColumn = pickClassColumn(entry, classHints, excludeColumns);
+  let classSource = classColumn ? "nama kolom" : null;
+  if (!classColumn) {
+    classColumn = await detectClassColumnByData(pool, entry, geometry, excludeColumns, buildWhere(rawGeom));
+    if (classColumn) classSource = "deteksi otomatis nilai unik";
+  }
   const classSelect = classColumn
     ? `COALESCE(NULLIF(BTRIM(t.${quoteIdent(classColumn)}::text), ''), 'Tidak diketahui')`
     : `'(tanpa kolom kelas)'::text`;
 
-  const sql = `
+  const isValidColumn = entry.geomColumn === "geom_valid";
+  const fixedGeom = isValidColumn ? rawGeom : `ST_MakeValid(${rawGeom})`;
+  const interExpr = `ST_CollectionExtract(ST_Intersection(${fixedGeom}, ${areaExpr}), 3)`;
+
+  // repairPredicate=false: predikat pada geometri asli (cepat, pakai indeks).
+  // repairPredicate=true : predikat juga pada geometri yang diperbaiki.
+  const buildSql = (repairPredicate) => `
     ${SELECTED_AREA_CTE}
     SELECT ${classSelect} AS kelas,
            COUNT(*)::bigint AS jumlah_fitur,
            COALESCE(SUM(${areaM2Expr(interExpr, srid)}), 0)::float8 AS luas_m2
     FROM ${qTable} t CROSS JOIN a
-    WHERE t.${qGeom} IS NOT NULL
-      AND t.${qGeom} && ${areaExpr}
-      AND ST_Intersects(t.${qGeom}, ${areaExpr})
+    WHERE ${buildWhere(repairPredicate ? fixedGeom : rawGeom)}
     GROUP BY 1
     ORDER BY luas_m2 DESC
     LIMIT 12
   `;
 
-  try {
-    const result = await queryWithTimeout(pool, sql, [geometry]);
-    const classes = (result.rows || []).map((row) => ({
-      kelas: row.kelas,
-      jumlah_fitur: Number(row.jumlah_fitur || 0),
-      luas_m2: Math.round(Number(row.luas_m2 || 0)),
-      persen_wilayah: selectedAreaM2 > 0
-        ? Math.round((Number(row.luas_m2 || 0) / selectedAreaM2) * 1000) / 10
-        : null,
-    }));
-    const covered = classes.reduce((s, c) => s + c.luas_m2, 0);
-    const features = classes.reduce((s, c) => s + c.jumlah_fitur, 0);
-    return {
-      available: features > 0,
-      source_table: entry.table,
-      class_column: classColumn,
-      features,
-      area_m2: Math.round(selectedAreaM2),
-      covered_m2: covered,
-      coverage_ratio: selectedAreaM2 > 0 ? Math.min(1, covered / selectedAreaM2) : 0,
-      classes: classColumn ? classes.slice(0, 8) : [],
-      note: features > 0
-        ? (classColumn
-          ? `Kelas dibaca dari kolom "${classColumn}".`
-          : "Fitur beririsan, tetapi kolom kelas tidak dapat diidentifikasi.")
-        : "Tidak ada fitur yang beririsan dengan wilayah terpilih.",
-    };
-  } catch (error) {
-    const timedOut = error?.code === "57014";
-    console.warn("[AI MITIGATION] layer summary failed:", entry.table, error?.code || error?.message);
+  let result;
+  let lastError = null;
+  // Percobaan 1: predikat pada geometri asli (cepat). Percobaan 2: geometri
+  // diperbaiki dengan ST_MakeValid (untuk TopologyException / geometri invalid).
+  for (const repairPredicate of [false, true]) {
+    try {
+      result = await queryWithTimeout(pool, buildSql(repairPredicate), [geometry]);
+      lastError = null;
+      break;
+    } catch (error) {
+      lastError = error;
+      if (error?.code === "57014") break; // timeout: jangan diulang
+    }
+  }
+
+  if (lastError) {
+    const timedOut = lastError?.code === "57014";
+    const detail = String(lastError?.message || "").slice(0, 160);
+    console.warn("[AI MITIGATION] layer summary failed:", entry.table, lastError?.code, detail);
     return {
       available: false,
       source_table: entry.table,
       class_column: classColumn,
       features: 0,
       classes: [],
+      error: { code: lastError?.code || null, message: detail },
       note: timedOut
         ? "Query melebihi batas waktu (wilayah terlalu luas); pilih wilayah yang lebih kecil."
-        : "Layer tidak dapat dioverlay dengan wilayah terpilih (geometri/SRID tidak kompatibel).",
+        : `Layer gagal dioverlay dengan wilayah terpilih (${lastError?.code || "error"}: ${detail}).`,
     };
   }
+
+  const classes = (result.rows || []).map((row) => ({
+    kelas: row.kelas,
+    jumlah_fitur: Number(row.jumlah_fitur || 0),
+    luas_m2: Math.round(Number(row.luas_m2 || 0)),
+    persen_wilayah: selectedAreaM2 > 0
+      ? Math.round((Number(row.luas_m2 || 0) / selectedAreaM2) * 1000) / 10
+      : null,
+  }));
+  const covered = classes.reduce((s, c) => s + c.luas_m2, 0);
+  const features = classes.reduce((s, c) => s + c.jumlah_fitur, 0);
+  return {
+    available: features > 0,
+    source_table: entry.table,
+    class_column: classColumn,
+    class_column_source: classSource,
+    features,
+    area_m2: Math.round(selectedAreaM2),
+    covered_m2: covered,
+    coverage_ratio: selectedAreaM2 > 0 ? Math.min(1, covered / selectedAreaM2) : 0,
+    classes: classColumn ? classes.slice(0, 8) : [],
+    note: features > 0
+      ? (classColumn
+        ? `Kelas dibaca dari kolom "${classColumn}" (${classSource}).`
+        : "Fitur beririsan, tetapi kolom kelas tidak dapat diidentifikasi.")
+      : "Tidak ada fitur yang beririsan dengan wilayah terpilih.",
+  };
 }
 
 async function loadSupportingLayerEvidence(pool, hazard, geometry, selectedAreaM2) {
@@ -413,7 +504,7 @@ async function loadSupportingLayerEvidence(pool, hazard, geometry, selectedAreaM
       jobs.push({ key, missing: true, label: config.label });
       continue;
     }
-    jobs.push({ key, entry: tables[0], label: config.label, hints: config.classHints });
+    jobs.push({ key, entry: tables[0], label: config.label, hints: config.classHints, exclude: config.excludeColumns || [] });
   }
 
   const results = await mapLimit(jobs, 4, async (job) => {
@@ -426,7 +517,7 @@ async function loadSupportingLayerEvidence(pool, hazard, geometry, selectedAreaM
         note: "Tabel layer ini belum ditemukan di database SIMITI.",
       }];
     }
-    const summary = await summarizeLayer(pool, job.entry, geometry, selectedAreaM2, job.hints);
+    const summary = await summarizeLayer(pool, job.entry, geometry, selectedAreaM2, job.hints, job.exclude);
     return [job.key, { label: job.label, ...summary }];
   });
 
@@ -461,6 +552,7 @@ async function loadExistingMitigation(pool, hazard, geometry) {
     const qTable = quoteIdent(entry.table);
     const qGeom = quoteIdent(entry.geomColumn);
     const areaExpr = areaInTableSrid(entry.srid);
+    const rawGeom = entry.srid === 4326 ? `ST_SetSRID(t.${qGeom}, 4326)` : `t.${qGeom}`;
     try {
       const result = await queryWithTimeout(
         pool,
@@ -468,8 +560,8 @@ async function loadExistingMitigation(pool, hazard, geometry) {
          SELECT COUNT(*)::bigint AS n
          FROM ${qTable} t CROSS JOIN a
          WHERE t.${qGeom} IS NOT NULL
-           AND t.${qGeom} && ${areaExpr}
-           AND ST_Intersects(t.${qGeom}, ${areaExpr})`,
+           AND ${rawGeom} && ${areaExpr}
+           AND ST_Intersects(${rawGeom}, ${areaExpr})`,
         [geometry],
       );
       return { table: name, count: Number(result.rows?.[0]?.n || 0), relevant: relevant.has(name) };
@@ -1174,6 +1266,7 @@ module.exports = {
     describeOpenAiError,
     parseModelJson,
     pickClassColumn,
+    summarizeLayer,
     resolveTables,
     areaInTableSrid,
     compactEvidenceForPrompt,
