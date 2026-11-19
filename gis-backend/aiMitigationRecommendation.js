@@ -23,7 +23,7 @@ const crypto = require("crypto");
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const OpenAI = require("openai");
-const { computeMcda } = require("./aiMitigationScoring");
+const { computeMcda, riskClassValue } = require("./aiMitigationScoring");
 
 const VERSION = "SIMITI-AI-MITIGATION-V5.0";
 // gpt-4.1-mini dihentikan OpenAI 14 Jan 2027; pengganti resminya gpt-6-luna.
@@ -639,23 +639,8 @@ function catalogId(item, index) {
   return String(item?.intervention_id || item?.id || index + 1).trim();
 }
 
-async function loadSpatialEvidence(pool, hazard, area) {
-  const geometry = parsePolygonGeometry(area.geom || area.geometry);
-
-  const areaResult = await queryWithTimeout(
-    pool,
-    `${SELECTED_AREA_CTE}
-     SELECT ST_Area(ST_Transform(a.geom, 6933))::float8 AS luas_m2,
-            ST_IsEmpty(a.geom) AS kosong
-     FROM a`,
-    [geometry],
-  );
-  const selectedAreaM2 = Number(areaResult.rows?.[0]?.luas_m2 || 0);
-  if (areaResult.rows?.[0]?.kosong || selectedAreaM2 <= 0) {
-    throw Object.assign(new Error("Geometri wilayah kosong atau tidak valid."), { userFacing: true });
-  }
-
-  const riskSql = `
+function riskSqlFor(hazard) {
+  return `
     ${SELECTED_AREA_CTE}
     SELECT
       COALESCE(NULLIF(BTRIM(r.kelas), ''), 'Tidak diketahui') AS kelas,
@@ -684,6 +669,127 @@ async function loadSpatialEvidence(pool, hazard, area) {
       END
     )
   `;
+}
+
+/** Ringkasan jumlah kejadian per hazard di dalam wilayah (tanpa detail). */
+async function countEvents(pool, hazard, geometry) {
+  const categories = EVENT_MAPPING[hazard] || [];
+  if (!categories.length) return null;
+  const result = await queryWithTimeout(
+    pool,
+    `${SELECTED_AREA_CTE}
+     SELECT COUNT(*)::bigint AS jumlah
+     FROM kejadian k CROSS JOIN a
+     WHERE k.longitude BETWEEN -180 AND 180
+       AND k.latitude BETWEEN -90 AND 90
+       AND LOWER(BTRIM(COALESCE(k.category, ''))) = ANY($2::text[])
+       AND ST_Covers(a.geom, ST_SetSRID(ST_MakePoint(k.longitude, k.latitude), 4326))`,
+    [geometry, categories],
+  );
+  return Number(result.rows?.[0]?.jumlah || 0);
+}
+
+/**
+ * Mode hazard "auto": skrining semua tabel risiko untuk wilayah yang sama.
+ * Skor = rata-rata nilai kelas tertimbang luas TERHADAP SELURUH wilayah, jadi
+ * hazard yang terpetakan lebih luas dan lebih tinggi menang. Tanpa LLM.
+ */
+async function screenHazards(pool, geometry, selectedAreaM2) {
+  const hazards = Object.keys(RISK_TABLES);
+  const rows = await mapLimit(hazards, 3, async (hazard) => {
+    try {
+      const [risk, events] = await Promise.all([
+        queryWithTimeout(pool, riskSqlFor(hazard), [geometry]),
+        countEvents(pool, hazard, geometry),
+      ]);
+      const classes = risk.rows || [];
+      const features = classes.reduce((sum, r) => sum + Number(r.jumlah_fitur || 0), 0);
+      const weighted = classes.reduce((sum, r) => {
+        const v = riskClassValue(r.kelas);
+        return v === null ? sum : sum + v * Number(r.luas_interseksi_m2 || 0);
+      }, 0);
+      const highArea = classes
+        .filter((r) => /tinggi/i.test(String(r.kelas)))
+        .reduce((sum, r) => sum + Number(r.luas_interseksi_m2 || 0), 0);
+      return {
+        hazard,
+        features,
+        events,
+        score: selectedAreaM2 > 0 ? Math.round((weighted / selectedAreaM2) * 10) / 10 : 0,
+        high_risk_percent: selectedAreaM2 > 0 ? Math.round((highArea / selectedAreaM2) * 1000) / 10 : 0,
+        ok: true,
+      };
+    } catch (error) {
+      return { hazard, features: 0, events: null, score: 0, high_risk_percent: 0, ok: false, error: error?.code || "query_failed" };
+    }
+  });
+  return rows.sort((x, y) => y.score - x.score || (y.events || 0) - (x.events || 0) || y.features - x.features);
+}
+
+/**
+ * Titik prioritas dari GIS (bukan dari AI): titik di dalam irisan poligon risiko
+ * kelas tertinggi yang paling luas. Sesuai Rancangan §9, koordinat tidak boleh
+ * dibuat oleh model generatif.
+ */
+async function loadPriorityLocations(pool, hazard, geometry, limit = 3) {
+  const sql = `
+    ${SELECTED_AREA_CTE},
+    cand AS (
+      SELECT COALESCE(NULLIF(BTRIM(r.kelas), ''), 'Tidak diketahui') AS kelas,
+             ST_CollectionExtract(ST_Intersection(r.geom_valid, a.geom), 3) AS g
+      FROM ${RISK_TABLES[hazard]} r CROSS JOIN a
+      WHERE r.geom_valid IS NOT NULL
+        AND r.geom_valid && a.geom
+        AND ST_Intersects(r.geom_valid, a.geom)
+    )
+    SELECT kelas,
+           ST_Y(ST_PointOnSurface(g)) AS lat,
+           ST_X(ST_PointOnSurface(g)) AS lng,
+           ST_Area(ST_Transform(g, 6933))::float8 AS luas_m2
+    FROM cand
+    WHERE g IS NOT NULL AND NOT ST_IsEmpty(g)
+    ORDER BY CASE LOWER(kelas)
+               WHEN 'sangat tinggi' THEN 1 WHEN 'tinggi' THEN 2
+               WHEN 'sedang' THEN 3 WHEN 'rendah' THEN 4 ELSE 5 END,
+             luas_m2 DESC
+    LIMIT ${Math.max(1, Math.min(10, Number(limit) | 0))}
+  `;
+  try {
+    const result = await queryWithTimeout(pool, sql, [geometry]);
+    return (result.rows || [])
+      .filter((r) => Number.isFinite(Number(r.lat)) && Number.isFinite(Number(r.lng)))
+      .map((r, i) => ({
+        rank: i + 1,
+        lat: Math.round(Number(r.lat) * 1e6) / 1e6,
+        lng: Math.round(Number(r.lng) * 1e6) / 1e6,
+        kelas: r.kelas,
+        luas_ha: Math.round(Number(r.luas_m2 || 0) / 100) / 100,
+        source: `${RISK_TABLES[hazard]} (PostGIS)`,
+        basis: `Titik di dalam poligon risiko kelas ${r.kelas} seluas ±${Math.round(Number(r.luas_m2 || 0) / 1000) / 10} ha; ditentukan GIS, perlu verifikasi lapangan.`,
+      }));
+  } catch (error) {
+    console.warn("[AI MITIGATION] priority location failed:", error?.code || error?.message);
+    return [];
+  }
+}
+
+async function loadSpatialEvidence(pool, hazard, area) {
+  const geometry = parsePolygonGeometry(area.geom || area.geometry);
+
+  const areaResult = await queryWithTimeout(
+    pool,
+    `${SELECTED_AREA_CTE}
+     SELECT ST_Area(ST_Transform(a.geom, 6933))::float8 AS luas_m2,
+            ST_IsEmpty(a.geom) AS kosong
+     FROM a`,
+    [geometry],
+  );
+  const selectedAreaM2 = Number(areaResult.rows?.[0]?.luas_m2 || 0);
+  if (areaResult.rows?.[0]?.kosong || selectedAreaM2 <= 0) {
+    throw Object.assign(new Error("Geometri wilayah kosong atau tidak valid."), { userFacing: true });
+  }
+
+  const riskSql = riskSqlFor(hazard);
 
   const riskResult = await queryWithTimeout(pool, riskSql, [geometry]);
 
@@ -766,6 +872,9 @@ async function loadSpatialEvidence(pool, hazard, area) {
     ],
   };
 
+  evidence.priority_locations = evidence.total_risk_features > 0
+    ? await loadPriorityLocations(pool, hazard, geometry)
+    : [];
   evidence.mcda = computeMcda(evidence);
   return { geometry, evidence };
 }
@@ -999,6 +1108,9 @@ const SYSTEM_PROMPT = [
   "adaptation_measures: 2–4 langkah adaptasi non-struktural yang relevan (kesiapsiagaan, peringatan dini, tata ruang, dsb.).",
   "data_gaps: sebutkan indikator yang tidak tersedia (lihat mcda.indicators dengan available=false) dan layer yang gagal dibaca.",
   "Jika cakupan MCDA rendah atau bukti tidak cukup, set verification_needed=true dan turunkan confidence (0–100).",
+  "Bila event_history.count = 0, nyatakan bahwa tidak ada kejadian TERCATAT di SIMITI (bukan berarti tidak pernah terjadi) dan jangan jadikan historis sebagai alasan.",
+  "Bila hazard_source = auto, sebutkan bahwa jenis bencana dipilih sistem dari skrining tabel risiko.",
+  "Lokasi prioritas (priority_locations) ditentukan GIS; jangan membuat atau mengubah koordinat.",
   "Jangan mengklaim kondisi hulu-hilir, hujan, geologi, lereng, atau area terbakar jika evidence tidak mendukung.",
   "Gunakan Bahasa Indonesia yang ringkas dan teknis.",
 ].join(" ");
@@ -1069,13 +1181,17 @@ function createAiMitigationRecommendationRouter(pool) {
 
   router.post("/mitigation-recommendation", aiAuth, aiRateLimit, async (req, res) => {
     const context = req.body?.context || {};
-    const hazard = String(context.hazard || "").toLowerCase().trim().replace(/\s+/g, "_");
+    const requestedHazard = String(context.hazard || "").toLowerCase().trim().replace(/\s+/g, "_");
+    // "auto"/"semua"/kosong: backend menyaring semua hazard dan memilih yang
+    // paling dominan di wilayah (dipakai saat wilayah tidak punya titik kejadian).
+    const autoHazard = ["", "auto", "semua", "all"].includes(requestedHazard);
+    let hazard = requestedHazard;
 
-    if (!RISK_TABLES[hazard]) {
+    if (!autoHazard && !RISK_TABLES[hazard]) {
       return res.status(400).json({
         success: false,
         code: "INVALID_HAZARD",
-        message: `Hazard "${context.hazard || ""}" tidak valid atau belum didukung. Pilihan: ${Object.keys(RISK_TABLES).join(", ")}.`,
+        message: `Hazard "${context.hazard || ""}" tidak valid atau belum didukung. Pilihan: auto, ${Object.keys(RISK_TABLES).join(", ")}.`,
       });
     }
 
@@ -1087,6 +1203,62 @@ function createAiMitigationRecommendationRouter(pool) {
         message: "Pilih wilayah yang memiliki geometri GeoJSON sebelum meminta rekomendasi.",
       });
     }
+    const areaLabelEarly = area.label || area.name || context.selected_region || "Wilayah terpilih";
+
+    let hazardScreening = null;
+    if (autoHazard) {
+      try {
+        const screenGeometry = parsePolygonGeometry(area.geom || area.geometry);
+        const areaRow = await queryWithTimeout(
+          pool,
+          `${SELECTED_AREA_CTE} SELECT ST_Area(ST_Transform(a.geom, 6933))::float8 AS luas_m2 FROM a`,
+          [screenGeometry],
+        );
+        const selectedAreaM2 = Number(areaRow.rows?.[0]?.luas_m2 || 0);
+        hazardScreening = await screenHazards(pool, screenGeometry, selectedAreaM2);
+        const best = hazardScreening.find((row) => row.features > 0 || (row.events || 0) > 0);
+        if (!best) {
+          // Tidak ada risiko terpetakan maupun kejadian: jawab jujur tanpa OpenAI.
+          return res.json({
+            success: true,
+            ai_used: false,
+            no_mapped_risk: true,
+            area: areaLabelEarly,
+            hazard: null,
+            hazard_source: "auto",
+            hazard_screening: hazardScreening,
+            diagnosis:
+              "Tidak ditemukan poligon risiko maupun kejadian tercatat untuk enam jenis bencana di wilayah ini. Intervensi struktural belum dapat direkomendasikan dari data SIMITI.",
+            risk_level: "belum dapat ditentukan",
+            primary_drivers: [],
+            recommendations: [],
+            adaptation_measures: [],
+            data_gaps: [
+              "Tidak ada fitur pada tabel risiko SIMITI yang beririsan dengan wilayah terpilih.",
+              "Tidak ada kejadian tercatat di SIMITI; ini tidak berarti wilayah bebas bencana.",
+            ],
+            confidence: 0,
+            verification_needed: true,
+            verification_reason:
+              "Periksa cakupan data risiko untuk wilayah ini atau pilih wilayah yang lebih luas.",
+            priority_locations: [],
+            spatial_evidence: { area_ha: Math.round(selectedAreaM2 / 100) / 100, hazard_screening: hazardScreening },
+            meta: { version: VERSION, ai_decision_generated: false, source: "PostgreSQL/PostGIS", generated_at: new Date().toISOString() },
+          });
+        }
+        hazard = best.hazard;
+      } catch (error) {
+        const timedOut = error?.code === "57014";
+        return res.status(timedOut ? 504 : 500).json({
+          success: false,
+          code: timedOut ? "EVIDENCE_TIMEOUT" : "SCREENING_FAILED",
+          message: timedOut
+            ? "Wilayah terlalu luas untuk disaring dalam batas waktu. Pilih kabupaten/kecamatan yang lebih kecil."
+            : "Gagal menyaring jenis bencana dominan di wilayah ini.",
+        });
+      }
+    }
+    const hazardSource = autoHazard ? "auto" : "user";
 
     let spatial;
     try {
@@ -1114,7 +1286,38 @@ function createAiMitigationRecommendationRouter(pool) {
     }
 
     const { geometry, evidence } = spatial;
-    const areaLabel = area.label || area.name || context.selected_region || "Wilayah terpilih";
+    const areaLabel = areaLabelEarly;
+    const eventCount = evidence.event_history.available ? Number(evidence.event_history.count || 0) : null;
+
+    if (evidence.total_risk_features === 0 && !eventCount) {
+      // Hazard ini tidak terpetakan dan tidak pernah tercatat di wilayah ini:
+      // tidak ada dasar untuk intervensi spesifik hazard, jadi OpenAI tidak dipanggil.
+      return res.json({
+        success: true,
+        ai_used: false,
+        no_mapped_risk: true,
+        area: areaLabel,
+        hazard,
+        hazard_source: hazardSource,
+        hazard_screening: hazardScreening,
+        diagnosis: `Tidak ditemukan poligon ${RISK_TABLES[hazard]} maupun kejadian ${hazard.replace("_", " ")} tercatat di wilayah ini. Rekomendasi intervensi untuk bencana ini belum memiliki dasar data.`,
+        risk_level: "belum dapat ditentukan",
+        primary_drivers: [],
+        recommendations: [],
+        adaptation_measures: [],
+        data_gaps: [
+          `Tidak ada fitur ${RISK_TABLES[hazard]} yang beririsan dengan wilayah terpilih.`,
+          "Tidak ada kejadian tercatat di SIMITI; ini tidak berarti wilayah bebas bencana.",
+        ],
+        mcda: evidence.mcda,
+        confidence: 0,
+        verification_needed: true,
+        verification_reason: "Coba jenis bencana lain (pilih \"Semua\" agar sistem memilih otomatis) atau periksa cakupan data risiko.",
+        priority_locations: [],
+        spatial_evidence: evidence,
+        meta: { version: VERSION, ai_decision_generated: false, source: "PostgreSQL/PostGIS + MCDA", generated_at: new Date().toISOString() },
+      });
+    }
 
     const catalogItems = getCatalogItems(hazard);
     if (!catalogItems.length) {
@@ -1154,6 +1357,11 @@ function createAiMitigationRecommendationRouter(pool) {
         area: areaLabel,
         admin_level: area.level || null,
         hazard,
+        hazard_source: hazardSource,
+        hazard_screening: hazardScreening
+          ? hazardScreening.slice(0, 3).map((h) => ({ hazard: h.hazard, score: h.score, high_risk_percent: h.high_risk_percent, events: h.events }))
+          : null,
+        priority_locations: (evidence.priority_locations || []).map((l) => ({ rank: l.rank, kelas: l.kelas, luas_ha: l.luas_ha })),
         spatial_evidence: compactEvidenceForPrompt(evidence),
         available_mitigation_catalog: catalogItems.map((item, index) => ({
           intervention_id: catalogId(item, index),
@@ -1183,14 +1391,19 @@ function createAiMitigationRecommendationRouter(pool) {
       const mcda = evidence.mcda;
       const noSpatialRisk = evidence.total_risk_features === 0;
       const noHistory = !evidence.event_history.available;
+      const zeroEvents = eventCount === 0;
       const modelConfidence = Math.max(0, Math.min(100, Number(result.confidence) || 0));
       // Confidence tidak boleh melampaui kelengkapan data dasar.
       const confidence = Math.round(Math.min(modelConfidence, mcda.coverage_percent || 0));
 
       const payload = {
         success: true,
+        ai_used: true,
         area: areaLabel,
         hazard,
+        hazard_source: hazardSource,
+        hazard_screening: hazardScreening,
+        priority_locations: evidence.priority_locations || [],
         diagnosis: result.diagnosis,
         risk_level: result.risk_level,
         primary_drivers: result.primary_drivers,
@@ -1200,11 +1413,12 @@ function createAiMitigationRecommendationRouter(pool) {
         mcda,
         confidence,
         verification_needed:
-          Boolean(result.verification_needed) || noSpatialRisk || noHistory || mcda.low_coverage,
+          Boolean(result.verification_needed) || noSpatialRisk || noHistory || zeroEvents || mcda.low_coverage,
         verification_reason: [
           result.verification_reason,
           noSpatialRisk ? "Tidak ditemukan fitur risiko pada wilayah terpilih." : null,
           noHistory ? "Riwayat kejadian yang sepadan tidak tersedia untuk hazard ini." : null,
+          zeroEvents ? "Tidak ada kejadian tercatat di SIMITI untuk wilayah ini; ini tidak berarti tidak pernah terjadi." : null,
           mcda.low_coverage ? `Cakupan indikator MCDA baru ${mcda.coverage_percent}%.` : null,
         ].filter(Boolean).join(" "),
         spatial_evidence: evidence,

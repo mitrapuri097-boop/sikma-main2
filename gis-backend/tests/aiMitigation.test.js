@@ -390,11 +390,116 @@ test("summarizeLayer: TopologyException dicoba ulang dengan ST_MakeValid, error 
   });
   const ok = await _internal.summarizeLayer(recovering, entry, "{}", 100, ["pl24"], []);
   assert.equal(ok.available, true);
-  assert.match(recovering.sqls[1], /ST_Intersects\(ST_MakeValid\(t\."geom"\)/);
+  assert.match(recovering.sqls[1], /ST_Intersects\(ST_MakeValid\(/);
 
   const failing = scriptedPool(() => { throw Object.assign(new Error("Geometry has Z dimension but column does not"), { code: "22023" }); });
   const bad = await _internal.summarizeLayer(failing, entry, "{}", 100, ["pl24"], []);
   assert.equal(bad.available, false);
   assert.equal(bad.error.code, "22023");
   assert.match(bad.note, /Z dimension/);
+});
+
+// ------------------------------------------- wilayah tanpa titik kejadian
+/**
+ * Pool palsu yang bisa diatur: risk = { banjir: [...rows] }, events = { banjir: n }.
+ * Tabel lain kosong. Dipakai untuk skrining hazard dan short-circuit.
+ */
+function scenarioPool({ risk = {}, events = {}, priority = [] } = {}) {
+  const tableToHazard = {
+    risiko_banjir: "banjir", risiko_banjir_bandang: "banjir_bandang", risiko_longsor: "longsor",
+    risiko_karhutla: "karhutla", risiko_kekeringan: "kekeringan", risiko_abrasi: "abrasi",
+  };
+  const respond = (sql, params) => {
+    if (/FROM geometry_columns/.test(sql) || /information_schema\.columns/.test(sql)) return { rows: [] };
+    if (/AS kosong/.test(sql) || /AS luas_m2 FROM a/.test(sql)) return { rows: [{ luas_m2: 100000000, kosong: false }] };
+    if (/cand AS/.test(sql)) return { rows: priority };
+    const m = sql.match(/FROM (risiko_[a-z_]+) r/);
+    if (m) return { rows: risk[tableToHazard[m[1]]] || [] };
+    if (/FROM kejadian/.test(sql)) {
+      const cats = (params && params[1]) || [];
+      const hz = Object.keys(events).find((h) => cats.length && cats.every((c) => events[h + ":cats"] ? events[h + ":cats"].includes(c) : true));
+      const n = hz ? events[hz] : 0;
+      return { rows: [{ jumlah: n, tanggal_pertama: null, tanggal_terakhir: null }] };
+    }
+    if (/COUNT\(\*\)::bigint AS n/.test(sql)) return { rows: [{ n: 0 }] };
+    return { rows: [] };
+  };
+  const client = {
+    query: async (sql, params) => (/^(BEGIN|COMMIT|ROLLBACK|SET LOCAL)/.test(sql.trim()) ? { rows: [] } : respond(sql, params)),
+    release() {},
+  };
+  return { query: client.query, connect: async () => client };
+}
+
+const goodReq = (hazard, ip) => ({ headers: { authorization: "Bearer good" }, body: body(hazard), ip, });
+
+test("hazard auto tanpa risiko dan tanpa kejadian: jawaban jujur, OpenAI tidak dipanggil", { skip: !isStub }, async () => {
+  process.env.OPENAI_API_KEY = "sk-test";
+  delete process.env.AI_RATE_LIMIT_PER_HOUR;
+  process.env.AI_RATE_LIMIT_PER_HOUR = "0";
+  OpenAI.calls.length = 0;
+  const { createAiMitigationRecommendationRouter } = require("../aiMitigationRecommendation");
+  const router = createAiMitigationRecommendationRouter(scenarioPool());
+  const res = await invoke(router, "POST", "/mitigation-recommendation", goodReq("auto"));
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.success, true);
+  assert.equal(res.body.ai_used, false);
+  assert.equal(res.body.no_mapped_risk, true);
+  assert.equal(res.body.hazard_screening.length, 6);
+  assert.equal(OpenAI.calls.length, 0);
+});
+
+test("hazard auto memilih bencana dengan risiko terpetakan terbesar", { skip: !isStub }, async () => {
+  process.env.OPENAI_API_KEY = "sk-test";
+  process.env.OPENAI_MODEL = "m-auto";
+  OpenAI.calls.length = 0;
+  OpenAI.handler = async () => ({ output_text: JSON.stringify({
+    diagnosis: "d", risk_level: "sedang", primary_drivers: [], recommendations: [], adaptation_measures: [],
+    data_gaps: [], confidence: 70, verification_needed: false, verification_reason: "",
+  }) });
+  const pool = scenarioPool({
+    risk: {
+      banjir: [{ kelas: "Sedang", jumlah_fitur: 3, luas_interseksi_m2: 5000000 }],
+      longsor: [{ kelas: "Tinggi", jumlah_fitur: 9, luas_interseksi_m2: 30000000 }],
+    },
+    priority: [{ kelas: "Tinggi", lat: -6.6, lng: 106.8, luas_m2: 2500000 }],
+  });
+  const { createAiMitigationRecommendationRouter } = require("../aiMitigationRecommendation");
+  const router = createAiMitigationRecommendationRouter(pool);
+  const res = await invoke(router, "POST", "/mitigation-recommendation", goodReq("semua"));
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body).slice(0, 300));
+  assert.equal(res.body.hazard, "longsor");
+  assert.equal(res.body.hazard_source, "auto");
+  assert.equal(res.body.hazard_screening[0].hazard, "longsor");
+  // 0 kejadian tercatat → wajib verifikasi + catatan jujur
+  assert.equal(res.body.verification_needed, true);
+  assert.match(res.body.verification_reason, /tidak berarti tidak pernah terjadi/);
+  // titik prioritas dari GIS, bukan dari AI
+  assert.equal(res.body.priority_locations.length, 1);
+  assert.equal(res.body.priority_locations[0].lat, -6.6);
+  const sent = JSON.parse(OpenAI.calls[0].input[1].content[0].text);
+  assert.equal(sent.hazard_source, "auto");
+  assert.equal(sent.priority_locations[0].lat, undefined, "koordinat tidak dikirim ke AI");
+});
+
+test("hazard eksplisit tanpa risiko & kejadian: short-circuit dengan MCDA, tanpa OpenAI", { skip: !isStub }, async () => {
+  process.env.OPENAI_API_KEY = "sk-test";
+  process.env.OPENAI_MODEL = "m-explicit";
+  OpenAI.calls.length = 0;
+  const { createAiMitigationRecommendationRouter } = require("../aiMitigationRecommendation");
+  const router = createAiMitigationRecommendationRouter(scenarioPool());
+  const res = await invoke(router, "POST", "/mitigation-recommendation", goodReq("abrasi"));
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.ai_used, false);
+  assert.equal(res.body.hazard, "abrasi");
+  assert.ok(res.body.mcda);
+  assert.equal(OpenAI.calls.length, 0);
+});
+
+test("hazard tidak dikenal tetap ditolak", { skip: !isStub }, async () => {
+  const { createAiMitigationRecommendationRouter } = require("../aiMitigationRecommendation");
+  const router = createAiMitigationRecommendationRouter(scenarioPool());
+  const res = await invoke(router, "POST", "/mitigation-recommendation", goodReq("gempa"));
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.code, "INVALID_HAZARD");
 });

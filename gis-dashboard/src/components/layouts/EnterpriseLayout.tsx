@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import {
   Bot,
@@ -43,6 +43,7 @@ import IdleTimeout from "./IdleTimeout";
 
 export default function EnterpriseLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
 
   /* ==========================================================
      ROUTE DETECTION
@@ -91,6 +92,12 @@ export default function EnterpriseLayout() {
   /* ==========================================================
      SIDEBAR ACTIONS
   ========================================================== */
+
+  // Halaman Rekomendasi butuh ruang peta: sidebar diciutkan (ikon saja)
+  // saat halaman dibuka, tetapi tetap bisa dibuka lewat tombol di tepinya.
+  useEffect(() => {
+    if (isRecommendation) setSidebarCollapsed(true);
+  }, [isRecommendation]);
 
   const toggleSidebar = () => {
     setSidebarCollapsed((current) => !current);
@@ -203,7 +210,7 @@ export default function EnterpriseLayout() {
             shrink-0
           "
         >
-          <Header onMenuClick={toggleMobileSidebar} hideMenu={isRecommendation} />
+          <Header onMenuClick={toggleMobileSidebar} />
         </header>
 
         {/* ======================================================
@@ -224,7 +231,7 @@ export default function EnterpriseLayout() {
               MOBILE SIDEBAR OVERLAY
           ==================================================== */}
 
-          {mobileSidebar && !isRecommendation && (
+          {mobileSidebar && (
             <button
               type="button"
               aria-label="Tutup menu navigasi"
@@ -244,7 +251,7 @@ export default function EnterpriseLayout() {
               SIDEBAR
           ==================================================== */}
 
-          <aside style={{ display: isRecommendation ? "none" : undefined }} className={`
+          <aside className={`
               relative
               z-[95]
               shrink-0
@@ -837,6 +844,7 @@ export default function EnterpriseLayout() {
 
                 <button
                   type="button"
+                  onClick={() => { setShowAI(false); navigate("/kerawanan"); }}
                   className="
                     rounded-xl
                     border
@@ -880,6 +888,7 @@ export default function EnterpriseLayout() {
 
                 <button
                   type="button"
+                  onClick={() => { setShowAI(false); navigate("/rekomendasi"); }}
                   className="
                     rounded-xl
                     border
@@ -934,7 +943,7 @@ export default function EnterpriseLayout() {
             Non-GIS only.
         ====================================================== */}
 
-        {!isWebGIS && !showAI && (
+        {!isWebGIS && !isRecommendation && !showAI && (
           <button
             type="button"
             onClick={toggleAI}

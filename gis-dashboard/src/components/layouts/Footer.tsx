@@ -54,7 +54,7 @@ export default function Footer() {
               LINKS
           ===================================================== */}
 
-          <div className="flex flex-wrap items-center gap-5 text-sm">
+          <div className="simiti-footer-links flex flex-wrap items-center gap-5 text-sm">
 
             <Link
               to="/dashboard"

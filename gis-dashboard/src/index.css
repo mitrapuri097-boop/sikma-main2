@@ -407,3 +407,18 @@
     max-height: 160px !important;
   }
 }
+
+/* ============================================================
+   CoreUI menulis `a { color; text-decoration: underline }` tanpa @layer,
+   sehingga selalu menang atas utilitas Tailwind (@layer utilities) seperti
+   text-slate-500. Tautan breadcrumb dan footer diberi gaya di luar layer.
+   ============================================================ */
+nav[aria-label="Breadcrumb"] a,
+.simiti-footer-links a {
+  color: #64748b;
+  text-decoration: none;
+}
+nav[aria-label="Breadcrumb"] a:hover,
+.simiti-footer-links a:hover {
+  color: #059669;
+}
