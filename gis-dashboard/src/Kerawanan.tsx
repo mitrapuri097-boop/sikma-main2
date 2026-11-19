@@ -47,79 +47,6 @@ type GpsThreatState = {
 
 const Kerawanan = () => {
 
-  // Palet bulanan Karhutla mengacu pada nama warna NAFI (halaman 12).
-  // Dokumen NAFI menyebut nama warna, bukan kode HEX; HEX berikut adalah
-  // padanan digital perkiraan agar konsisten dipakai pada marker dan legenda.
-  const KARHUTLA_MONTHS = [
-    { name: "Januari", key: "JANUARI", number: "01", colorName: "Mauve-grey", color: "#9B929C" },
-    { name: "Februari", key: "FEBRUARI", number: "02", colorName: "Blue-grey", color: "#8496A8" },
-    { name: "Maret", key: "MARET", number: "03", colorName: "Grey-green", color: "#98A99B" },
-    { name: "April", key: "APRIL", number: "04", colorName: "Pale teal", color: "#B4DAD5" },
-    { name: "Mei", key: "MEI", number: "05", colorName: "Mint green", color: "#A8DCC2" },
-    { name: "Juni", key: "JUNI", number: "06", colorName: "Light green", color: "#B9D98A" },
-    { name: "Juli", key: "JULI", number: "07", colorName: "Sage green", color: "#A3B18A" },
-    { name: "Agustus", key: "AGUSTUS", number: "08", colorName: "Yellow", color: "#F4D35E" },
-    { name: "September", key: "SEPTEMBER", number: "09", colorName: "Peach", color: "#F6B98A" },
-    { name: "Oktober", key: "OKTOBER", number: "10", colorName: "Pink", color: "#E98BAA" },
-    { name: "November", key: "NOVEMBER", number: "11", colorName: "Mauve", color: "#B784A7" },
-    { name: "Desember", key: "DESEMBER", number: "12", colorName: "Grey-purple", color: "#8F829B" },
-  ];
-  const KARHUTLA_MONTH_COLORS: Record<string, string> = Object.fromEntries(
-    KARHUTLA_MONTHS.map((month) => [month.key, month.color]),
-  );
-
-const getKarhutlaMonthColor = (value: any): string => {
-  if (value === null || value === undefined) return "#808080";
-
-  const raw = String(value).trim().toUpperCase();
-  const months = [
-    "JANUARI", "FEBRUARI", "MARET", "APRIL",
-    "MEI", "JUNI", "JULI", "AGUSTUS",
-    "SEPTEMBER", "OKTOBER", "NOVEMBER", "DESEMBER"
-  ];
-
-  const aliases: Record<string, string> = {
-    JAN: "JANUARI", FEB: "FEBRUARI", MAR: "MARET",
-    APR: "APRIL", MAY: "MEI", JUN: "JUNI",
-    JUL: "JULI", AUG: "AGUSTUS", SEP: "SEPTEMBER",
-    OCT: "OKTOBER", NOV: "NOVEMBER", DEC: "DESEMBER"
-  };
-
-  for (const month of months) {
-    if (raw.includes(month)) return KARHUTLA_MONTH_COLORS[month];
-  }
-
-  for (const [alias, month] of Object.entries(aliases)) {
-    if (new RegExp("\\b" + alias + "\\b").test(raw)) {
-      return KARHUTLA_MONTH_COLORS[month];
-    }
-  }
-
-  const yearMonth = raw.match(/\b\d{4}[-/](\d{1,2})\b/);
-  if (yearMonth) {
-    const index = Number(yearMonth[1]) - 1;
-    if (index >= 0 && index < 12) return KARHUTLA_MONTH_COLORS[months[index]];
-  }
-
-  const localDate = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-  if (localDate) {
-    const index = Number(localDate[2]) - 1;
-    if (index >= 0 && index < 12) return KARHUTLA_MONTH_COLORS[months[index]];
-  }
-
-  const numeric = Number(raw);
-  if (Number.isInteger(numeric) && numeric >= 1 && numeric <= 12) {
-    return KARHUTLA_MONTH_COLORS[months[numeric - 1]];
-  }
-
-  const date = new Date(raw);
-  if (!Number.isNaN(date.getTime())) {
-    return KARHUTLA_MONTH_COLORS[months[date.getMonth()]];
-  }
-
-  return "#808080";
-};
-
   // ============================================================
   // ENTERPRISE SIDEBAR — UI ONLY
   // Tidak mengubah logic GIS, API, layer, legend, atau data.
@@ -960,6 +887,31 @@ const getKarhutlaMonthColor = (value: any): string => {
   const [kebakaran2025Data, setKebakaran2025Data] = useState<
     Array<{ periode: string; luas: number; color?: string }>
   >([]);
+  // Kelas fungsi kawasan hutan: satu warna konsisten untuk WMS dan legenda.
+  // Kode dengan deskripsi yang sama digabung agar legenda tidak duplikat.
+  const KAWASAN_HUTAN_LEGEND = [
+    { codes: ["0", "000000"], fungsikws: "0", deskripsi_domain: "Tidak Terdefinisi", color: "#94A3B8" },
+    { codes: ["100000"], fungsikws: "100000", deskripsi_domain: "Kawasan Suaka Alam/Kawasan Pelestarian Alam", color: "#FACC15" },
+    { codes: ["100100"], fungsikws: "100100", deskripsi_domain: "Hutan Lindung", color: "#F97316" },
+    { codes: ["100200"], fungsikws: "100200", deskripsi_domain: "Hutan (Kawasan) Suaka Alam/Wisata", color: "#A855F7" },
+    { codes: ["100300", "100400"], fungsikws: "100300", deskripsi_domain: "Hutan Produksi Tetap", color: "#DC2626" },
+    { codes: ["100500"], fungsikws: "100500", deskripsi_domain: "Hutan Produksi yang dapat di Konversi", color: "#06B6D4" },
+    { codes: ["100600"], fungsikws: "100600", deskripsi_domain: "Hutan Negara Bebas", color: "#F8FAFC" },
+    { codes: ["100700"], fungsikws: "100700", deskripsi_domain: "Areal Penggunaan Lain", color: "#A3A3A3" },
+    { codes: ["500100"], fungsikws: "500100", deskripsi_domain: "Danau", color: "#2563EB" },
+    { codes: ["500300"], fungsikws: "500300", deskripsi_domain: "Tubuh Air", color: "#0EA5E9" },
+    { codes: ["100210"], fungsikws: "100210", deskripsi_domain: "Cagar Alam", color: "#84CC16" },
+    { codes: ["100220"], fungsikws: "100220", deskripsi_domain: "Suaka Margasatwa", color: "#22C55E" },
+    { codes: ["100230"], fungsikws: "100230", deskripsi_domain: "Taman Buru", color: "#FB7185" },
+    { codes: ["100240"], fungsikws: "100240", deskripsi_domain: "Taman Nasional", color: "#16A34A" },
+    { codes: ["100250"], fungsikws: "100250", deskripsi_domain: "Taman Wisata Alam/Hutan Wisata", color: "#14B8A6" },
+    { codes: ["100260"], fungsikws: "100260", deskripsi_domain: "Taman Hutan Raya", color: "#65A30D" },
+    { codes: ["100201"], fungsikws: "100201", deskripsi_domain: "Hutan Suaka Alam/Wisata (Perairan)", color: "#7C3AED" },
+    { codes: ["100211"], fungsikws: "100211", deskripsi_domain: "Cagar Alam (Perairan)", color: "#C084FC" },
+    { codes: ["100221"], fungsikws: "100221", deskripsi_domain: "Suaka Margasatwa (Perairan)", color: "#D946EF" },
+    { codes: ["100241"], fungsikws: "100241", deskripsi_domain: "Taman Nasional (Perairan)", color: "#15803D" },
+    { codes: ["100251"], fungsikws: "100251", deskripsi_domain: "Taman Wisata Alam/Hutan Wisata (Perairan)", color: "#0F766E" },
+  ] as const;
   const [kawasanHutanData, setKawasanHutanData] = useState<
     Array<{ fungsikws: string; deskripsi_domain: string; color?: string }>
   >([]);
@@ -1113,6 +1065,29 @@ const getKarhutlaMonthColor = (value: any): string => {
     "#FFB6C1", // Light Pink
   ];
 
+  // Legenda Jenis Tanah Nasional mengikuti SLD GeoServer.
+  const JENIS_TANAH_NATIONAL_LEGEND: Array<{
+    jntnh1: string;
+    color: string;
+  }> = [
+    { jntnh1: "Permukiman", color: "#9E9E9E" },
+    { jntnh1: "Tubuh Air", color: "#1976D2" },
+    { jntnh1: "Aluvial", color: "#4DB6AC" },
+    { jntnh1: "Andosol", color: "#9575CD" },
+    { jntnh1: "Andisol", color: "#9575CD" },
+    { jntnh1: "Gleisol", color: "#42A5F5" },
+    { jntnh1: "Kambisol", color: "#66BB6A" },
+    { jntnh1: "Grumusol", color: "#8D6E63" },
+    { jntnh1: "Latosol", color: "#FF8A65" },
+    { jntnh1: "Mediteran", color: "#D4A017" },
+    { jntnh1: "Molisol", color: "#A1887F" },
+    { jntnh1: "Nitosol", color: "#7CB342" },
+    { jntnh1: "Oksisol", color: "#EF6C00" },
+    { jntnh1: "Organosol", color: "#795548" },
+    { jntnh1: "Podsolik", color: "#C65D4B" },
+    { jntnh1: "Regosol", color: "#FBC02D" },
+    { jntnh1: "Lainnya / No data", color: "#B39DDB" },
+  ];
   const jenisTanahColors = [
     "#8B4513", // Saddle Brown
     "#D2691E", // Chocolate
@@ -1295,7 +1270,7 @@ const getKarhutlaMonthColor = (value: any): string => {
     try {
       if (map.hasLayer(layer)) map.removeLayer(layer);
     } catch (error) {
-      console.warn("⚠️ Leaflet gagal remove layer, dilewati:", error);
+      console.warn("âš ️ Leaflet gagal remove layer, dilewati:", error);
     }
   };
 
@@ -1305,7 +1280,7 @@ const getKarhutlaMonthColor = (value: any): string => {
       layer.addTo(map);
       return true;
     } catch (error) {
-      console.warn("⚠️ Leaflet gagal add layer, dilewati:", error);
+      console.warn("âš ️ Leaflet gagal add layer, dilewati:", error);
       return false;
     }
   };
@@ -1547,6 +1522,44 @@ const getKarhutlaMonthColor = (value: any): string => {
       </StyledLayerDescriptor>`;
   };
 
+  // SLD eksplisit untuk Kawasan Hutan Nasional.
+  // Gunakan namespace sld: secara eksplisit agar parser GeoServer membaca
+  // seluruh elemen styling secara konsisten pada parameter WMS SLD_BODY.
+  const buildKawasanHutanSld = (
+    selectedKey: string | null = null,
+    selectedColor: string | null = null,
+  ) => {
+    const xmlEscape = (value: unknown) =>
+      String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+
+    const selected = String(selectedKey ?? "").trim();
+    const selectedItem = KAWASAN_HUTAN_LEGEND.find(
+      (item) => String(item.fungsikws) === selected ||
+        item.codes.some((code) => String(code) === selected),
+    );
+    const selectedCodes = selectedItem
+      ? [...selectedItem.codes]
+      : selected ? [selected] : [];
+    const equalities = selectedCodes.map((code) =>
+      `<ogc:PropertyIsEqualTo><ogc:PropertyName>fungsikws</ogc:PropertyName><ogc:Literal>${xmlEscape(code)}</ogc:Literal></ogc:PropertyIsEqualTo>`
+    ).join("");
+    const selectedFilter = selectedCodes.length > 1
+      ? `<ogc:Or>${equalities}</ogc:Or>`
+      : equalities;
+    const color = xmlEscape(selectedColor || selectedItem?.color || "#FACC15");
+
+    return `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<sld:StyledLayerDescriptor version="1.0.0" xmlns:sld="http://www.opengis.net/sld" xmlns:ogc="http://www.opengis.net/ogc" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.opengis.net/sld http://schemas.opengis.net/sld/1.0.0/StyledLayerDescriptor.xsd">` +
+      `<sld:NamedLayer><sld:Name>simiti:kawasan_hutan</sld:Name><sld:UserStyle><sld:Title>SIMITI Kawasan Hutan - Pilihan Legenda</sld:Title><sld:FeatureTypeStyle>` +
+      `<sld:Rule><sld:Name>kategori-terpilih</sld:Name><ogc:Filter>${selectedFilter}</ogc:Filter><sld:PolygonSymbolizer><sld:Fill><sld:CssParameter name="fill">${color}</sld:CssParameter><sld:CssParameter name="fill-opacity">0.95</sld:CssParameter></sld:Fill><sld:Stroke><sld:CssParameter name="stroke">#FFFFFF</sld:CssParameter><sld:CssParameter name="stroke-width">1.2</sld:CssParameter><sld:CssParameter name="stroke-opacity">1</sld:CssParameter></sld:Stroke></sld:PolygonSymbolizer></sld:Rule>` +
+      `<sld:Rule><sld:ElseFilter/><sld:PolygonSymbolizer><sld:Fill><sld:CssParameter name="fill">#94A3B8</sld:CssParameter><sld:CssParameter name="fill-opacity">0.16</sld:CssParameter></sld:Fill><sld:Stroke><sld:CssParameter name="stroke">#64748B</sld:CssParameter><sld:CssParameter name="stroke-width">0.25</sld:CssParameter><sld:CssParameter name="stroke-opacity">0.35</sld:CssParameter></sld:Stroke></sld:PolygonSymbolizer></sld:Rule>` +
+      `</sld:FeatureTypeStyle></sld:UserStyle></sld:NamedLayer></sld:StyledLayerDescriptor>`;
+  };
   // Bangun WKT dari geometri administrasi untuk filter spasial GeoServer.
   const buildRiskBanjirAdminWkt = (areas: Array<any>): string | null => {
     const collectPolygons = (geom: any): any[] => {
@@ -1695,7 +1708,7 @@ const getKarhutlaMonthColor = (value: any): string => {
     classColumn: string = "kelas"
   ): string | null => {
     const safeClassColumn =
-      classColumn === "unsur" ? "unsur" : "kelas";
+      ["unsur", "kls_a"].includes(classColumn) ? classColumn : "kelas";
 
     const classFilter = kelas
       ? `${safeClassColumn} = '${String(kelas).replace(/'/g, "''")}'`
@@ -1743,7 +1756,7 @@ const getKarhutlaMonthColor = (value: any): string => {
 
     const geometryColumn = "geom_valid";
     const classColumn =
-      tableName === "rawan_longsor" ? "unsur" : "kelas";
+      tableName === "rawan_erosi" ? "kls_a" : tableName === "rawan_longsor" ? "unsur" : "kelas";
 
     const cqlFilter = buildRiskBanjirWmsCqlFilter(
       kelas,
@@ -2635,6 +2648,295 @@ const getKarhutlaMonthColor = (value: any): string => {
           }]
         : selectedAreas;
 
+      // Kawasan Hutan nasional memakai WMS agar cakupan nasional tidak
+      // dibatasi jumlah feature GeoJSON. Saat provinsi/administrasi dipilih,
+      // gunakan GeoJSON agar setiap polygon dapat diwarnai langsung dengan
+      // Leaflet setStyle saat kelas legenda diklik (pola layer vektor).
+      const isKawasanHutanWmsContext =
+        tableName === "kawasan_hutan" &&
+        selectedAreas.length === 0 &&
+        selectedDas.length === 0 &&
+        activeSpatialFocus?.layerType !== "khdtk";
+
+      if (isKawasanHutanWmsContext) {
+        const kawasanHutanCqlFilter = buildRiskBanjirWmsCqlFilter(
+          null,
+          riskBanjirWmsAreas,
+          "geom_valid",
+          "kelas",
+        );
+
+        if (kawasanHutanCqlFilter) {
+          const geoserverWmsUrl = String(
+            import.meta.env.VITE_GEOSERVER_WMS_URL ||
+            "/geoserver/simiti/wms"
+          ).trim();
+
+          if (layerGroupsRef.current[tableName]) {
+            safeRemoveMapLayer(layerGroupsRef.current[tableName]);
+            delete layerGroupsRef.current[tableName];
+          }
+          layerCacheRef.current.delete(tableName);
+
+          // WMS nasional tidak mengembalikan feature GeoJSON untuk legenda.
+          // Isi legenda dari daftar kelas resmi dan kirim SLD yang sama ke GeoServer.
+          setKawasanHutanData(
+            KAWASAN_HUTAN_LEGEND.map((item) => ({
+              fungsikws: item.fungsikws,
+              deskripsi_domain: item.deskripsi_domain,
+              color: item.color,
+            })),
+          );
+          colorMappingRef.current.kawasanHutan.clear();
+          KAWASAN_HUTAN_LEGEND.forEach((item) => {
+            item.codes.forEach((code) => {
+              colorMappingRef.current.kawasanHutan.set(code, item.color);
+            });
+          });
+
+          const kawasanHutanWmsLayer = window.L.tileLayer.wms(geoserverWmsUrl, {
+            layers: "simiti:kawasan_hutan",
+            styles: "",
+            format: "image/png",
+            transparent: true,
+            version: "1.1.1",
+            srs: "EPSG:4326",
+            tiled: false,
+            uppercase: true,
+            CQL_FILTER: kawasanHutanCqlFilter,
+          });
+
+          // Catat error tile dari GeoServer agar kegagalan SLD tidak diam-diam.
+          kawasanHutanWmsLayer.on("tileerror", (event: any) => {
+            console.error("SIMITI: tile WMS Kawasan Hutan gagal dimuat", {
+              error: event?.error?.message || event?.message || "WMS tile error",
+              tile: event?.tile?.src,
+            });
+          });
+
+          layerGroupsRef.current[tableName] = kawasanHutanWmsLayer;
+          kawasanHutanWmsLayer.addTo(mapAtRequest);
+          console.log("SIMITI: Kawasan Hutan Nasional menggunakan GeoServer WMS", {
+            url: geoserverWmsUrl,
+            layer: "simiti:kawasan_hutan",
+            filter: kawasanHutanCqlFilter,
+            zoom,
+          });
+          return;
+        }
+
+        console.warn(
+          "SIMITI: filter WMS Kawasan Hutan tidak dapat dibentuk; memakai jalur GeoJSON sebagai fallback."
+        );
+      }
+
+      // Lahan Kritis nasional memakai GeoServer WMS agar seluruh polygon
+      // dirender server-side tanpa terkena LIMIT GeoJSON (mis. 2.000 fitur).
+      // Jika administrasi/DAS/KHDTK dipilih, alur GeoJSON lama tetap dipakai.
+      const isNationalLahanKritisWmsContext =
+        tableName === "lahan_kritis" &&
+        selectedAreas.length === 0 &&
+        selectedDas.length === 0 &&
+        activeSpatialFocus?.layerType !== "khdtk" &&
+        !activeSpatialFocus?.feature?.geometry;
+
+      if (isNationalLahanKritisWmsContext) {
+        const geoserverWmsUrl = String(
+          import.meta.env.VITE_GEOSERVER_WMS_URL ||
+          "/geoserver/simiti/wms"
+        ).trim();
+
+        if (layerGroupsRef.current[tableName]) {
+          safeRemoveMapLayer(layerGroupsRef.current[tableName]);
+          delete layerGroupsRef.current[tableName];
+        }
+        layerCacheRef.current.delete(tableName);
+
+        // WMS nasional tidak mengembalikan feature GeoJSON untuk membentuk legenda.
+        // Isi legenda dari rekap kelas lahan_kritis yang sudah diverifikasi di database.
+        const lahanKritisNationalLegend = [
+          { kritis: "Sangat Kritis", luas_ha: 4040475.34, color: "#8E24AA" },
+          { kritis: "Kritis", luas_ha: 8704449.95, color: "#E53935" },
+        ];
+        setLahanKritisData(lahanKritisNationalLegend);
+        colorMappingRef.current.lahanKritis.clear();
+        lahanKritisNationalLegend.forEach((item) => {
+          colorMappingRef.current.lahanKritis.set(item.kritis, item.color);
+        });
+
+        const lahanKritisWmsLayer = window.L.tileLayer.wms(geoserverWmsUrl, {
+          // Nama layer mengikuti publikasi GeoServer workspace simiti.
+          // Default Style diambil dari konfigurasi layer GeoServer.
+          layers: "simiti:v_lahan_kritis_wms",
+          styles: "",
+          format: "image/png",
+          transparent: true,
+          version: "1.1.1",
+          srs: "EPSG:4326",
+          tiled: false,
+        });
+
+        lahanKritisWmsLayer.on("tileerror", (event: any) => {
+          console.error("SIMITI: tile WMS Lahan Kritis Nasional gagal dimuat", {
+            error: event?.error?.message || event?.message || "WMS tile error",
+            tile: event?.tile?.src,
+          });
+        });
+
+        layerGroupsRef.current[tableName] = lahanKritisWmsLayer;
+        lahanKritisWmsLayer.addTo(mapAtRequest);
+
+        setLoadingLayerNames((prev) => {
+          const next = new Set(prev);
+          next.delete(tableName);
+          return next;
+        });
+        setIsLoadingLayer(loadingLayerNames.size > 1);
+
+        console.log("SIMITI: Lahan Kritis Nasional menggunakan GeoServer WMS (tanpa LIMIT GeoJSON)", {
+          url: geoserverWmsUrl,
+          layer: "simiti:v_lahan_kritis_wms",
+          zoom,
+        });
+        return;
+      }
+
+      // Penutupan Lahan 2024 nasional memakai GeoServer WMS.
+      // GeoJSON tetap dipakai ketika administrasi/DAS/KHDTK dipilih agar
+      // alur filter spasial lokal yang sudah ada tidak berubah.
+      const isPenutupanLahan2024WmsContext =
+        tableName === "penutupan_lahan_2024" &&
+        selectedAreas.length === 0 &&
+        selectedDas.length === 0 &&
+        activeSpatialFocus?.layerType !== "khdtk" &&
+        !activeSpatialFocus?.feature?.geometry;
+
+      if (isPenutupanLahan2024WmsContext) {
+        const geoserverWmsUrl = String(
+          import.meta.env.VITE_GEOSERVER_WMS_URL ||
+          "/geoserver/simiti/wms"
+        ).trim();
+
+        if (layerGroupsRef.current[tableName]) {
+          safeRemoveMapLayer(layerGroupsRef.current[tableName]);
+          delete layerGroupsRef.current[tableName];
+        }
+        layerCacheRef.current.delete(tableName);
+
+        const penutupanLahan2024WmsLayer = window.L.tileLayer.wms(
+          geoserverWmsUrl,
+          {
+            layers: "simiti:v_penutupan_lahan_2024_wms",
+            // Gunakan Default Style yang sudah disetel pada layer GeoServer.
+            styles: "",
+            format: "image/png",
+            transparent: true,
+            version: "1.1.1",
+            srs: "EPSG:4326",
+            tiled: false,
+          },
+        );
+
+        penutupanLahan2024WmsLayer.on("tileerror", (event: any) => {
+          console.error("SIMITI: tile WMS Penutupan Lahan 2024 gagal dimuat", {
+            error: event?.error?.message || event?.message || "WMS tile error",
+            tile: event?.tile?.src,
+          });
+        });
+
+        layerGroupsRef.current[tableName] = penutupanLahan2024WmsLayer;
+        penutupanLahan2024WmsLayer.addTo(mapAtRequest);
+
+        // Data ringkasan kelas tetap diambil melalui endpoint agregasi ringan;
+        // geometri 437.000 polygon tidak lagi dikirim sebagai GeoJSON ke browser.
+        const penutupanLahanLegendRows = await fetchPenutupanLahan2024Data();
+        colorMappingRef.current.penutupanLahan2024.clear();
+        penutupanLahanLegendRows.forEach((item: any) => {
+          colorMappingRef.current.penutupanLahan2024.set(
+            String(item.pl2024_id),
+            item.color || tutupanLahanColors[item.deskripsi_domain] || "#999999",
+          );
+        });
+
+        setLoadingLayerNames((prev) => {
+          const next = new Set(prev);
+          next.delete(tableName);
+          return next;
+        });
+        setIsLoadingLayer(loadingLayerNames.size > 1);
+
+        console.log("SIMITI: Penutupan Lahan 2024 Nasional menggunakan GeoServer WMS", {
+          url: geoserverWmsUrl,
+          layer: "simiti:v_penutupan_lahan_2024_wms",
+          zoom,
+          legendClasses: penutupanLahanLegendRows.length,
+        });
+        return;
+      }
+
+      // SIMITI_WMS_JENIS_TANAH_NASIONAL
+      // Nasional menggunakan WMS agar 438 ribu polygon tidak dibatasi
+      // pagination/limit GeoJSON. Administrasi, DAS, dan fokus spasial
+      // tetap menggunakan jalur GeoJSON yang sudah ada.
+      const isJenisTanahNationalWms =
+        tableName === "jenis_tanah" &&
+        selectedAreas.length === 0 &&
+        selectedDas.length === 0 &&
+        !activeSpatialFocus?.feature?.geometry;
+
+      if (isJenisTanahNationalWms) {
+        const geoserverWmsUrl = String(
+          import.meta.env.VITE_GEOSERVER_WMS_URL ||
+          "/geoserver/simiti/wms"
+        ).trim();
+
+        // Bersihkan layer lama agar tidak terjadi duplikasi.
+        if (layerGroupsRef.current[tableName]) {
+          safeRemoveMapLayer(layerGroupsRef.current[tableName]);
+          delete layerGroupsRef.current[tableName];
+        }
+
+        layerCacheRef.current.delete(tableName);
+
+        const jenisTanahWmsLayer = window.L.tileLayer.wms(
+          geoserverWmsUrl,
+          {
+            layers: "simiti:v_jenis_tanah_wms",
+            styles: "sld_jenis_tanah",
+            format: "image/png",
+            transparent: true,
+            version: "1.1.1",
+            srs: "EPSG:4326",
+            tiled: false,
+            uppercase: true,
+          },
+        );
+
+        jenisTanahWmsLayer.on("tileerror", (event: any) => {
+          console.error("SIMITI: tile WMS Jenis Tanah gagal dimuat", {
+            error:
+              event?.error?.message ||
+              event?.message ||
+              "WMS tile error",
+            tile: event?.tile?.src,
+          });
+        });
+
+        layerGroupsRef.current[tableName] = jenisTanahWmsLayer;
+        jenisTanahWmsLayer.addTo(mapAtRequest);
+
+        console.log(
+          "SIMITI: Jenis Tanah Nasional menggunakan GeoServer WMS",
+          {
+            url: geoserverWmsUrl,
+            layer: "simiti:v_jenis_tanah_wms",
+            style: "generic",
+            zoom,
+          },
+        );
+
+        return;
+      }
       const isVerifiedNationalHazardLayer =
         VERIFIED_NATIONAL_HAZARD_WMS_LAYERS.has(tableName);
 
@@ -2671,7 +2973,7 @@ const getKarhutlaMonthColor = (value: any): string => {
 
       const wmsGeometryColumn = "geom_valid";
       const wmsClassColumn =
-        tableName === "rawan_longsor" ? "unsur" : "kelas";
+        tableName === "rawan_erosi" ? "kls_a" : tableName === "rawan_longsor" ? "unsur" : "kelas";
 
       const riskBanjirWmsCqlFilter = isRiskBanjirWmsCandidate
         ? buildRiskBanjirWmsCqlFilter(
@@ -2734,9 +3036,9 @@ const getKarhutlaMonthColor = (value: any): string => {
             rawan_longsor: "simiti:rawan_longsor",
             rawan_limpasan: "simiti:vw_rawan_limpasan_wms",
             rawan_karhutla: "simiti:vw_rawan_karhutla_wms",
-            rawan_erosi: "simiti:vw_rawan_erosi_wms",
+            rawan_erosi: "simiti:rawan_erosi",
           } as Record<string, string>)[tableName] || `simiti:${tableName}`,
-          styles: "",
+          styles: tableName === "rawan_erosi" ? "rawan_erosi_style" : "",
           format: "image/png",
           transparent: true,
           version: "1.1.1",
@@ -2804,12 +3106,34 @@ const getKarhutlaMonthColor = (value: any): string => {
           const legendRows = Array.isArray(legendPayload?.classes)
             ? legendPayload.classes
             : [];
+          if (tableName === "rawan_limpasan" || tableName === "rawan_karhutla") {
+            console.log("SIMITI: statistik legenda layer rawan diterima", {
+              layer: tableName,
+              success: legendPayload?.success,
+              totalFeatures: legendPayload?.totalFeatures,
+              classCount: legendRows.length,
+              classes: legendRows.map((row: any) => row?.kelas),
+            });
+          }
           const fallbackRiskColor = getBencanaLayerColor(tableName);
           const legendItems = legendRows
             .filter((row: any) => String(row?.kelas ?? "").trim())
             .map((row: any) => {
               const kelas = String(row.kelas).trim();
-              const color = getRiskClassColor(kelas, fallbackRiskColor);
+              let color = getRiskClassColor(kelas, fallbackRiskColor);
+              if (tableName === "rawan_longsor") {
+                color = rawanLongsorColors[kelas as keyof typeof rawanLongsorColors] || color;
+              } else if (tableName === "rawan_limpasan") {
+                color = rawanLimpasanColors[kelas as keyof typeof rawanLimpasanColors] || color;
+              } else if (tableName === "rawan_karhutla") {
+                color = rawanKarhutlaColors[kelas as keyof typeof rawanKarhutlaColors] || color;
+              } else if (
+                tableName === "bahaya_banjir" ||
+                tableName === "bahaya_banjir_bandang" ||
+                tableName === "bahaya_kekeringan"
+              ) {
+                color = bahayaKelasColors[kelas] || color;
+              }
               return {
                 kelas,
                 luas: Number(row.luasHa ?? 0) || 0,
@@ -2817,23 +3141,114 @@ const getKarhutlaMonthColor = (value: any): string => {
               };
             });
 
-          setRisikoData((prev) => ({
-            ...prev,
-            [tableName]: legendItems,
-          }));
+          // Isi state yang benar-benar dibaca oleh panel legenda masing-masing layer.
+          // WMS tidak mengirim GeoJSON ke frontend, sehingga data legenda harus
+          // dipetakan dari endpoint statistik ke state khusus layer tersebut.
+          if (tableName === "bahaya_banjir_bandang") {
+            setBahayaBanjirBandangData(legendItems);
+          } else if (tableName === "bahaya_banjir") {
+            setBahayaBanjirData(legendItems);
+          } else if (tableName === "bahaya_kekeringan") {
+            setBahayaKekeringanData(legendItems);
+          } else if (tableName === "rawan_erosi") {
+            const erosiClassLabels: Record<string, string> = {
+              "15": "<= 15 Ton/Ha/Tahun",
+              "60": "> 15 - 60 Ton/Ha/Tahun",
+              "180": "> 60 - 180 Ton/Ha/Tahun",
+              "480": "> 180 - 480 Ton/Ha/Tahun",
+              ">480": "> 480 Ton/Ha/Tahun",
+            };
+
+            const erosiOrder = [
+              "> 480 Ton/Ha/Tahun",
+              "> 180 - 480 Ton/Ha/Tahun",
+              "> 60 - 180 Ton/Ha/Tahun",
+              "> 15 - 60 Ton/Ha/Tahun",
+              "<= 15 Ton/Ha/Tahun",
+            ];
+
+            const erosiItems = legendRows
+              .map((row: any) => {
+                const rawClass = String(row?.kelas ?? "").trim();
+                const tingkat = erosiClassLabels[rawClass];
+
+                return {
+                  tingkat,
+                  luas_ha: Number(row?.luasHa ?? 0) || 0,
+                  color: tingkat
+                    ? rawanErosiColors[tingkat as keyof typeof rawanErosiColors]
+                    : "#808080",
+                };
+              })
+              .filter((item: any) => Boolean(item.tingkat))
+              .sort(
+                (a: any, b: any) =>
+                  erosiOrder.indexOf(a.tingkat) -
+                  erosiOrder.indexOf(b.tingkat),
+              );
+
+            setRawanErosiData(erosiItems);
+
+            colorMappingRef.current.rawanErosi.clear();
+            erosiItems.forEach((item: any) => {
+              colorMappingRef.current.rawanErosi.set(
+                item.tingkat,
+                item.color,
+              );
+            });
+
+            console.log("SIMITI: legenda rawan erosi berhasil dimuat", {
+              jumlahKelas: erosiItems.length,
+              kelas: erosiItems.map((item: any) => item.tingkat),
+            });
+          } else if (tableName === "rawan_longsor") {
+            setRawanLongsorData(legendItems.map((item: any) => ({
+              tingkat: item.kelas, luas_ha: item.luas, color: item.color,
+            })));
+          } else if (tableName === "rawan_limpasan") {
+            setRawanLimpasanData(legendItems.map((item: any) => ({
+              tingkat: item.kelas, luas_ha: item.luas, color: item.color,
+            })));
+          } else if (tableName === "rawan_karhutla") {
+            setRawanKarhutlaData(legendItems.map((item: any) => ({
+              tingkat: item.kelas, luas_ha: item.luas, color: item.color,
+            })));
+          }
+
+          // Data risiko_* tetap disimpan terpisah; jangan mencampur kelas
+          // layer bahaya/rawan ke mapping warna risiko banjir.
           const riskColorMapping =
             ({
-              risiko_kekeringan: colorMappingRef.current.risikoKekeringan,
+              risiko_banjir: colorMappingRef.current.risikoBanjir,
               risiko_banjir_bandang: colorMappingRef.current.risikoBanjirBandang,
+              risiko_kekeringan: colorMappingRef.current.risikoKekeringan,
               risiko_abrasi: colorMappingRef.current.risikoAbrasi,
               risiko_longsor: colorMappingRef.current.risikoLongsor,
               risiko_karhutla: colorMappingRef.current.risikoKarhutla,
-            } as Record<string, Map<string, string>>)[tableName] ||
-            colorMappingRef.current.risikoBanjir;
-          riskColorMapping.clear();
-          legendItems.forEach((item: any) => {
-            riskColorMapping.set(item.kelas, item.color);
-          });
+            } as Record<string, Map<string, string>>)[tableName];
+          if (riskColorMapping) {
+            setRisikoData((prev) => ({ ...prev, [tableName]: legendItems }));
+            riskColorMapping.clear();
+            legendItems.forEach((item: any) => {
+              riskColorMapping.set(item.kelas, item.color);
+            });
+          }
+
+          const layerColorMapping =
+            ({
+              bahaya_banjir_bandang: colorMappingRef.current.bahayaBanjirBandang,
+              bahaya_banjir: colorMappingRef.current.bahayaBanjir,
+              bahaya_kekeringan: colorMappingRef.current.bahayaKekeringan,
+              rawan_longsor: colorMappingRef.current.rawanLongsor,
+              rawan_limpasan: colorMappingRef.current.rawanLimpasan,
+              rawan_karhutla: colorMappingRef.current.rawanKarhutla,
+            } as Record<string, Map<string, string>>)[tableName];
+          if (layerColorMapping) {
+            layerColorMapping.clear();
+            legendItems.forEach((item: any) => {
+              layerColorMapping.set(item.kelas, item.color);
+            });
+          }
           // Pakai SLD yang sama untuk seluruh kelas agar warna WMS nasional
           // identik dengan kotak warna pada legenda.
           // Delapan view nasional memakai default SLD yang sudah
@@ -2841,7 +3256,7 @@ const getKarhutlaMonthColor = (value: any): string => {
           // Layer risiko lama tetap menggunakan SLD dinamis aplikasi.
           if (!NATIONAL_HAZARD_WMS_LAYERS.has(tableName)) {
             (wmsLayer as any).setParams({
-              styles: "",
+              styles: tableName === "rawan_erosi" ? "rawan_erosi_style" : "",
               SLD_BODY: buildNationalRiskBanjirSld(
                 legendItems,
                 ({
@@ -2864,7 +3279,13 @@ const getKarhutlaMonthColor = (value: any): string => {
             "SIMITI: gagal memuat agregasi legenda risiko banjir nasional:",
             legendError,
           );
-          setRisikoData((prev) => ({ ...prev, [tableName]: [] }));
+          if (tableName === "bahaya_banjir_bandang") setBahayaBanjirBandangData([]);
+          else if (tableName === "bahaya_banjir") setBahayaBanjirData([]);
+          else if (tableName === "bahaya_kekeringan") setBahayaKekeringanData([]);
+          else if (tableName === "rawan_longsor") setRawanLongsorData([]);
+          else if (tableName === "rawan_limpasan") setRawanLimpasanData([]);
+          else if (tableName === "rawan_karhutla") setRawanKarhutlaData([]);
+          else setRisikoData((prev) => ({ ...prev, [tableName]: [] }));
         }
 
         console.log("SIMITI: risiko banjir nasional menggunakan GeoServer WMS", {
@@ -3673,7 +4094,7 @@ const getKarhutlaMonthColor = (value: any): string => {
         });
         const arr = Array.from(uniquePeriode).map((periode) => ({
           periode,
-          color: getKarhutlaMonthColor(periode),
+          color: "#DC2626",
         }));
         setKebakaran2021Data(arr);
         arr.forEach((item) => {
@@ -3692,7 +4113,7 @@ const getKarhutlaMonthColor = (value: any): string => {
         const arr = Array.from(periodeMap.entries()).map(([periode, luas]) => ({
           periode,
           luas,
-          color: getKarhutlaMonthColor(periode),
+          color: "#DC2626",
         }));
         setKebakaran2022Data(arr);
         arr.forEach((item) => {
@@ -3708,7 +4129,7 @@ const getKarhutlaMonthColor = (value: any): string => {
         });
         const arr = Array.from(uniquePeriode).map((periode) => ({
           periode,
-          color: getKarhutlaMonthColor(periode),
+          color: "#DC2626",
         }));
         setKebakaran2023Data(arr);
         arr.forEach((item) => {
@@ -3727,7 +4148,7 @@ const getKarhutlaMonthColor = (value: any): string => {
         const arr = Array.from(periodeMap.entries()).map(([periode, luas]) => ({
           periode,
           luas,
-          color: getKarhutlaMonthColor(periode),
+          color: "#DC2626",
         }));
         setKebakaran2024Data(arr);
         arr.forEach((item) => {
@@ -3746,7 +4167,7 @@ const getKarhutlaMonthColor = (value: any): string => {
         const arr = Array.from(periodeMap.entries()).map(([periode, luas]) => ({
           periode,
           luas,
-          color: getKarhutlaMonthColor(periode),
+          color: "#DC2626",
         }));
         setKebakaran2025Data(arr);
         arr.forEach((item) => {
@@ -5888,7 +6309,7 @@ const getKarhutlaMonthColor = (value: any): string => {
       }
 
       // Function untuk create custom icon berdasarkan category
-      const createKejadianIcon = (category: string, incidentDate?: any) => {
+      const createKejadianIcon = (category: string, _incidentDate?: any) => {
         let iconContent = "";
         let bgColor = "#3b82f6"; // default blue
         let hoverColor = "#ef4444"; // default hover red
@@ -5910,8 +6331,8 @@ const getKarhutlaMonthColor = (value: any): string => {
           String(category || "").toLowerCase().includes("kebakaran") ||
           String(category || "").toLowerCase().includes("karhutla")
         ) {
-          // Marker Karhutla mengikuti bulan tanggal kejadian.
-          bgColor = getKarhutlaMonthColor(incidentDate);
+          // Marker Karhutla memakai warna merah konsisten tanpa palet bulanan.
+          bgColor = "#DC2626";
           hoverColor = bgColor;
           type = "kebakaran";
           iconContent = `<img src="/images/fire-svgrepo-com.svg" style="width: 16px; height: 16px; filter: brightness(0) invert(1);" />`;
@@ -7138,6 +7559,13 @@ const getKarhutlaMonthColor = (value: any): string => {
         // Buka legenda fungsi kawasan dari GeoJSON lokal SIMITI/PostGIS.
         setActiveBottomTab("kawasan_hutan");
         setIsBottomSummaryOpen(true);
+      } else if (tableName === "penutupan_lahan_2024") {
+        // Layer ini memiliki panel legenda/ringkasan tersendiri.
+        setActiveBottomTab("penutupanLahan2024");
+        setIsBottomSummaryOpen(true);
+      } else if (tableName === "lahan_kritis") {
+        setActiveBottomTab("lahan_kritis");
+        setIsBottomSummaryOpen(true);
       }
 
       // Simpan metadata untuk kejadian layer
@@ -7413,8 +7841,23 @@ const getKarhutlaMonthColor = (value: any): string => {
   };
 
   const resetLayerStyle = (layerId: string) => {
-    const layerGroup = layerGroupsRef.current[layerId];
+    const layerGroup: any = layerGroupsRef.current[layerId];
     if (!layerGroup) return;
+
+    // WMS/TileLayer adalah layer gambar, bukan LayerGroup GeoJSON.
+    // Tidak ada style vektor yang perlu di-reset saat pointer keluar legenda.
+    if (typeof layerGroup.eachLayer !== "function") return;
+
+    // WMS nasional berupa tile gambar sehingga tidak memiliki eachLayer.
+    // Pada cakupan provinsi, Kawasan Hutan berupa GeoJSON dan dapat di-reset
+    // ke warna dasar per fungsikws. Pilihan legenda yang sudah diklik tetap
+    // dipertahankan ketika pointer keluar dari baris legenda.
+    if (layerId === "kawasan_hutan" || layerId === "97") {
+      if (typeof layerGroup.eachLayer !== "function") return;
+      if (selectedLegendType === "kawasan_hutan" && selectedLegendKey !== null) {
+        return;
+      }
+    }
     const zoom = mapInstanceRef.current ? mapInstanceRef.current.getZoom() : 10;
 
     if (INFRA_IDS.includes(layerId as any)) {
@@ -7613,6 +8056,93 @@ const getKarhutlaMonthColor = (value: any): string => {
     setSelectedLegendKey(key);
     setSelectedLegendType(layerType);
     setSelectedLegendColor(color);
+
+    // Kawasan Hutan memiliki dua jalur render:
+    // - Nasional: WMS GeoServer, ubah style melalui SLD_BODY.
+    // - Provinsi/administrasi: GeoJSON, ubah warna feature dengan setStyle
+    //   seperti pola styling layer vektor pada Kerawanan versi awal.
+    if (layerType === "kawasan_hutan") {
+      const kawasanHutanLayer: any =
+        layerGroupsRef.current?.["kawasan_hutan"] ||
+        layerGroupsRef.current?.["97"];
+
+      if (kawasanHutanLayer && typeof kawasanHutanLayer.setParams === "function") {
+        const kawasanHutanSldBody = buildKawasanHutanSld(key, color);
+        kawasanHutanLayer.setParams({
+          STYLES: "",
+          SLD_BODY: kawasanHutanSldBody,
+          CQL_FILTER: "INCLUDE",
+        });
+        if (typeof kawasanHutanLayer.redraw === "function") {
+          kawasanHutanLayer.redraw();
+        }
+
+        console.info("SIMITI: legenda Kawasan Hutan nasional diterapkan melalui WMS", {
+          fungsikws: key,
+          color,
+          sldBodyLength: kawasanHutanSldBody.length,
+          hasFungsikwsFilter: kawasanHutanSldBody.includes("<ogc:PropertyName>fungsikws</ogc:PropertyName>"),
+          cqlFilter: "INCLUDE",
+        });
+        return;
+      }
+
+      // Pada cakupan provinsi, layer adalah GeoJSON LayerGroup.
+      // Warnai kelas yang dipilih dan redupkan kelas lainnya agar pilihan
+      // legenda terlihat jelas pada polygon kawasan hutan di provinsi tersebut.
+      if (kawasanHutanLayer && typeof kawasanHutanLayer.eachLayer === "function") {
+        const selectedKey = String(key ?? "").trim();
+        const selectedItem = KAWASAN_HUTAN_LEGEND.find(
+          (item) => String(item.fungsikws) === selectedKey ||
+            item.codes.some((code) => String(code) === selectedKey),
+        );
+        const selectedCodes = new Set(
+          (selectedItem?.codes?.length ? selectedItem.codes : [selectedKey])
+            .map((code) => String(code).trim()),
+        );
+        let matched = 0;
+        let dimmed = 0;
+
+        kawasanHutanLayer.eachLayer((featureLayer: any) => {
+          if (!featureLayer?.feature || typeof featureLayer.setStyle !== "function") return;
+          const fungsikws = String(
+            featureLayer.feature?.properties?.fungsikws ?? "",
+          ).trim();
+          const isSelectedClass = selectedCodes.has(fungsikws);
+          const fillColor = isSelectedClass ? color : "#94A3B8";
+
+          featureLayer.setStyle({
+            color: isSelectedClass ? color : "#64748B",
+            fillColor,
+            weight: isSelectedClass ? 1.8 : 0.5,
+            opacity: isSelectedClass ? 1 : 0.45,
+            fillOpacity: isSelectedClass ? 0.88 : 0.12,
+            lineCap: "round",
+            lineJoin: "round",
+          });
+
+          if (isSelectedClass) {
+            matched++;
+            if (typeof featureLayer.bringToFront === "function") {
+              featureLayer.bringToFront();
+            }
+          } else {
+            dimmed++;
+          }
+        });
+
+        console.info("SIMITI: klik legenda Kawasan Hutan provinsi diterapkan ke GeoJSON", {
+          fungsikws: key,
+          selectedCodes: Array.from(selectedCodes),
+          color,
+          matched,
+          dimmed,
+        });
+      } else {
+        console.warn("SIMITI: layer Kawasan Hutan provinsi belum tersedia sebagai GeoJSON.");
+      }
+      return;
+    }
 
     // ==========================================================
     // PRIORITAS:
@@ -8197,7 +8727,7 @@ const getKarhutlaMonthColor = (value: any): string => {
           try {
             mapInstanceRef.current.remove();
           } catch (error) {
-            console.warn("⚠️ Gagal membersihkan instance Leaflet lama:", error);
+            console.warn("âš ️ Gagal membersihkan instance Leaflet lama:", error);
           }
           mapInstanceRef.current = null;
         }
@@ -8342,7 +8872,7 @@ const getKarhutlaMonthColor = (value: any): string => {
         try {
           mapInstanceRef.current.remove();
         } catch (error) {
-          console.warn("⚠️ Leaflet cleanup warning:", error);
+          console.warn("âš ️ Leaflet cleanup warning:", error);
         }
         mapInstanceRef.current = null;
       }
@@ -9033,7 +9563,7 @@ const getKarhutlaMonthColor = (value: any): string => {
             results.push({
               type: "object",
               icon: data.category?.toLowerCase().includes("banjir")
-                ? "⚠️"
+                ? "âš ️"
                 : "📌",
               label: data.title || data.name || data.namobj || "Objek GIS",
               sublabel: data.category || formatTableName(layerName),
@@ -9695,7 +10225,7 @@ const getKarhutlaMonthColor = (value: any): string => {
     }
 
     if (activeLayers.has("lahan_kritis")) {
-      tabs.push({ id: "lahan_kritis", label: "Lahan Kritis", icon: "⚠️" });
+      tabs.push({ id: "lahan_kritis", label: "Lahan Kritis", icon: "âš ️" });
     }
 
     if (activeLayers.has("rawan_erosi")) {
@@ -10239,7 +10769,17 @@ const getKarhutlaMonthColor = (value: any): string => {
         break;
 
       case "jenisTanah":
-        if (activeLayers.has("jenis_tanah") && jenisTanahData.length > 0) {
+        if (
+          activeLayers.has("jenis_tanah") &&
+          (
+            jenisTanahData.length > 0 ||
+            (
+              selectedAreas.length === 0 &&
+              selectedDas.length === 0 &&
+              !selectedSpatialFeatureRef.current?.feature?.geometry
+            )
+          )
+        ) {
           return (
             <div className="p-3 h-full flex flex-col">
               <div
@@ -10267,7 +10807,13 @@ const getKarhutlaMonthColor = (value: any): string => {
                     </tr>
                   </thead>
                   <tbody>
-                    {jenisTanahData.map((item, idx) => (
+                    {(
+                      selectedAreas.length === 0 &&
+                      selectedDas.length === 0 &&
+                      !selectedSpatialFeatureRef.current?.feature?.geometry
+                        ? JENIS_TANAH_NATIONAL_LEGEND
+                        : jenisTanahData
+                    ).map((item, idx) => (
                       <tr
                         key={idx}
                         className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
@@ -12022,6 +12568,13 @@ const getKarhutlaMonthColor = (value: any): string => {
                         <tr
                           key={idx}
                           className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                          onClick={() =>
+                            handleLegendClick(
+                              item.fungsikws,
+                              "kawasan_hutan",
+                              item.color || "#808080",
+                            )
+                          }
                           onMouseEnter={() =>
                             handleRowMouseEnter(
                               item.fungsikws,
@@ -13205,7 +13758,7 @@ const getKarhutlaMonthColor = (value: any): string => {
             longitude < -180 ||
             longitude > 180
           ) {
-            console.warn("⚠️ Koordinat GPS tidak valid:", {
+            console.warn("âš ️ Koordinat GPS tidak valid:", {
               latitude,
               longitude,
               accuracy,
@@ -13266,14 +13819,14 @@ const getKarhutlaMonthColor = (value: any): string => {
                   }
                 } catch (circleError) {
                   console.warn(
-                    "⚠️ GPS accuracy circle gagal ditampilkan:",
+                    "âš ️ GPS accuracy circle gagal ditampilkan:",
                     circleError,
                   );
                   gpsAccuracyCircleRef.current = null;
                 }
               } catch (mapError) {
                 console.warn(
-                  "⚠️ Gagal merender lokasi GPS ke Leaflet:",
+                  "âš ️ Gagal merender lokasi GPS ke Leaflet:",
                   mapError,
                 );
               }
@@ -14952,6 +15505,30 @@ const getKarhutlaMonthColor = (value: any): string => {
           overflow-y: auto !important;
           overscroll-behavior: contain;
           -webkit-overflow-scrolling: touch;
+          display: grid !important;
+          grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+          align-content: start !important;
+          align-items: start !important;
+          gap: 12px !important;
+          text-align: left !important;
+        }
+
+        .kerawanan-layer-panel .dashboard-scroll > * {
+          min-width: 0 !important;
+          width: 100% !important;
+          text-align: left !important;
+        }
+
+        .kerawanan-layer-panel .dashboard-scroll label,
+        .kerawanan-layer-panel .dashboard-scroll h3,
+        .kerawanan-layer-panel .dashboard-scroll button {
+          text-align: left !important;
+        }
+
+        @media (max-width: 767px) {
+          .kerawanan-layer-panel .dashboard-scroll {
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
         }
         /* SIMITI: scrollbar panel kanan — DEEP BLUE */
         .kerawanan-layer-panel .dashboard-scroll {
@@ -16497,12 +17074,6 @@ const getKarhutlaMonthColor = (value: any): string => {
                             ? "Lainnya"
                             : "Kejadian";
                       const visibleLayers = (source || []).filter(enterpriseMatchesLayer);
-                      const hasKarhutlaLayer = section === "kejadian" &&
-                        visibleLayers.some((layer: any) =>
-                          `${layer.category || ""} ${layer.name || ""}`
-                            .toLowerCase()
-                            .match(/karhutla|kebakaran/),
-                        );
                       return (
                         <div key={section} className="mb-4">
                           <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-200">
@@ -16566,38 +17137,6 @@ const getKarhutlaMonthColor = (value: any): string => {
                                     </span>
                                   </label>
                                 ))}
-                              {hasKarhutlaLayer && (
-                                <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
-                                  <div className="mb-2 text-[11px] font-bold text-slate-800">
-                                    Palet warna Karhutla per bulan (acuan NAFI)
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    {KARHUTLA_MONTHS.map((month) => (
-                                      <div
-                                        key={month.key}
-                                        className="flex items-center gap-2.5"
-                                      >
-                                        <span
-                                          className="h-7 w-9 shrink-0 rounded-md"
-                                          style={{ backgroundColor: month.color }}
-                                          aria-label={`Warna ${month.name}`}
-                                        />
-                                        <span className="min-w-0 flex-1">
-                                          <span className="block text-[10px] font-semibold leading-4 text-slate-800">
-                                            {month.name}
-                                          </span>
-                                          <span className="block text-[9px] leading-3 text-slate-500">
-                                            {month.colorName} · {month.color}
-                                          </span>
-                                        </span>
-                                        <span className="text-[10px] tabular-nums text-slate-500">
-                                          {month.number}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
                             </div>
                           )}
                         </div>
@@ -17169,7 +17708,7 @@ const getKarhutlaMonthColor = (value: any): string => {
                             f.name.toLowerCase().endsWith(".shp"),
                           ) && (
                             <div className="mt-2 flex items-center gap-1.5 text-[9px] text-rose-500">
-                              <span>⚠</span>
+                              <span>âš </span>
                               File .shp wajib tersedia sebelum publikasi.
                             </div>
                           )}
@@ -17953,5 +18492,3 @@ const getKarhutlaMonthColor = (value: any): string => {
 };
 
 export default Kerawanan;
-
-
