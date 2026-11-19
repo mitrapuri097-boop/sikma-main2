@@ -742,16 +742,22 @@ async function loadPriorityLocations(pool, hazard, geometry, limit = 3) {
         AND r.geom_valid && a.geom
         AND ST_Intersects(r.geom_valid, a.geom)
     )
+    , ranked AS (
+      SELECT kelas, g,
+             CASE LOWER(kelas)
+               WHEN 'sangat tinggi' THEN 1 WHEN 'tinggi' THEN 2
+               WHEN 'sedang' THEN 3 WHEN 'rendah' THEN 4 ELSE 5 END AS urut
+      FROM cand
+      WHERE g IS NOT NULL AND NOT ST_IsEmpty(g)
+    )
+    -- Hanya kelas risiko tertinggi yang ada di wilayah ini.
     SELECT kelas,
            ST_Y(ST_PointOnSurface(g)) AS lat,
            ST_X(ST_PointOnSurface(g)) AS lng,
            ST_Area(ST_Transform(g, 6933))::float8 AS luas_m2
-    FROM cand
-    WHERE g IS NOT NULL AND NOT ST_IsEmpty(g)
-    ORDER BY CASE LOWER(kelas)
-               WHEN 'sangat tinggi' THEN 1 WHEN 'tinggi' THEN 2
-               WHEN 'sedang' THEN 3 WHEN 'rendah' THEN 4 ELSE 5 END,
-             luas_m2 DESC
+    FROM ranked
+    WHERE urut = (SELECT MIN(urut) FROM ranked)
+    ORDER BY luas_m2 DESC
     LIMIT ${Math.max(1, Math.min(10, Number(limit) | 0))}
   `;
   try {
@@ -771,6 +777,194 @@ async function loadPriorityLocations(pool, hazard, geometry, limit = 3) {
     console.warn("[AI MITIGATION] priority location failed:", error?.code || error?.message);
     return [];
   }
+}
+
+// ------------------------------------------------------------------
+// Lapisan peta "dasar keputusan AI": data yang sama dengan yang dibaca
+// AI, dikirim sebagai GeoJSON ringan agar frontend bisa menampilkannya.
+// Tidak pernah dikirim ke OpenAI.
+// ------------------------------------------------------------------
+const MITIGATION_NAME_HINTS = ["nama", "name", "namobj", "namaobj", "nama_objek", "nm_objek", "keterangan", "ket"];
+
+/** Toleransi penyederhanaan (derajat) mengikuti ukuran wilayah. */
+function simplifyTolerance(selectedAreaM2) {
+  const side = Math.sqrt(Math.max(0, Number(selectedAreaM2) || 0));
+  return Math.max(0.00002, Math.min(0.002, (side / 1000) * 0.00001));
+}
+
+function to4326(expr, srid) {
+  if (srid === 4326) return expr;
+  if (!srid) return `ST_SetSRID(${expr}, 4326)`;
+  return `ST_Transform(${expr}, 4326)`;
+}
+
+function zoneFeature(row, extra) {
+  if (!row?.gj) return null;
+  try {
+    return {
+      type: "Feature",
+      geometry: JSON.parse(row.gj),
+      properties: {
+        kelas: row.kelas,
+        luas_ha: Math.round(Number(row.luas_m2 || 0) / 100) / 100,
+        ...extra,
+      },
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Zona risiko hazard terpilih, dipotong ke wilayah dan digabung per kelas. */
+async function loadRiskZones(pool, hazard, geometry, selectedAreaM2) {
+  const sql = `
+    ${SELECTED_AREA_CTE},
+    z AS (
+      SELECT COALESCE(NULLIF(BTRIM(r.kelas), ''), 'Tidak diketahui') AS kelas,
+             ST_CollectionExtract(ST_Intersection(r.geom_valid, a.geom), 3) AS g
+      FROM ${RISK_TABLES[hazard]} r CROSS JOIN a
+      WHERE r.geom_valid IS NOT NULL
+        AND r.geom_valid && a.geom
+        AND ST_Intersects(r.geom_valid, a.geom)
+    ),
+    u AS (
+      SELECT kelas, ST_Union(g) AS g
+      FROM z WHERE g IS NOT NULL AND NOT ST_IsEmpty(g)
+      GROUP BY kelas
+    )
+    SELECT kelas,
+           ST_AsGeoJSON(ST_SimplifyPreserveTopology(g, $2), 5) AS gj,
+           ST_Area(ST_Transform(g, 6933))::float8 AS luas_m2
+    FROM u
+  `;
+  const result = await queryWithTimeout(pool, sql, [geometry, simplifyTolerance(selectedAreaM2)]);
+  const features = (result.rows || [])
+    .map((row) => zoneFeature(row, {
+      layer: "risk_zone",
+      hazard,
+      source: RISK_TABLES[hazard],
+      persen_wilayah: selectedAreaM2 > 0
+        ? Math.round((Number(row.luas_m2 || 0) / selectedAreaM2) * 1000) / 10
+        : null,
+    }))
+    .filter(Boolean);
+  return { type: "FeatureCollection", features };
+}
+
+/** Lahan kritis yang dipotong ke wilayah, digabung per kelas yang sudah terdeteksi. */
+async function loadCriticalLandZones(pool, criticalLayer, geometry, selectedAreaM2) {
+  if (!criticalLayer?.available || !criticalLayer.class_column || !criticalLayer.source_table) return null;
+  const catalog = await loadSpatialCatalog(pool);
+  const entry = catalog.get(criticalLayer.source_table);
+  if (!entry) return null;
+  const srid = entry.srid;
+  const qGeom = quoteIdent(entry.geomColumn);
+  const areaExpr = areaInTableSrid(srid);
+  const rawGeom = srid === 4326 ? `ST_SetSRID(t.${qGeom}, 4326)` : `t.${qGeom}`;
+  const fixedGeom = entry.geomColumn === "geom_valid" ? rawGeom : `ST_MakeValid(${rawGeom})`;
+  const sql = `
+    ${SELECTED_AREA_CTE},
+    z AS (
+      SELECT COALESCE(NULLIF(BTRIM(t.${quoteIdent(criticalLayer.class_column)}::text), ''), 'Tidak diketahui') AS kelas,
+             ST_CollectionExtract(ST_Intersection(${fixedGeom}, ${areaExpr}), 3) AS g
+      FROM ${quoteIdent(entry.table)} t CROSS JOIN a
+      WHERE t.${qGeom} IS NOT NULL
+        AND ${rawGeom} && ${areaExpr}
+        AND ST_Intersects(${fixedGeom}, ${areaExpr})
+    ),
+    u AS (
+      SELECT kelas, ST_Union(g) AS g FROM z
+      WHERE g IS NOT NULL AND NOT ST_IsEmpty(g)
+        AND LOWER(kelas) NOT LIKE '%tidak%'
+      GROUP BY kelas
+    )
+    SELECT kelas,
+           ST_AsGeoJSON(ST_SimplifyPreserveTopology(${to4326("g", srid)}, $2), 5) AS gj,
+           ST_Area(ST_Transform(${to4326("g", srid)}, 6933))::float8 AS luas_m2
+    FROM u
+  `;
+  const result = await queryWithTimeout(pool, sql, [geometry, simplifyTolerance(selectedAreaM2)]);
+  const features = (result.rows || [])
+    .map((row) => zoneFeature(row, { layer: "critical_land", source: entry.table }))
+    .filter(Boolean);
+  return { type: "FeatureCollection", features };
+}
+
+/** Titik sarana mitigasi eksisting di dalam wilayah (maks. 300 titik). */
+async function loadMitigationPoints(pool, hazard, geometry, existing) {
+  const present = (existing?.by_table || []).filter((row) => row.count > 0);
+  if (!present.length) return null;
+  const catalog = await loadSpatialCatalog(pool);
+  const relevant = new Set(RELEVANT_MITIGATION[hazard] || []);
+  const perTable = Math.max(10, Math.floor(300 / present.length));
+  const groups = await mapLimit(present, 4, async (row) => {
+    const entry = catalog.get(row.table);
+    if (!entry) return [];
+    const srid = entry.srid;
+    const qGeom = quoteIdent(entry.geomColumn);
+    const areaExpr = areaInTableSrid(srid);
+    const rawGeom = srid === 4326 ? `ST_SetSRID(t.${qGeom}, 4326)` : `t.${qGeom}`;
+    const nameCol = pickClassColumn(entry, MITIGATION_NAME_HINTS);
+    const nameSelect = nameCol ? `NULLIF(BTRIM(t.${quoteIdent(nameCol)}::text), '')` : "NULL::text";
+    const pointExpr = to4326(`ST_PointOnSurface(ST_MakeValid(${rawGeom}))`, srid);
+    try {
+      const result = await queryWithTimeout(
+        pool,
+        `${SELECTED_AREA_CTE}
+         SELECT ${nameSelect} AS nama,
+                ST_Y(${pointExpr}) AS lat,
+                ST_X(${pointExpr}) AS lng
+         FROM ${quoteIdent(entry.table)} t CROSS JOIN a
+         WHERE t.${qGeom} IS NOT NULL
+           AND ${rawGeom} && ${areaExpr}
+           AND ST_Intersects(${rawGeom}, ${areaExpr})
+         LIMIT ${perTable}`,
+        [geometry],
+      );
+      return (result.rows || [])
+        .filter((r) => Number.isFinite(Number(r.lat)) && Number.isFinite(Number(r.lng)))
+        .map((r) => ({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [Math.round(Number(r.lng) * 1e6) / 1e6, Math.round(Number(r.lat) * 1e6) / 1e6] },
+          properties: {
+            layer: "existing_mitigation",
+            jenis: row.table,
+            nama: r.nama || null,
+            relevan: relevant.has(row.table),
+          },
+        }));
+    } catch (error) {
+      console.warn("[AI MITIGATION] mitigation points failed:", row.table, error?.code || error?.message);
+      return [];
+    }
+  });
+  return { type: "FeatureCollection", features: groups.flat() };
+}
+
+/** Semua lapisan peta; satu lapisan gagal tidak menggagalkan analisis. */
+async function loadMapLayers(pool, hazard, geometry, evidence) {
+  const areaM2 = Number(evidence?.area_m2 || 0);
+  const safe = (promise, name) => promise.catch((error) => {
+    console.warn("[AI MITIGATION] map layer failed:", name, error?.code || error?.message);
+    return null;
+  });
+  const [riskZones, criticalLand, mitigation] = await Promise.all([
+    evidence?.total_risk_features > 0 ? safe(loadRiskZones(pool, hazard, geometry, areaM2), "risk_zones") : Promise.resolve(null),
+    safe(loadCriticalLandZones(pool, evidence?.supporting_layers?.critical_land, geometry, areaM2), "critical_land"),
+    safe(loadMitigationPoints(pool, hazard, geometry, evidence?.existing_mitigation), "existing_mitigation"),
+  ]);
+  const layers = { risk_zones: riskZones, critical_land: criticalLand, existing_mitigation: mitigation };
+  // Jaga ukuran respons: lapisan poligon yang terlalu besar dibuang, bukan dipotong diam-diam.
+  const maxBytes = Number(process.env.AI_MAP_LAYER_MAX_BYTES || 1500000);
+  const omitted = [];
+  for (const key of ["critical_land", "risk_zones"]) {
+    if (JSON.stringify(layers).length <= maxBytes) break;
+    if (layers[key]) {
+      layers[key] = null;
+      omitted.push(key);
+    }
+  }
+  return { ...layers, omitted, note: "Lapisan peta untuk tampilan saja; tidak dikirim ke model AI." };
 }
 
 async function loadSpatialEvidence(pool, hazard, area) {
@@ -872,11 +1066,13 @@ async function loadSpatialEvidence(pool, hazard, area) {
     ],
   };
 
-  evidence.priority_locations = evidence.total_risk_features > 0
-    ? await loadPriorityLocations(pool, hazard, geometry)
-    : [];
+  const [priorityLocations, mapLayers] = await Promise.all([
+    evidence.total_risk_features > 0 ? loadPriorityLocations(pool, hazard, geometry) : Promise.resolve([]),
+    loadMapLayers(pool, hazard, geometry, evidence),
+  ]);
+  evidence.priority_locations = priorityLocations;
   evidence.mcda = computeMcda(evidence);
-  return { geometry, evidence };
+  return { geometry, evidence, mapLayers };
 }
 
 function buildResponseSchema() {
@@ -1285,7 +1481,7 @@ function createAiMitigationRecommendationRouter(pool) {
       });
     }
 
-    const { geometry, evidence } = spatial;
+    const { geometry, evidence, mapLayers } = spatial;
     const areaLabel = areaLabelEarly;
     const eventCount = evidence.event_history.available ? Number(evidence.event_history.count || 0) : null;
 
@@ -1314,6 +1510,7 @@ function createAiMitigationRecommendationRouter(pool) {
         verification_needed: true,
         verification_reason: "Coba jenis bencana lain (pilih \"Semua\" agar sistem memilih otomatis) atau periksa cakupan data risiko.",
         priority_locations: [],
+        map_layers: mapLayers,
         spatial_evidence: evidence,
         meta: { version: VERSION, ai_decision_generated: false, source: "PostgreSQL/PostGIS + MCDA", generated_at: new Date().toISOString() },
       });
@@ -1336,6 +1533,7 @@ function createAiMitigationRecommendationRouter(pool) {
         message: "Layanan analisis AI SIMITI belum dikonfigurasi: OPENAI_API_KEY belum diisi di .env backend.",
         spatial_evidence: evidence,
         mcda: evidence.mcda,
+        map_layers: mapLayers,
       });
     }
 
@@ -1404,6 +1602,7 @@ function createAiMitigationRecommendationRouter(pool) {
         hazard_source: hazardSource,
         hazard_screening: hazardScreening,
         priority_locations: evidence.priority_locations || [],
+        map_layers: mapLayers,
         diagnosis: result.diagnosis,
         risk_level: result.risk_level,
         primary_drivers: result.primary_drivers,
@@ -1456,6 +1655,7 @@ function createAiMitigationRecommendationRouter(pool) {
         message: info.message,
         spatial_evidence: evidence,
         mcda: evidence.mcda,
+        map_layers: mapLayers,
         meta: {
           version: VERSION,
           ai_decision_generated: false,
@@ -1481,6 +1681,8 @@ module.exports = {
     parseModelJson,
     pickClassColumn,
     summarizeLayer,
+    simplifyTolerance,
+    loadMapLayers,
     resolveTables,
     areaInTableSrid,
     compactEvidenceForPrompt,

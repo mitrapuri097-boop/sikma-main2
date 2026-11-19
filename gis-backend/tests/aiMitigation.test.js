@@ -503,3 +503,62 @@ test("hazard tidak dikenal tetap ditolak", { skip: !isStub }, async () => {
   assert.equal(res.statusCode, 400);
   assert.equal(res.body.code, "INVALID_HAZARD");
 });
+
+// ------------------------------------------------ lapisan peta dasar keputusan
+test("map_layers: zona risiko + titik sarana ikut di respons, tidak dikirim ke AI", { skip: !isStub }, async () => {
+  process.env.OPENAI_API_KEY = "sk-test";
+  process.env.OPENAI_MODEL = "m-layers";
+  process.env.AI_RATE_LIMIT_PER_HOUR = "0";
+  OpenAI.calls.length = 0;
+  OpenAI.handler = async () => ({ output_text: JSON.stringify({
+    diagnosis: "d", risk_level: "tinggi", primary_drivers: [], recommendations: [], adaptation_measures: [],
+    data_gaps: [], confidence: 70, verification_needed: false, verification_reason: "",
+  }) });
+  const zoneGeo = JSON.stringify({ type: "Polygon", coordinates: [[[106.8, -6.1], [106.9, -6.1], [106.9, -6.2], [106.8, -6.1]]] });
+  const base = fakePool();
+  const pool = {
+    ...base,
+    connect: async () => {
+      const client = await base.connect();
+      return {
+        ...client,
+        query: async (sql, params) => {
+          if (/ST_AsGeoJSON/.test(sql) && /risiko_banjir/.test(sql)) {
+            return { rows: [{ kelas: "Tinggi", gj: zoneGeo, luas_m2: 28000000 }] };
+          }
+          if (/AS nama/.test(sql) && /"situ"/.test(sql)) {
+            return { rows: [{ nama: "Situ Uji", lat: -6.15, lng: 106.85 }] };
+          }
+          return client.query(sql, params);
+        },
+      };
+    },
+  };
+  const { createAiMitigationRecommendationRouter } = require("../aiMitigationRecommendation");
+  const router = createAiMitigationRecommendationRouter(pool);
+  const res = await invoke(router, "POST", "/mitigation-recommendation", { headers: { authorization: "Bearer good" }, body: body("banjir"), ip: "layers" });
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body).slice(0, 300));
+  const zones = res.body.map_layers.risk_zones.features;
+  assert.equal(zones.length, 1);
+  assert.equal(zones[0].properties.kelas, "Tinggi");
+  assert.equal(zones[0].properties.luas_ha, 2800);
+  assert.equal(zones[0].properties.persen_wilayah, 28);
+  const sent = OpenAI.calls[0].input[1].content[0].text;
+  assert.ok(!sent.includes("risk_zones") && !sent.includes("106.85"), "lapisan peta bocor ke prompt");
+});
+
+test("map_layers: lapisan poligon yang melebihi batas ukuran dibuang dan dicatat", { skip: !isStub }, async () => {
+  const { _internal } = require("../aiMitigationRecommendation");
+  assert.ok(_internal.simplifyTolerance(5.38e6) >= 0.00002);
+  assert.ok(_internal.simplifyTolerance(1e10) <= 0.002);
+  const bigRing = Array.from({ length: 4000 }, (_, i) => [106 + i / 1e4, -6 - i / 1e4]);
+  bigRing.push(bigRing[0]);
+  const pool = scriptedPool((sql) => (/ST_AsGeoJSON/.test(sql)
+    ? { rows: [{ kelas: "Tinggi", gj: JSON.stringify({ type: "Polygon", coordinates: [bigRing] }), luas_m2: 1e6 }] }
+    : { rows: [] }));
+  process.env.AI_MAP_LAYER_MAX_BYTES = "20000";
+  const layers = await _internal.loadMapLayers(pool, "banjir", "{}", { area_m2: 1e7, total_risk_features: 1 });
+  delete process.env.AI_MAP_LAYER_MAX_BYTES;
+  assert.equal(layers.risk_zones, null);
+  assert.deepEqual(layers.omitted, ["risk_zones"]);
+});

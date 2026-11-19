@@ -214,8 +214,43 @@ type HazardScreeningRow = {
   high_risk_percent: number;
 };
 
+type MapLayers = {
+  risk_zones?: any | null;
+  critical_land?: any | null;
+  existing_mitigation?: any | null;
+  omitted?: string[];
+};
+
+const RISK_ZONE_COLORS: Record<string, string> = {
+  "sangat tinggi": "#991b1b",
+  tinggi: "#dc2626",
+  sedang: "#f59e0b",
+  rendah: "#eab308",
+};
+const riskZoneColor = (kelas?: string) =>
+  RISK_ZONE_COLORS[String(kelas || "").trim().toLowerCase()] || "#94a3b8";
+const MITIGATION_LABELS: Record<string, string> = {
+  sekat_kanal: "Sekat kanal",
+  sumur_bor: "Sumur bor",
+  bendung: "Bendung",
+  bendungan: "Bendungan",
+  embung: "Embung",
+  danau: "Danau",
+  situ: "Situ",
+  pengaman_pantai: "Pengaman pantai",
+  pompa_air: "Pompa air",
+  pengendali_sedimen: "Pengendali sedimen",
+  reforestasi_20232024: "Reforestasi 2023–2024",
+  dta_danau: "DTA danau",
+  rehabilitasi_das: "Rehabilitasi DAS",
+  rehabilitasi_hutan: "Rehabilitasi hutan",
+  restorasi_gambut: "Restorasi gambut",
+  penerapan_teknik_kta: "Teknik KTA",
+};
+
 type AiRecommendation = {
   area?: string;
+  map_layers?: MapLayers | null;
   hazard?: string | null;
   hazard_source?: "auto" | "user";
   hazard_screening?: HazardScreeningRow[] | null;
@@ -309,10 +344,18 @@ export default function AIRecommendationEnterprise() {
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
   const recommendationLayerRef = useRef<L.LayerGroup | null>(null);
   const boundaryLayerRef = useRef<L.LayerGroup | null>(null);
-  const priorityLayerRef = useRef<L.LayerGroup | null>(null);
+  const riskZoneLayerRef = useRef<L.LayerGroup | null>(null);
+  const criticalLayerRef = useRef<L.LayerGroup | null>(null);
+  const mitigationLayerRef = useRef<L.LayerGroup | null>(null);
   const [incidentLayerVisible, setIncidentLayerVisible] = useState(true);
   const [boundaryLayerVisible, setBoundaryLayerVisible] = useState(true);
-  const [priorityLayerVisible, setPriorityLayerVisible] = useState(true);
+  const [riskZoneVisible, setRiskZoneVisible] = useState(true);
+  const [criticalVisible, setCriticalVisible] = useState(true);
+  const [mitigationVisible, setMitigationVisible] = useState(true);
+  // Lapisan peta tetap ditampilkan walau langkah AI gagal (mis. key belum ada).
+  const [aiFallbackLayers, setAiFallbackLayers] = useState<MapLayers | null>(
+    null,
+  );
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const areaSearchRequestRef = useRef(0);
   // Boundary administratif di halaman ini memakai geometry dari
@@ -880,6 +923,7 @@ export default function AIRecommendationEnterprise() {
       setAiLoading(true);
       setAiError("");
       setAiFallbackMcda(null);
+      setAiFallbackLayers(null);
       try {
         let areaForAi: {
           label: string;
@@ -987,6 +1031,7 @@ export default function AIRecommendationEnterprise() {
         const data = await response.json().catch(() => null);
         if (!response.ok || !data?.success) {
           if (data?.mcda) setAiFallbackMcda(data.mcda);
+          if (data?.map_layers) setAiFallbackLayers(data.map_layers);
           throw new Error(
             data?.message ||
               (response.status === 401
@@ -1024,27 +1069,76 @@ export default function AIRecommendationEnterprise() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
-  // Titik prioritas dari GIS (hasil backend), bukan dibuat AI.
+  // Lapisan "dasar keputusan AI": data yang sama yang dibaca backend untuk AI.
+  const mapLayers: MapLayers | null = aiResult?.map_layers || aiFallbackLayers;
   useEffect(() => {
     const map = mapInstanceRef.current;
-    const layer = priorityLayerRef.current;
-    if (!map || !layer) return;
-    layer.clearLayers();
-    if (!priorityLayerVisible) return;
-    (aiResult?.priority_locations || []).forEach((loc) => {
-      L.circleMarker([loc.lat, loc.lng], {
-        radius: 10,
-        color: "#b45309",
-        weight: 3,
-        fillColor: "#f59e0b",
-        fillOpacity: 0.85,
-      })
-        .bindTooltip(
-          `Titik prioritas #${loc.rank} · risiko ${loc.kelas} · ±${loc.luas_ha} ha`,
-        )
-        .addTo(layer);
-    });
-  }, [aiResult, priorityLayerVisible]);
+    const zoneLayer = riskZoneLayerRef.current;
+    const criticalLayer = criticalLayerRef.current;
+    const mitigationLayer = mitigationLayerRef.current;
+    if (!map) return;
+    zoneLayer?.clearLayers();
+    criticalLayer?.clearLayers();
+    mitigationLayer?.clearLayers();
+
+    if (zoneLayer && riskZoneVisible && mapLayers?.risk_zones?.features?.length) {
+      L.geoJSON(mapLayers.risk_zones, {
+        pane: "simitiZonePane",
+        style: (feature: any) => {
+          const color = riskZoneColor(feature?.properties?.kelas);
+          return { color, weight: 1, fillColor: color, fillOpacity: 0.32 };
+        },
+        onEachFeature: (feature: any, layer) => {
+          const p = feature?.properties || {};
+          layer.bindTooltip(
+            `Risiko ${p.kelas} · ±${p.luas_ha} ha${
+              p.persen_wilayah != null ? ` (${p.persen_wilayah}% wilayah)` : ""
+            }`,
+            { sticky: true },
+          );
+        },
+      }).addTo(zoneLayer);
+    }
+
+    if (criticalLayer && criticalVisible && mapLayers?.critical_land?.features?.length) {
+      L.geoJSON(mapLayers.critical_land, {
+        pane: "simitiCriticalPane",
+        style: () => ({
+          color: "#7c3aed",
+          weight: 1.2,
+          dashArray: "4 3",
+          fillColor: "#7c3aed",
+          fillOpacity: 0.14,
+        }),
+        onEachFeature: (feature: any, layer) => {
+          const p = feature?.properties || {};
+          layer.bindTooltip(`Lahan ${p.kelas} · ±${p.luas_ha} ha`, { sticky: true });
+        },
+      }).addTo(criticalLayer);
+    }
+
+    if (mitigationLayer && mitigationVisible && mapLayers?.existing_mitigation?.features?.length) {
+      L.geoJSON(mapLayers.existing_mitigation, {
+        pointToLayer: (feature: any, latlng) =>
+          L.circleMarker(latlng, {
+            radius: 6,
+            color: "#1d4ed8",
+            weight: 2,
+            fillColor: feature?.properties?.relevan ? "#3b82f6" : "#bfdbfe",
+            fillOpacity: 0.95,
+          }),
+        onEachFeature: (feature: any, layer) => {
+          const p = feature?.properties || {};
+          const jenis = MITIGATION_LABELS[p.jenis] || p.jenis;
+          layer.bindTooltip(
+            `${jenis}${p.nama ? `: ${p.nama}` : ""}${
+              p.relevan ? " · relevan untuk bencana ini" : ""
+            }`,
+          );
+        },
+      }).addTo(mitigationLayer);
+    }
+  }, [mapLayers, riskZoneVisible, criticalVisible, mitigationVisible]);
 
   // Sembunyikan/tampilkan layer peta yang benar-benar digambar halaman ini.
   useEffect(() => {
@@ -1079,8 +1173,13 @@ export default function AIRecommendationEnterprise() {
 
     markerLayerRef.current = L.layerGroup().addTo(map);
     recommendationLayerRef.current = L.layerGroup().addTo(map);
+    // Zona di bawah garis batas dan titik (overlayPane = 400).
+    map.createPane("simitiZonePane").style.zIndex = "350";
+    map.createPane("simitiCriticalPane").style.zIndex = "360";
+    riskZoneLayerRef.current = L.layerGroup().addTo(map);
+    criticalLayerRef.current = L.layerGroup().addTo(map);
     boundaryLayerRef.current = L.layerGroup().addTo(map);
-    priorityLayerRef.current = L.layerGroup().addTo(map);
+    mitigationLayerRef.current = L.layerGroup().addTo(map);
     mapInstanceRef.current = map;
 
     const syncAdminLevel = () => {
@@ -1112,7 +1211,9 @@ export default function AIRecommendationEnterprise() {
       markerLayerRef.current = null;
       recommendationLayerRef.current = null;
       boundaryLayerRef.current = null;
-      priorityLayerRef.current = null;
+      riskZoneLayerRef.current = null;
+      criticalLayerRef.current = null;
+      mitigationLayerRef.current = null;
     };
   }, []);
 
@@ -1760,9 +1861,14 @@ export default function AIRecommendationEnterprise() {
         basis: loc.basis ?? null,
       },
     }));
+    const layerFeatures = [
+      ...(mapLayers?.risk_zones?.features || []),
+      ...(mapLayers?.critical_land?.features || []),
+      ...(mapLayers?.existing_mitigation?.features || []),
+    ];
     const data = {
       type: "FeatureCollection",
-      features: [...priorityFeatures, ...exportSource.map((item) => ({
+      features: [...priorityFeatures, ...layerFeatures, ...exportSource.map((item) => ({
         type: "Feature",
         geometry: { type: "Point", coordinates: [item.lng, item.lat] },
         properties: {
@@ -1942,10 +2048,12 @@ export default function AIRecommendationEnterprise() {
                 <MapPinned size={17} />
               </span>
               <div>
-                <small>LOKASI DIANALISIS</small>
+                <small>
+                  {selectedAreaBoundary ? "TITIK KEJADIAN DI WILAYAH" : "LOKASI DIANALISIS"}
+                </small>
                 <strong>
                   {selectedAreaBoundary
-                    ? filteredCandidates.length
+                    ? selectedAreaFilteredCandidates.length
                     : candidates.length}
                 </strong>
                 <em>{selectedAreaBoundary?.label || "Seluruh data SIMITI"}</em>
@@ -1957,8 +2065,16 @@ export default function AIRecommendationEnterprise() {
               </span>
               <div>
                 <small>LOKASI PRIORITAS</small>
-                <strong>{visibleLocations.length}</strong>
-                <em>Hasil spatial scoring</em>
+                <strong>
+                  {aiResult?.priority_locations?.length
+                    ? aiResult.priority_locations.length
+                    : visibleLocations.length}
+                </strong>
+                <em>
+                  {aiResult?.priority_locations?.length
+                    ? `Zona risiko ${aiResult.priority_locations[0].kelas} (GIS)`
+                    : "Hasil spatial scoring"}
+                </em>
               </div>
             </div>
             <div className="ai-kpi-card">
@@ -1968,12 +2084,27 @@ export default function AIRecommendationEnterprise() {
               <div>
                 <small>RISIKO DOMINAN</small>
                 <strong>
-                  {spatialRecommendations[0]?.dominantHazard || "—"}
+                  {aiResult?.hazard
+                    ? aiResult.hazard.replace("_", " ").replace(/^./, (c) => c.toUpperCase())
+                    : spatialRecommendations[0]?.dominantHazard || "—"}
                 </strong>
                 <em>
-                  {spatialRecommendations[0]
-                    ? `${spatialRecommendations[0].count} evidence kejadian`
-                    : "Pilih wilayah"}
+                  {aiResult?.hazard
+                    ? (() => {
+                        const top = aiResult.hazard_screening?.find(
+                          (h) => h.hazard === aiResult.hazard,
+                        );
+                        const pct = aiResult.map_layers?.risk_zones?.features
+                          ?.filter((f: any) => /tinggi/i.test(String(f.properties?.kelas)))
+                          .reduce((sum: number, f: any) => sum + (Number(f.properties?.persen_wilayah) || 0), 0);
+                        const share = top?.high_risk_percent ?? pct;
+                        return `${share ? `${Math.round(share * 10) / 10}% wilayah risiko tinggi` : "Risiko terpetakan"}${
+                          aiResult.hazard_source === "auto" ? " · dipilih otomatis" : ""
+                        }`;
+                      })()
+                    : spatialRecommendations[0]
+                      ? `${spatialRecommendations[0].count} evidence kejadian`
+                      : "Pilih wilayah"}
                 </em>
               </div>
             </div>
@@ -2217,11 +2348,66 @@ export default function AIRecommendationEnterprise() {
                         <X size={15} />
                       </button>
                     </div>
+                    <p className="layer-group-title">Dasar keputusan AI</p>
+                    {!mapLayers && (
+                      <p className="layer-note">
+                        Pilih wilayah lalu jalankan analisis AI untuk menampilkan
+                        data yang dibaca AI.
+                      </p>
+                    )}
+                    {(
+                      [
+                        [
+                          `Zona risiko ${aiResult?.hazard ? aiResult.hazard.replace("_", " ") : ""}`.trim(),
+                          mapLayers?.risk_zones?.features?.length ?? 0,
+                          "kelas",
+                          riskZoneVisible,
+                          setRiskZoneVisible,
+                        ],
+                        [
+                          "Lahan kritis",
+                          mapLayers?.critical_land?.features?.length ?? 0,
+                          "kelas",
+                          criticalVisible,
+                          setCriticalVisible,
+                        ],
+                        [
+                          "Sarana mitigasi eksisting",
+                          mapLayers?.existing_mitigation?.features?.length ?? 0,
+                          "titik",
+                          mitigationVisible,
+                          setMitigationVisible,
+                        ],
+                      ] as Array<[string, number, string, boolean, (fn: (v: boolean) => boolean) => void]>
+                    )
+                      .filter(() => Boolean(mapLayers))
+                      .map(([label, count, unit, visible, setVisible]) => (
+                        <button
+                          type="button"
+                          key={label}
+                          className={`layer-check ${visible && count ? "active" : ""}`}
+                          aria-pressed={visible}
+                          disabled={!count}
+                          onClick={() => setVisible((v) => !v)}
+                        >
+                          <span>{count ? (visible ? "✓" : "□") : "–"}</span>
+                          <b>{label}</b>
+                          <em>{count ? `${count} ${unit}` : "tidak ada"}</em>
+                        </button>
+                      ))}
+                    {(mapLayers?.omitted?.length ?? 0) > 0 && (
+                      <p className="layer-note">
+                        Sebagian lapisan terlalu besar untuk ditampilkan; pilih
+                        wilayah yang lebih kecil.
+                      </p>
+                    )}
+
+                    <p className="layer-group-title">Data pendukung</p>
                     {(
                       [
                         ["Batas wilayah terpilih", boundaryLayerVisible, setBoundaryLayerVisible],
                         ["Titik kejadian SIMITI", incidentLayerVisible, setIncidentLayerVisible],
-                        ["Titik prioritas (GIS)", priorityLayerVisible, setPriorityLayerVisible],
+                        ["Kandidat dari kejadian", recommendationLayerVisible, setRecommendationLayerVisible],
                       ] as Array<[string, boolean, (fn: (v: boolean) => boolean) => void]>
                     ).map(([label, visible, setVisible]) => (
                       <button
@@ -2235,24 +2421,40 @@ export default function AIRecommendationEnterprise() {
                         <b>{label}</b>
                       </button>
                     ))}
-                    <div
-                      className={`layer-ai-title ${recommendationLayerVisible ? "active" : ""}`}
-                      onClick={() => setRecommendationLayerVisible((v) => !v)}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <span>{recommendationLayerVisible ? "✓" : "□"}</span>
-                      <b>Titik Rekomendasi AI</b>
+
+                    <div className="layer-legend">
+                      {riskZoneVisible && (mapLayers?.risk_zones?.features?.length ?? 0) > 0 &&
+                        mapLayers!.risk_zones.features.map((f: any) => (
+                          <span key={`z-${f.properties.kelas}`}>
+                            <i
+                              className="swatch"
+                              style={{ background: riskZoneColor(f.properties.kelas) }}
+                            />
+                            Risiko {f.properties.kelas}
+                          </span>
+                        ))}
+                      {criticalVisible && (mapLayers?.critical_land?.features?.length ?? 0) > 0 && (
+                        <span>
+                          <i className="swatch critical" /> Lahan kritis
+                        </span>
+                      )}
+                      {mitigationVisible && (mapLayers?.existing_mitigation?.features?.length ?? 0) > 0 && (
+                        <span>
+                          <i className="swatch dot-blue" /> Sarana mitigasi
+                        </span>
+                      )}
+                      {recommendationLayerVisible && visibleLocations.length > 0 && (
+                        <>
+                          <span><span className="dot red" /> Skor kejadian tinggi</span>
+                          <span><span className="dot orange" /> Sedang</span>
+                          <span><span className="dot green" /> Rendah</span>
+                        </>
+                      )}
                     </div>
                     <p className="layer-note">
-                      Layer tematik lengkap (risiko, DAS, tutupan lahan) tersedia
-                      di menu GIS.
+                      Layer tematik lengkap (DAS, tutupan lahan, dll.) ada di menu
+                      GIS.
                     </p>
-                    <div className="layer-legend">
-                      <span className="dot red" /> Sangat Direkomendasikan{" "}
-                      <span className="dot orange" /> Direkomendasikan{" "}
-                      <span className="dot green" /> Cukup
-                    </div>
                   </div>
                 )}
 
@@ -2773,37 +2975,37 @@ export default function AIRecommendationEnterprise() {
                   )}
                   {(aiResult?.priority_locations?.length ?? 0) > 0 && (
                     <div className="enterprise-reco-list">
-                      <strong>Titik Prioritas (ditentukan GIS)</strong>
+                      <strong>Zona Prioritas (ditentukan GIS)</strong>
                       <ol>
                         {aiResult!.priority_locations!.map((loc) => (
                           <li key={`${loc.lat},${loc.lng}`}>
                             <div>
                               <b>
-                                {loc.lat.toFixed(5)}, {loc.lng.toFixed(5)}
+                                Zona risiko {loc.kelas} · ±
+                                {loc.luas_ha.toLocaleString("id-ID")} ha
                               </b>
                               <button
                                 type="button"
                                 className="priority-go"
-                                onClick={() =>
+                                onClick={() => {
+                                  setRiskZoneVisible(true);
                                   mapInstanceRef.current?.flyTo(
                                     [loc.lat, loc.lng],
                                     14,
                                     { duration: 0.8 },
-                                  )
-                                }
+                                  );
+                                }}
                               >
                                 Lihat di peta
                               </button>
                             </div>
-                            <p>
-                              Risiko {loc.kelas} · ±{loc.luas_ha} ha
-                            </p>
                           </li>
                         ))}
                       </ol>
                       <small>
-                        Titik ada di dalam poligon risiko kelas tertinggi; wajib
-                        diverifikasi lapangan.
+                        Zona diambil dari poligon {aiResult?.hazard ? `risiko_${aiResult.hazard}` : "risiko"} kelas
+                        tertinggi di wilayah ini. Lokasi tepat penerapan butuh
+                        survei lapangan.
                       </small>
                     </div>
                   )}
