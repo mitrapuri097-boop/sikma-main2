@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import { booleanPointInPolygon, point, centroid } from "@turf/turf";
 const API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
@@ -29,6 +29,7 @@ import {
 import "leaflet/dist/leaflet.css";
 import "./AIRecommendationEnterprise.css";
 import "./AIRecommendationEnterprise.pro.css";
+import "./AIRecommendationEnterprise.redesign.css";
 
 type Hazard = "Banjir" | "Longsor" | "Karhutla" | "Kekeringan" | "Abrasi";
 
@@ -191,9 +192,9 @@ const hazardMarkerColor = (hazard: Hazard | null) => {
 
 const hazardMarkerGlyph = (hazard: Hazard | null) => {
   if (hazard === "Banjir") return "💧";
-  if (hazard === "Longsor") return "⛰";
+  if (hazard === "Longsor") return "⛰️";
   if (hazard === "Karhutla") return "🔥";
-  if (hazard === "Kekeringan") return "〽";
+  if (hazard === "Kekeringan") return "☀️";
   return "◆";
 };
 
@@ -213,33 +214,9 @@ type AiRecommendation = {
     expected_effect: string;
     why: string;
     evidence: string[];
-    implementation_notes: string[];
+    implementation_notes: string;
   }>;
-  adaptation_measures?: string[];
-  data_gaps?: string[];
-  mcda?: McdaResult;
-  meta?: {
-    model?: string;
-    source?: string;
-    generated_at?: string;
-    cached?: boolean;
-  };
-};
-
-type McdaResult = {
-  score: number | null;
-  category: string;
-  coverage_percent: number;
-  low_coverage?: boolean;
-  indicators: Array<{
-    key: string;
-    label: string;
-    weight: number;
-    available: boolean;
-    value: number | null;
-    contribution: number;
-    basis: string;
-  }>;
+  meta?: { model?: string; source?: string; generated_at?: string };
 };
 
 const normalizeHazard = (category = ""): Hazard | null => {
@@ -285,12 +262,15 @@ export default function AIRecommendationEnterprise() {
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
   const recommendationLayerRef = useRef<L.LayerGroup | null>(null);
   const boundaryLayerRef = useRef<L.LayerGroup | null>(null);
+  const thematicLayerGroupsRef = useRef<Map<string, L.Layer>>(new Map());
+  const thematicRequestSeqRef = useRef(0);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const areaSearchRequestRef = useRef(0);
-  // Boundary administratif di halaman ini memakai geometry dari
-  // /api/areas/search saat wilayah dipilih. Jangan memanggil endpoint
-  // /api/layers/*/geojson karena endpoint tersebut membutuhkan can_view
-  // per-layer dan dapat menghasilkan 403 untuk user biasa.
+  // Boundary administratif memakai geometry dari /api/areas/search.
+  // Layer tematik mengikuti pola WebGIS Kerawanan: katalog dari /api/layers,
+  // WMS GeoServer untuk layer nasional yang sudah dipetakan, dan GeoJSON
+  // dengan token + filter administrasi untuk layer yang dipilih pengguna.
+  // Endpoint GeoJSON tetap menerapkan otorisasi can_view dari backend.
   const [adminLevel, setAdminLevel] = useState<AdminLevel>("provinsi");
   const [adminBoundaries, setAdminBoundaries] = useState<AdminBoundary[]>([]);
 
@@ -305,13 +285,23 @@ export default function AIRecommendationEnterprise() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [layersCount, setLayersCount] = useState<number | null>(null);
+  const [layerCatalog, setLayerCatalog] = useState<Array<{
+    id: string | number;
+    name: string;
+    section: "kerawanan" | "mitigasiAdaptasi" | "lainnya" | "kejadian";
+    year?: number;
+    category?: string;
+  }>>([]);
+  const [activeSpatialLayers, setActiveSpatialLayers] = useState<Set<string>>(
+    new Set(),
+  );
+  const [spatialLayerLoading, setSpatialLayerLoading] = useState<Set<string>>(
+    new Set(),
+  );
+  const [spatialLayerError, setSpatialLayerError] = useState("");
   const [aiResult, setAiResult] = useState<AiRecommendation | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
-  // MCDA tetap dikirim backend walaupun langkah OpenAI gagal.
-  const [aiFallbackMcda, setAiFallbackMcda] = useState<McdaResult | null>(
-    null,
-  );
   const [recommendationLayerVisible, setRecommendationLayerVisible] =
     useState(false);
   const [recommendationLimit, setRecommendationLimit] = useState(10);
@@ -760,18 +750,35 @@ export default function AIRecommendationEnterprise() {
       const response = await smitiFetch(`${API_URL}/api/layers`, {
         headers: { Accept: "application/json" },
       });
-      if (!response.ok) return;
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
       const data = await response.json();
-      const groups = ["kerawanan", "mitigasiAdaptasi", "lainnya", "kejadian"];
-      setLayersCount(
-        groups.reduce(
-          (total, key) =>
-            total + (Array.isArray(data?.[key]) ? data[key].length : 0),
-          0,
-        ),
-      );
-    } catch {
+      const sections = [
+        "kerawanan",
+        "mitigasiAdaptasi",
+        "lainnya",
+        "kejadian",
+      ] as const;
+      const catalog = sections.flatMap((section) =>
+        (Array.isArray(data?.[section]) ? data[section] : []).map((item: any) => ({
+          id: item?.id ?? item?.name,
+          name: String(item?.name ?? item?.table_name ?? item?.id ?? "").trim(),
+          section,
+          year: item?.year ? Number(item.year) : undefined,
+          category: item?.category,
+        })),
+      ).filter((item) => item.name);
+
+      setLayerCatalog(catalog);
+      setLayersCount(catalog.length);
+      setSpatialLayerError("");
+    } catch (error: any) {
       setLayersCount(null);
+      setSpatialLayerError(
+        error?.message || "Katalog layer WebGIS gagal dimuat.",
+      );
     }
   }, []);
 
@@ -849,7 +856,6 @@ export default function AIRecommendationEnterprise() {
       }
       setAiLoading(true);
       setAiError("");
-      setAiFallbackMcda(null);
       try {
         let areaForAi: {
           label: string;
@@ -952,13 +958,7 @@ export default function AIRecommendationEnterprise() {
         );
         const data = await response.json().catch(() => null);
         if (!response.ok || !data?.success) {
-          if (data?.mcda) setAiFallbackMcda(data.mcda);
-          throw new Error(
-            data?.message ||
-              (response.status === 401
-                ? "Sesi login berakhir. Silakan login ulang."
-                : `HTTP ${response.status}`),
-          );
+          throw new Error(data?.message || `HTTP ${response.status}`);
         }
         setAiResult(data);
       } catch (error: any) {
@@ -975,6 +975,199 @@ export default function AIRecommendationEnterprise() {
     void fetchIncidents();
     void fetchLayerCount();
   }, [fetchIncidents, fetchLayerCount]);
+
+  // Sinkronkan layer tematik dengan katalog WebGIS.
+  // Pola mengikuti Kerawanan.tsx: katalog dari /api/layers, data vektor
+  // dari endpoint GeoJSON; layer nasional yang sudah terverifikasi memakai WMS GeoServer.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    const requestSeq = ++thematicRequestSeqRef.current;
+    let cancelled = false;
+
+    thematicLayerGroupsRef.current.forEach((layer) => {
+      if (map.hasLayer(layer)) map.removeLayer(layer);
+    });
+    thematicLayerGroupsRef.current.clear();
+
+    if (!activeSpatialLayers.size) {
+      setSpatialLayerLoading(new Set());
+      setSpatialLayerError("");
+      return;
+    }
+
+    const wmsLayerNames: Record<string, string> = {
+      risiko_banjir_bandang: "simiti:vw_risiko_banjir_bandang_wms",
+      risiko_abrasi: "simiti:vw_risiko_abrasi_wms",
+      risiko_longsor: "simiti:vw_risiko_longsor_wms",
+      risiko_karhutla: "simiti:vw_risiko_karhutla_repaired_wms",
+      bahaya_abrasi_dan_gelombang_ekstrim: "simiti:bahaya_abrasi_dan_gelombang_ekstrim",
+      bahaya_banjir_bandang: "simiti:bahaya_banjir_bandang",
+      bahaya_banjir: "simiti:bahaya_banjir",
+      bahaya_kekeringan: "simiti:bahaya_kekeringan",
+      rawan_longsor: "simiti:rawan_longsor",
+      rawan_limpasan: "simiti:vw_rawan_limpasan_wms",
+      rawan_karhutla: "simiti:vw_rawan_karhutla_wms",
+      rawan_erosi: "simiti:rawan_erosi",
+    };
+
+    const loadLayers = async () => {
+      const pending = new Set(activeSpatialLayers);
+      setSpatialLayerLoading(pending);
+      setSpatialLayerError("");
+
+      for (const layerName of activeSpatialLayers) {
+        if (cancelled || requestSeq !== thematicRequestSeqRef.current) return;
+        const catalogItem = layerCatalog.find(
+          (item) => item.name === layerName || String(item.id) === layerName,
+        );
+        if (!catalogItem) continue;
+
+        try {
+          const selectedGeometry = selectedAreaBoundary?.feature?.geometry;
+          const hasSelectedArea = Boolean(selectedGeometry);
+          const mapBounds = hasSelectedArea
+            ? L.geoJSON(selectedAreaBoundary!.feature as any).getBounds()
+            : map.getBounds();
+          if (!mapBounds.isValid()) continue;
+
+          const [[south, west], [north, east]] = [
+            [mapBounds.getSouth(), mapBounds.getWest()],
+            [mapBounds.getNorth(), mapBounds.getEast()],
+          ];
+          const bounds = `${south},${west},${north},${east}`;
+          const zoom = map.getZoom();
+
+          // Untuk layer risiko/bahaya yang sudah dipetakan di GeoServer,
+          // tampilkan WMS nasional saat belum ada wilayah spesifik dipilih.
+          if (!hasSelectedArea && wmsLayerNames[layerName]) {
+            const wmsUrl = String(
+              import.meta.env.VITE_GEOSERVER_WMS_URL || "/geoserver/simiti/wms",
+            ).trim();
+            const wmsLayer = L.tileLayer.wms(wmsUrl, {
+              layers: wmsLayerNames[layerName],
+              format: "image/png",
+              transparent: true,
+              version: "1.1.1",
+              srs: "EPSG:4326",
+              tiled: false,
+            });
+            wmsLayer.on("tileerror", () => {
+              if (!cancelled) {
+                setSpatialLayerError(
+                  `GeoServer WMS gagal memuat layer ${layerName}. Periksa publikasi layer di workspace simiti.`,
+                );
+              }
+            });
+            if (cancelled || requestSeq !== thematicRequestSeqRef.current) return;
+            thematicLayerGroupsRef.current.set(layerName, wmsLayer);
+            wmsLayer.addTo(map);
+            pending.delete(layerName);
+            setSpatialLayerLoading(new Set(pending));
+            continue;
+          }
+
+          const params = new URLSearchParams({
+            bounds,
+            zoom: String(zoom),
+          });
+          const props = selectedAreaBoundary?.feature?.properties || {};
+          const codeByLevel: Record<AdminLevel, string[]> = {
+            provinsi: ["kode_prov", "kode_provinsi", "kdprov", "kode"],
+            kabupaten: ["kode_kk", "kode_kab", "kode_kabupaten", "kdkab"],
+            kecamatan: ["kode_kec", "kdkec"],
+            kelurahan: ["kode_kd", "kode_desa", "kddesa"],
+          };
+          if (hasSelectedArea) {
+            const code = codeByLevel[selectedAreaBoundary!.level]
+              .map((key) => props?.[key])
+              .find((value) => value !== undefined && value !== null && String(value).trim());
+            if (code !== undefined) {
+              params.set("adminCodes", JSON.stringify([String(code)]));
+              params.set("adminLevel", selectedAreaBoundary!.level);
+            }
+          }
+
+          const safeName = encodeURIComponent(layerName);
+          const response = await smitiFetch(
+            `${API_URL}/api/layers/${safeName}/geojson?${params.toString()}`,
+            { headers: { Accept: "application/geo+json, application/json" } },
+          );
+          const payload = await response.json().catch(() => null);
+          if (!response.ok) {
+            throw new Error(
+              payload?.message || payload?.error || `HTTP ${response.status}`,
+            );
+          }
+
+          const geojson =
+            payload?.type === "FeatureCollection"
+              ? payload
+              : payload?.geojson?.type === "FeatureCollection"
+                ? payload.geojson
+                : payload?.data?.type === "FeatureCollection"
+                  ? payload.data
+                  : null;
+          if (!geojson || !Array.isArray(geojson.features)) {
+            throw new Error("Respons layer bukan FeatureCollection GeoJSON.");
+          }
+          if (cancelled || requestSeq !== thematicRequestSeqRef.current) return;
+
+          const vectorLayer = L.geoJSON(geojson as any, {
+            style: (feature) => {
+              const geometryType = feature?.geometry?.type;
+              const isRisk = /risiko|bahaya|rawan/i.test(layerName);
+              return {
+                color: isRisk ? "#b45309" : "#2563eb",
+                weight: 1,
+                opacity: 0.85,
+                fillColor: isRisk ? "#f59e0b" : "#60a5fa",
+                fillOpacity: geometryType === "Polygon" || geometryType === "MultiPolygon" ? 0.32 : 0.15,
+              };
+            },
+            pointToLayer: (_feature, latlng) =>
+              L.circleMarker(latlng, {
+                radius: 5,
+                color: "#1d4ed8",
+                weight: 1,
+                fillColor: "#60a5fa",
+                fillOpacity: 0.85,
+              }),
+            onEachFeature: (feature, featureLayer) => {
+              const props = feature?.properties || {};
+              const title =
+                props.nama || props.namobj || props.name || props.label || layerName;
+              featureLayer.bindTooltip(escapeHtml(String(title)), {
+                sticky: true,
+                className: "simiti-tooltip",
+              });
+            },
+          });
+          thematicLayerGroupsRef.current.set(layerName, vectorLayer);
+          vectorLayer.addTo(map);
+        } catch (error: any) {
+          console.error("SIMITI AI: gagal memuat layer tematik", layerName, error);
+          if (!cancelled) {
+            setSpatialLayerError(
+              `${layerName}: ${error?.message || "gagal dimuat"}`,
+            );
+          }
+        } finally {
+          pending.delete(layerName);
+          if (!cancelled && requestSeq === thematicRequestSeqRef.current) {
+            setSpatialLayerLoading(new Set(pending));
+          }
+        }
+      }
+    };
+
+    void loadLayers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSpatialLayers, layerCatalog, selectedAreaBoundary]);
 
   useEffect(() => {
     if (!selected) return;
@@ -1032,6 +1225,7 @@ export default function AIRecommendationEnterprise() {
       markerLayerRef.current = null;
       recommendationLayerRef.current = null;
       boundaryLayerRef.current = null;
+      thematicLayerGroupsRef.current.clear();
     };
   }, []);
 
@@ -1604,7 +1798,7 @@ export default function AIRecommendationEnterprise() {
 
     if (area?.geom) {
       const boundary = L.geoJSON(
-        { type: "Feature", geometry: area.geom, properties: area } as any,
+        { type: "Feature", geometry: area.geom, properties: area },
         {
           style: {
             color: "#0f766e",
@@ -1726,15 +1920,6 @@ export default function AIRecommendationEnterprise() {
   }, [candidates]);
 
   const topRecommendations = aiResult?.recommendations?.slice(0, 3) || [];
-  const mcdaInfo: McdaResult | null = aiResult?.mcda || aiFallbackMcda;
-  const aiAdaptation = aiResult?.adaptation_measures ?? [];
-  const adaptationMeasures = aiAdaptation.length
-    ? aiAdaptation.slice(0, 4)
-    : [
-        "Early Warning System",
-        "Peningkatan kesiapsiagaan",
-        "Jalur evakuasi",
-      ];
 
   const runAnalysis = () => {
     const topSpatial = spatialRecommendations[0];
@@ -1867,11 +2052,7 @@ export default function AIRecommendationEnterprise() {
                     ? `${Math.round(Number(aiResult.confidence))}%`
                     : "—"}
                 </strong>
-                <em>
-                  {aiResult?.meta?.model
-                    ? `${aiResult.meta.model}${aiResult.meta.cached ? " (cache)" : ""}`
-                    : "Menunggu analisis"}
-                </em>
+                <em>{aiResult?.meta?.model || "Menunggu analisis"}</em>
               </div>
             </div>
           </section>
@@ -2096,36 +2277,66 @@ export default function AIRecommendationEnterprise() {
                         <X size={15} />
                       </button>
                     </div>
-                    <div className="layer-check active">
+                    <div className="layer-check active" aria-label="Batas Administrasi aktif">
                       <span>✓</span>
                       <b>Batas Administrasi</b>
-                      <ChevronRight size={13} />
+                      <small>Referensi wilayah</small>
                     </div>
-                    <div className="layer-check active">
-                      <span>✓</span>
-                      <b>Risiko Bencana</b>
-                      <ChevronRight size={13} />
-                    </div>
-                    <div className="layer-check">
-                      <span>✓</span>
-                      <b>DAS</b>
-                      <ChevronRight size={13} />
-                    </div>
-                    <div className="layer-check">
-                      <span>□</span>
-                      <b>Kerentanan</b>
-                      <ChevronRight size={13} />
-                    </div>
-                    <div className="layer-check">
-                      <span>□</span>
-                      <b>Paparan</b>
-                      <ChevronRight size={13} />
-                    </div>
-                    <div className="layer-check">
-                      <span>□</span>
-                      <b>Tutupan Lahan</b>
-                      <ChevronRight size={13} />
-                    </div>
+                    {([
+                      ["kerawanan", "Kerawanan"],
+                      ["mitigasiAdaptasi", "Mitigasi & Adaptasi"],
+                      ["lainnya", "Layer Lainnya"],
+                      ["kejadian", "Kejadian"],
+                    ] as const).map(([section, title]) => {
+                      const items = layerCatalog.filter((item) => item.section === section);
+                      if (!items.length) return null;
+                      return (
+                        <div className="ai-layer-section" key={section}>
+                          <div className="ai-layer-section-title">
+                            <b>{title}</b>
+                            <small>{items.length} layer</small>
+                          </div>
+                          {items.map((item) => {
+                            const key = item.name;
+                            const active = activeSpatialLayers.has(key);
+                            const isLoading = spatialLayerLoading.has(key);
+                            return (
+                              <button
+                                type="button"
+                                className={`layer-check ${active ? "active" : ""}`}
+                                key={`${section}:${item.id}:${key}`}
+                                aria-pressed={active}
+                                disabled={isLoading}
+                                title={key}
+                                onClick={() => {
+                                  setSpatialLayerError("");
+                                  setActiveSpatialLayers((current) => {
+                                    const next = new Set(current);
+                                    if (next.has(key)) next.delete(key);
+                                    else next.add(key);
+                                    return next;
+                                  });
+                                }}
+                              >
+                                <span>{isLoading ? "…" : active ? "✓" : "□"}</span>
+                                <b>{key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</b>
+                                <ChevronRight size={13} />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                    {spatialLayerError && (
+                      <div className="ai-layer-error" role="status">
+                        {spatialLayerError}
+                      </div>
+                    )}
+                    {!layerCatalog.length && (
+                      <div className="ai-layer-empty">
+                        {spatialLayerError || "Memuat katalog layer WebGIS…"}
+                      </div>
+                    )}
                     <div
                       className={`layer-ai-title ${recommendationLayerVisible ? "active" : ""}`}
                       onClick={() => setRecommendationLayerVisible((v) => !v)}
@@ -2152,6 +2363,9 @@ export default function AIRecommendationEnterprise() {
                     {filteredCandidates.length.toLocaleString("id-ID")} kandidat
                   </span>
                   <span>{layersCount ?? "—"} layer</span>
+                  {activeSpatialLayers.size > 0 && (
+                    <span>{activeSpatialLayers.size} aktif</span>
+                  )}
                 </div>
               </div>
 
@@ -2578,79 +2792,20 @@ export default function AIRecommendationEnterprise() {
                     </div>
                     <div>
                       <small>MODEL ADAPTASI</small>
-                      {adaptationMeasures.map((measure) => (
-                        <span key={measure}>
-                          <ShieldCheck size={13} />
-                          {measure}
-                        </span>
-                      ))}
+                      <span>
+                        <ShieldCheck size={13} />
+                        Early Warning System
+                      </span>
+                      <span>
+                        <ShieldCheck size={13} />
+                        Peningkatan kesiapsiagaan
+                      </span>
+                      <span>
+                        <ShieldCheck size={13} />
+                        Jalur evakuasi
+                      </span>
                     </div>
                   </div>
-                  {mcdaInfo && (
-                    <div className="enterprise-mcda">
-                      <div className="enterprise-mcda-head">
-                        <strong>Skor Prioritas Wilayah (MCDA)</strong>
-                        <span>
-                          {mcdaInfo.score ?? "—"}
-                          {mcdaInfo.score != null ? "/100" : ""} ·{" "}
-                          {mcdaInfo.category}
-                        </span>
-                      </div>
-                      <small
-                        className={
-                          mcdaInfo.low_coverage ? "mcda-coverage low" : "mcda-coverage"
-                        }
-                      >
-                        Kelengkapan data indikator: {mcdaInfo.coverage_percent}%
-                        {mcdaInfo.low_coverage
-                          ? " — skor perlu dikonfirmasi data/survei tambahan"
-                          : ""}
-                      </small>
-                      {mcdaInfo.indicators.map((indicator) => (
-                        <div
-                          key={indicator.key}
-                          className={
-                            indicator.available ? "mcda-row" : "mcda-row missing"
-                          }
-                          title={indicator.basis}
-                        >
-                          <span>
-                            {indicator.label} <em>({indicator.weight}%)</em>
-                          </span>
-                          <i>
-                            <b style={{ width: `${indicator.value ?? 0}%` }} />
-                          </i>
-                          <strong>
-                            {indicator.available
-                              ? Math.round(Number(indicator.value))
-                              : "n/a"}
-                          </strong>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {topRecommendations.length > 0 && (
-                    <div className="enterprise-reco-list">
-                      <strong>Rekomendasi Intervensi</strong>
-                      <ol>
-                        {topRecommendations.map((r) => (
-                          <li key={r.intervention_id}>
-                            <div>
-                              <b>{r.intervention}</b>
-                              <span>
-                                {Math.round(Number(r.priority_score) || 0)}/100 ·
-                                urgensi {r.urgency}
-                              </span>
-                            </div>
-                            <p>{r.why}</p>
-                            {r.evidence?.length > 0 && (
-                              <small>Bukti: {r.evidence.join("; ")}</small>
-                            )}
-                          </li>
-                        ))}
-                      </ol>
-                    </div>
-                  )}
                   <div className="enterprise-reason">
                     <strong>Alasan Rekomendasi</strong>
                     <p>
