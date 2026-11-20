@@ -16872,7 +16872,182 @@ const Kerawanan = () => {
             align-self: stretch !important;
           }
         }
+        /* =====================================================
+           SIMITI ENTERPRISE — COMPACT WILAYAH ANALISIS
+           UI only: tidak mengubah state, handler, API atau layer.
+           ===================================================== */
+        .simiti-analysis-section {
+          flex: 0 0 auto !important;
+          padding: 8px 8px 4px !important;
+          font-size: 12px !important;
+          line-height: 1.35 !important;
+        }
+        .simiti-analysis-section > div {
+          border-radius: 14px !important;
+        }
+        .simiti-analysis-section > div > div:first-child {
+          padding: 8px 10px !important;
+          min-height: 48px;
+        }
+        .simiti-analysis-section > div > div:first-child > div > div:first-child {
+          font-size: 12px !important;
+          line-height: 16px !important;
+          letter-spacing: .08em !important;
+        }
+        .simiti-analysis-section > div > div:first-child > div > div:last-child {
+          margin-top: 1px !important;
+          font-size: 12px !important;
+          line-height: 16px !important;
+        }
+        .simiti-analysis-section > div > div:first-child > span {
+          font-size: 10px !important;
+          padding: 4px 8px !important;
+        }
+        .simiti-analysis-section > div > div:nth-child(2) {
+          padding: 8px !important;
+        }
+        .simiti-analysis-section .space-y-3 {
+          gap: 8px !important;
+        }
+        .simiti-analysis-section .rounded-lg.border {
+          padding: 8px !important;
+          border-radius: 11px !important;
+        }
+        .simiti-analysis-section .mb-2 {
+          margin-bottom: 6px !important;
+        }
+        .simiti-analysis-section .mb-1 {
+          margin-bottom: 3px !important;
+        }
+        .simiti-analysis-section label {
+          font-size: 12px !important;
+          line-height: 16px !important;
+        }
+        .simiti-analysis-section input {
+          height: 34px !important;
+          min-height: 34px !important;
+          padding-left: 9px !important;
+          padding-right: 9px !important;
+          font-size: 12px !important;
+          line-height: 16px !important;
+          border-radius: 9px !important;
+        }
+        .simiti-analysis-section input::placeholder {
+          font-size: 12px !important;
+          color: #8793a5 !important;
+        }
+        .simiti-analysis-section .grid {
+          column-gap: 8px !important;
+          row-gap: 7px !important;
+        }
+        .simiti-analysis-section .rounded-full {
+          font-size: 10px !important;
+        }
+        .simiti-analysis-section .mt-2 {
+          margin-top: 6px !important;
+        }
+
+        /* Beri ruang utama kepada daftar layer Kerawanan. */
+        .kerawanan-layer-panel > div {
+          min-height: 0 !important;
+        }
+        .simiti-layer-list {
+          flex: 1 1 0% !important;
+          min-height: 0 !important;
+          overflow-y: auto !important;
+          overscroll-behavior: contain;
+          scrollbar-width: thin;
+          scrollbar-color: #173b70 #e8eef7;
+          padding: 6px 8px 8px !important;
+        }
+        .simiti-layer-list::-webkit-scrollbar,
+        .simiti-analysis-section *::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        .simiti-layer-list::-webkit-scrollbar-track,
+        .simiti-analysis-section *::-webkit-scrollbar-track {
+          background: #e8eef7;
+          border-radius: 10px;
+        }
+        .simiti-layer-list::-webkit-scrollbar-thumb,
+        .simiti-analysis-section *::-webkit-scrollbar-thumb {
+          background: #173b70;
+          border: 2px solid #e8eef7;
+          border-radius: 10px;
+        }
+        .simiti-layer-list::-webkit-scrollbar-thumb:hover,
+        .simiti-analysis-section *::-webkit-scrollbar-thumb:hover {
+          background: #0d2852;
+        }
+        .simiti-layer-list .simiti-layer-category {
+          margin-bottom: 9px !important;
+        }
+        .simiti-layer-list .simiti-layer-category > div:first-child {
+          margin-bottom: 5px !important;
+          padding-bottom: 4px !important;
+        }
+        .simiti-layer-list .simiti-layer-category button,
+        .simiti-layer-list .simiti-layer-category h3 {
+          font-size: 12px !important;
+          line-height: 16px !important;
+        }
+        .simiti-layer-list .simiti-layer-grid {
+          gap: 5px !important;
+        }
+        .simiti-layer-list .simiti-layer-item {
+          min-height: 30px;
+          padding: 5px 6px !important;
+          gap: 5px !important;
+          border-radius: 5px !important;
+        }
+        .simiti-layer-list .simiti-layer-item span {
+          font-size: 12px !important;
+          line-height: 16px !important;
+        }
+        .simiti-layer-list .simiti-layer-item input {
+          width: 14px !important;
+          height: 14px !important;
+          margin-top: 1px !important;
+          flex: 0 0 14px !important;
+        }
+        @media (max-width: 767px) {
+          .simiti-analysis-section {
+            padding: 6px 7px 3px !important;
+          }
+          .simiti-layer-list {
+            padding: 5px 7px 8px !important;
+          }
+        }
+
+        /* FINAL OVERRIDE — scrollbar panel kanan benar-benar NAVY.
+           Mengalahkan rule lama #cbd5e1/#9ca3af yang memakai !important. */
+        .kerawanan-layer-panel .simiti-layer-list {
+          scrollbar-color: #173b70 #dbeafe !important;
+          scrollbar-width: thin !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-list::-webkit-scrollbar {
+          width: 9px !important;
+          height: 9px !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-list::-webkit-scrollbar-track {
+          background: #dbeafe !important;
+          border-radius: 999px !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-list::-webkit-scrollbar-thumb {
+          background: #173b70 !important;
+          border: 2px solid #dbeafe !important;
+          border-radius: 999px !important;
+          min-height: 36px !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-list::-webkit-scrollbar-thumb:hover,
+        .kerawanan-layer-panel .simiti-layer-list::-webkit-scrollbar-thumb:active {
+          background: #0b2450 !important;
+        }
+
         `}
+
+
 
 
 
@@ -17335,50 +17510,8 @@ const Kerawanan = () => {
                   </button>
                 </div>
 
-                {/* Enterprise filter mode switch */}
-                <div className="hidden">
-                  <div className="rounded-xl border border-slate-200 bg-white/80 p-1.5 shadow-sm">
-                    <div className="flex items-center justify-between px-1.5 pb-1.5">
-                      <span className="text-[8px] font-extrabold uppercase tracking-[0.12em] text-slate-400">
-                        Filter Wilayah
-                      </span>
-                      <span className="text-[9px] font-semibold text-slate-400">
-                        {activeTab === "administrasi" ? "Administrasi" : "DAS"}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1">
-                      <label
-                        className={`flex items-center justify-center gap-2 min-h-9 rounded-lg px-2.5 cursor-pointer transition-all ${activeTab === "administrasi" ? "bg-white border border-slate-200 shadow-sm text-slate-800" : "text-slate-500 hover:bg-white/70"}`}
-                      >
-                        <input
-                          type="radio"
-                          name="mainTab"
-                          checked={activeTab === "administrasi"}
-                          onChange={() => handleMainTabChange("administrasi")}
-                          className="w-3.5 h-3.5 accent-emerald-600"
-                        />
-                        <span className="text-[10px] font-bold">
-                          Administrasi
-                        </span>
-                      </label>
-                      <label
-                        className={`flex items-center justify-center gap-2 min-h-9 rounded-lg px-2.5 cursor-pointer transition-all ${activeTab === "das" ? "bg-white border border-slate-200 shadow-sm text-slate-800" : "text-slate-500 hover:bg-white/70"}`}
-                      >
-                        <input
-                          type="radio"
-                          name="mainTab"
-                          checked={activeTab === "das"}
-                          onChange={() => handleMainTabChange("das")}
-                          className="w-3.5 h-3.5 accent-emerald-600"
-                        />
-                        <span className="text-[10px] font-bold">DAS</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Enterprise geographic search — directly below mode selector */}
-                <div className="hidden">
+                {/* Administrasi dan DAS — sebelum daftar layer */}
+                <div className="simiti-analysis-section px-2 pt-2">
                   <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-visible">
                     <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
                       <div>
@@ -17391,181 +17524,113 @@ const Kerawanan = () => {
                             : "Daerah Aliran Sungai"}
                         </div>
                       </div>
-                      <span
-                        className={`text-[7px] font-bold px-2 py-1 rounded-full ${activeTab === "administrasi" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}
-                      >
-                        {activeTab === "administrasi" ? "ADMIN" : "DAS"}
-                      </span>
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[8px] font-bold text-slate-600">WILAYAH</span>
                     </div>
                     <div className="p-2.5">
-                      {activeTab === "administrasi" ? (
-                        <>
-                          <div className="grid grid-cols-[105px_1fr] gap-2">
-                            <select
-                              value={adminLevel}
-                              onChange={(e) => {
-                                setAdminLevel(
-                                  e.target.value as typeof adminLevel,
-                                );
-                                setAreaSearchQuery("");
-                                setAreaSearchResults([]);
-                                setShowAreaSearchDropdown(false);
-                              }}
-                              className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[9px] outline-none focus:border-emerald-400"
-                              aria-label="Tingkat administrasi"
-                            >
-                              <option value="provinsi">Provinsi</option>
-                              <option value="kabupaten">Kabupaten/Kota</option>
-                              <option value="kecamatan">Kecamatan</option>
-                              <option value="kelurahan">Kelurahan/Desa</option>
-                            </select>
-                            <div className="relative">
-                              <input
-                                value={areaSearchQuery}
-                                onChange={(e) =>
-                                  handleAreaSearchChange(e.target.value)
-                                }
-                                onFocus={() => {
-                                  if (areaSearchResults.length > 0)
-                                    setShowAreaSearchDropdown(true);
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    e.preventDefault();
-                                    void searchAreas(areaSearchQuery);
-                                  }
-                                }}
-                                className="w-full h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[9px] outline-none focus:border-emerald-400"
-                                placeholder={`Cari ${adminLevel}...`}
-                                aria-label="Cari wilayah administrasi"
-                              />
-                              {showAreaSearchDropdown &&
-                                areaSearchResults.length > 0 && (
-                                  <div className="absolute left-0 right-0 top-9 z-[2400] max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
-                                    {areaSearchResults.map(
-                                      (area: any, index: number) => (
-                                        <button
-                                          key={`${area.id ?? area.kode ?? area.label ?? "area"}-${index}`}
-                                          type="button"
-                                          onClick={() => handleAreaSelect(area)}
-                                          className="w-full px-2.5 py-2 text-left text-[9px] hover:bg-emerald-50 border-b border-slate-100 last:border-0"
-                                        >
-                                          <span className="block font-semibold text-slate-700 truncate">
-                                            {area.label ||
-                                              area.nama ||
-                                              area.name ||
-                                              "Wilayah"}
-                                          </span>
-                                          <span className="block text-[7px] text-slate-400 mt-0.5">
-                                            {area.level || adminLevel}
-                                          </span>
-                                        </button>
-                                      ),
-                                    )}
-                                  </div>
-                                )}
-                            </div>
+                      <div className="space-y-3">
+                        {/* Administrasi: Provinsi, Kabupaten, Kecamatan, Kelurahan */}
+                        <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+                          <div className="mb-2 flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-slate-800">Administrasi</span>
+                            <span className="rounded-full bg-emerald-50 px-2 py-1 text-[8px] font-bold text-emerald-700">ADMIN</span>
                           </div>
-                        </>
-                      ) : (
-                        <div className="relative">
+                          <div className="grid grid-cols-2 gap-x-2.5 gap-y-2">
+                            {[
+                              { level: "provinsi", label: "Provinsi", placeholder: "Cari provinsi..." },
+                              { level: "kabupaten", label: "Kabupaten/Kota", placeholder: "Cari kabupaten..." },
+                              { level: "kecamatan", label: "Kecamatan", placeholder: "Cari kecamatan..." },
+                              { level: "kelurahan", label: "Kelurahan/Desa", placeholder: "Cari kelurahan..." },
+                            ].map((item: any) => {
+                              const selectedArea = selectedAreas.find((area: any) => area.level === item.level);
+                              const isCurrentLevel = adminLevel === item.level;
+                              return (
+                                <div key={item.level} className="relative min-w-0">
+                                  <label className="mb-1 block truncate text-[9px] font-semibold text-slate-600">{item.label}</label>
+                                  <input
+                                    value={isCurrentLevel ? areaSearchQuery : ""}
+                                    onFocus={() => {
+                                      if (!isCurrentLevel) {
+                                        setAdminLevel(item.level);
+                                        setAreaSearchQuery("");
+                                        setAreaSearchResults([]);
+                                        setShowAreaSearchDropdown(false);
+                                      } else if (areaSearchResults.length > 0) {
+                                        setShowAreaSearchDropdown(true);
+                                      }
+                                    }}
+                                    onChange={(e) => {
+                                      if (!isCurrentLevel) setAdminLevel(item.level);
+                                      handleAreaSearchChange(e.target.value);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") { e.preventDefault(); void searchAreas(areaSearchQuery); }
+                                    }}
+                                    className="w-full h-9 rounded-lg border border-slate-200 bg-white px-2 text-[10px] outline-none focus:border-emerald-400"
+                                    placeholder={selectedArea ? (selectedArea.label || selectedArea.nama || selectedArea.name || item.placeholder) : item.placeholder}
+                                    aria-label={item.placeholder}
+                                  />
+                                  {isCurrentLevel && showAreaSearchDropdown && areaSearchResults.length > 0 && (
+                                    <div className="absolute left-0 right-0 top-[calc(100%+3px)] z-[2400] max-h-44 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
+                                      {areaSearchResults.map((area: any, index: number) => (
+                                        <button key={`${area.id ?? area.kode ?? area.label ?? "area"}-${index}`} type="button" onClick={() => handleAreaSelect(area)} className="w-full border-b border-slate-100 px-2.5 py-2 text-left text-[10px] last:border-0 hover:bg-emerald-50">
+                                          <span className="block truncate font-semibold text-slate-700">{area.label || area.nama || area.name || "Wilayah"}</span>
+                                          <span className="mt-0.5 block text-[8px] text-slate-400">{area.level || item.level}</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* DAS search */}
+                        <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+                          <div className="mb-2 flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-slate-800">Daerah Aliran Sungai (DAS)</span>
+                            <span className="rounded-full bg-blue-50 px-2 py-1 text-[8px] font-bold text-blue-700">DAS</span>
+                          </div>
                           <div className="relative">
-                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">
-                              ⌕
-                            </span>
                             <input
                               value={dasSearchQuery}
-                              onChange={(e) =>
-                                handleDasSearchChange(e.target.value)
-                              }
-                              onFocus={() => {
-                                if (dasSearchResults.length > 0)
-                                  setShowDasSearchDropdown(true);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  void searchDas(dasSearchQuery);
-                                }
-                              }}
-                              className="w-full h-9 rounded-lg border border-slate-200 bg-white pl-7 pr-2.5 text-[9px] outline-none focus:border-blue-400 focus:bg-white"
+                              onChange={(e) => handleDasSearchChange(e.target.value)}
+                              onFocus={() => { if (dasSearchResults.length > 0) setShowDasSearchDropdown(true); }}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchDas(dasSearchQuery); } }}
+                              className="w-full h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] outline-none focus:border-blue-400"
                               placeholder="Cari nama DAS..."
-                              aria-label="Cari DAS"
+                              aria-label="Cari nama DAS"
                             />
-                          </div>
-                          {showDasSearchDropdown &&
-                            dasSearchResults.length > 0 && (
-                              <div className="absolute left-0 right-0 top-10 z-[2400] max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
-                                {dasSearchResults.map(
-                                  (das: any, index: number) => (
-                                    <button
-                                      key={`${das.id ?? das.kode ?? das.nama_das ?? "das"}-${index}`}
-                                      type="button"
-                                      onClick={() => handleDasSelect(das)}
-                                      className="w-full px-2.5 py-2 text-left text-[9px] hover:bg-blue-50 border-b border-slate-100 last:border-0"
-                                    >
-                                      <span className="block font-semibold text-slate-700 truncate">
-                                        {das.nama_das ||
-                                          das.label ||
-                                          das.nama ||
-                                          das.name ||
-                                          "DAS"}
-                                      </span>
-                                      <span className="block text-[7px] text-slate-400 mt-0.5">
-                                        Daerah Aliran Sungai
-                                      </span>
-                                    </button>
-                                  ),
-                                )}
+                            {showDasSearchDropdown && dasSearchResults.length > 0 && (
+                              <div className="absolute left-0 right-0 top-10 z-[2400] max-h-44 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
+                                {dasSearchResults.map((das: any, index: number) => (
+                                  <button key={`${das.id ?? das.kode ?? das.nama_das ?? "das"}-${index}`} type="button" onClick={() => handleDasSelect(das)} className="w-full border-b border-slate-100 px-2.5 py-2 text-left text-[10px] last:border-0 hover:bg-blue-50">
+                                    <span className="block truncate font-semibold text-slate-700">{das.nama_das || das.label || das.nama || das.name || "DAS"}</span>
+                                    <span className="mt-0.5 block text-[8px] text-slate-400">Daerah Aliran Sungai</span>
+                                  </button>
+                                ))}
                               </div>
                             )}
+                          </div>
                         </div>
-                      )}
-                      {(activeTab === "administrasi"
-                        ? selectedAreas.length > 0 || Boolean(selectedKhdtkName)
-                        : selectedDas.length > 0) && (
+                      </div>
+                      {(selectedAreas.length > 0 || Boolean(selectedKhdtkName) || selectedDas.length > 0) && (
                         <div className="mt-2 flex flex-wrap gap-1">
-                          {activeTab === "administrasi"
-                            ? <>
-                                {selectedAreas
-                                  .filter((area: any) => !selectedKhdtkName || area.level === "provinsi")
-                                  .map((area: any, index: number) => (
-                                    <button
-                                      key={`${area.label}-${index}`}
-                                      type="button"
-                                      onClick={() => void handleRemoveArea(index)}
-                                      className="max-w-full rounded-full bg-emerald-50 border border-emerald-100 px-2 py-1 text-[7px] font-semibold text-emerald-700 truncate"
-                                      title="Hapus wilayah administrasi"
-                                    >
-                                      {area.label || area.nama || area.name} ×
-                                    </button>
-                                  ))}
-                                {selectedKhdtkName && (
-                                  <span
-                                    className="max-w-full rounded-full bg-green-100 border border-green-200 px-2 py-1 text-[7px] font-bold text-green-800 truncate"
-                                    title="Nama wilayah fokus — hanya polygon KHDTK ini yang aktif"
-                                  >
-                                    {selectedKhdtkName}
-                                  </span>
-                                )}
-                              </>
-                            : selectedDas.map((das: any, index: number) => (
-                                <button
-                                  key={`${das.nama_das}-${index}`}
-                                  type="button"
-                                  onClick={() => void handleRemoveDas(index)}
-                                  className="max-w-full rounded-full bg-blue-50 border border-blue-100 px-2 py-1 text-[7px] font-semibold text-blue-700 truncate"
-                                  title="Hapus DAS"
-                                >
-                                  {das.nama_das ||
-                                    das.label ||
-                                    das.nama ||
-                                    das.name}{" "}
-                                  ×
-                                </button>
-                              ))}
+                          {selectedAreas.map((area: any, index: number) => (
+                            <button key={`${area.label || area.nama || area.name}-${index}`} type="button" onClick={() => void handleRemoveArea(index)} className="max-w-full rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 text-[8px] font-semibold text-emerald-700 truncate" title="Hapus wilayah administrasi">
+                              {area.label || area.nama || area.name} ×
+                            </button>
+                          ))}
+                          {selectedDas.map((das: any, index: number) => (
+                            <button key={`${das.nama_das || das.label || das.nama || das.name}-${index}`} type="button" onClick={() => void handleRemoveDas(index)} className="max-w-full rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[8px] font-semibold text-blue-700 truncate" title="Hapus DAS">
+                              {das.nama_das || das.label || das.nama || das.name} ×
+                            </button>
+                          ))}
+                          {selectedKhdtkName && <span className="max-w-full rounded-full border border-green-200 bg-green-100 px-2 py-1 text-[8px] font-bold text-green-800 truncate">{selectedKhdtkName}</span>}
                         </div>
                       )}
+
+
                     </div>
                   </div>
                 </div>
