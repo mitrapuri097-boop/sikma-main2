@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   area as turfArea,
+  booleanPointInPolygon,
   bbox as turfBbox,
   featureCollection as turfFeatureCollection,
   intersect as turfIntersect,
@@ -828,6 +829,23 @@ const Kerawanan = () => {
         { h: "Daerah Aliran", k: "daerah_ali" },
       ],
     },
+    {
+      id: "sekat_kanal",
+      label: "Sekat Kanal",
+      color: "#64748B",
+      cols: [
+        { h: "Nomor", k: "no" },
+        { h: "Kodefikasi", k: "kodefikasi" },
+        { h: "Jenis", k: "jenis" },
+        { h: "Bahan", k: "bahan" },
+        { h: "Tipe", k: "tipe" },
+        { h: "Desa", k: "desa" },
+        { h: "Kecamatan", k: "kecamatan" },
+        { h: "Kabupaten", k: "kabupaten" },
+        { h: "Provinsi", k: "provinsi" },
+        { h: "Tahun", k: "tahun" },
+      ],
+    },
   ] as const;
 
   const INFRA_IDS = INFRA_LAYERS.map((l) => l.id);
@@ -843,6 +861,7 @@ const Kerawanan = () => {
     pengaman_pantai: [],
     pengendali_sedimen: [],
     pompa_air: [],
+    sekat_kanal: [],
   });
 
   const [bahayaKekeringanData, setBahayaKekeringanData] = useState<
@@ -1270,7 +1289,7 @@ const Kerawanan = () => {
     try {
       if (map.hasLayer(layer)) map.removeLayer(layer);
     } catch (error) {
-      console.warn("âš ️ Leaflet gagal remove layer, dilewati:", error);
+      console.warn("⚠️ Leaflet gagal remove layer, dilewati:", error);
     }
   };
 
@@ -1280,7 +1299,7 @@ const Kerawanan = () => {
       layer.addTo(map);
       return true;
     } catch (error) {
-      console.warn("âš ️ Leaflet gagal add layer, dilewati:", error);
+      console.warn("⚠️ Leaflet gagal add layer, dilewati:", error);
       return false;
     }
   };
@@ -2209,6 +2228,8 @@ const Kerawanan = () => {
       }
 
       // VECTOR / GEOJSON
+      // Gunakan clipping renderer SVG yang sudah ada. Ini menghindari operasi
+      // Turf Intersection massal yang berat pada ribuan feature risiko.
       layerGroup.eachLayer?.((layer: any) => {
         const path = layer?._path as SVGPathElement | undefined;
         const svg = path?.ownerSVGElement;
@@ -2728,6 +2749,146 @@ const Kerawanan = () => {
         console.warn(
           "SIMITI: filter WMS Kawasan Hutan tidak dapat dibentuk; memakai jalur GeoJSON sebagai fallback."
         );
+      }
+
+      // SIMITI_WMS_SUMUR_BOR_REHABILITASI_NASIONAL
+      // Nasional memakai WMS; filter wilayah/DAS/fokus tetap memakai GeoJSON.
+      const isNationalSumurBorWmsContext =
+        tableName === "sumur_bor" &&
+        selectedAreas.length === 0 &&
+        selectedDas.length === 0 &&
+        !activeSpatialFocus?.feature?.geometry;
+
+      const isNationalRehabilitasiHutanWmsContext =
+        tableName === "rehabilitasi_hutan" &&
+        selectedAreas.length === 0 &&
+        selectedDas.length === 0 &&
+        !activeSpatialFocus?.feature?.geometry;
+
+      if (
+        isNationalSumurBorWmsContext ||
+        isNationalRehabilitasiHutanWmsContext
+      ) {
+        const geoserverWmsUrl = String(
+          import.meta.env.VITE_GEOSERVER_WMS_URL ||
+          "/geoserver/simiti/wms"
+        ).trim();
+
+        if (layerGroupsRef.current[tableName]) {
+          safeRemoveMapLayer(layerGroupsRef.current[tableName]);
+          delete layerGroupsRef.current[tableName];
+        }
+
+        layerCacheRef.current.delete(tableName);
+
+        const isSumurBor = tableName === "sumur_bor";
+        const wmsLayerName = isSumurBor
+          ? "simiti:vw_sumur_bor_wms"
+          : "simiti:vw_rehabilitasi_hutan_wms";
+
+        if (!isSumurBor) {
+          setRehabilitasiHutanData([]);
+          colorMappingRef.current.rehabilitasiHutan.clear();
+        }
+
+        const nationalWmsLayer = window.L.tileLayer.wms(
+          geoserverWmsUrl,
+          {
+            layers: wmsLayerName,
+            styles: "",
+            format: "image/png",
+            transparent: true,
+            version: "1.1.1",
+            srs: "EPSG:4326",
+            tiled: false,
+            uppercase: true,
+          }
+        );
+
+        nationalWmsLayer.on("tileerror", (event: any) => {
+          console.error(
+            `SIMITI: tile WMS ${tableName} gagal dimuat`,
+            {
+              layer: wmsLayerName,
+              error:
+                event?.error?.message ||
+                event?.message ||
+                "WMS tile error",
+              tile: event?.tile?.src,
+            }
+          );
+        });
+
+        layerGroupsRef.current[tableName] = nationalWmsLayer;
+        nationalWmsLayer.addTo(mapAtRequest);
+
+        console.log(
+          `SIMITI: ${tableName} menggunakan GeoServer WMS nasional`,
+          {
+            url: geoserverWmsUrl,
+            layer: wmsLayerName,
+            zoom,
+          }
+        );
+
+        return;
+      }
+
+      // SIMITI_WMS_GEOLOGI_NASIONAL
+      // Nasional menggunakan WMS; konteks administrasi/DAS/KHDTK
+      // tetap mempertahankan jalur GeoJSON lama.
+      const isNationalGeologiWmsContext =
+        tableName === "geologi" &&
+        selectedAreas.length === 0 &&
+        selectedDas.length === 0 &&
+        activeSpatialFocus?.layerType !== "khdtk" &&
+        !activeSpatialFocus?.feature?.geometry;
+
+      if (isNationalGeologiWmsContext) {
+        const geoserverWmsUrl = String(
+          import.meta.env.VITE_GEOSERVER_WMS_URL ||
+          "/geoserver/simiti/wms"
+        ).trim();
+
+        if (layerGroupsRef.current[tableName]) {
+          safeRemoveMapLayer(layerGroupsRef.current[tableName]);
+          delete layerGroupsRef.current[tableName];
+        }
+
+        layerCacheRef.current.delete(tableName);
+
+        const geologiWmsLayer = window.L.tileLayer.wms(
+          geoserverWmsUrl,
+          {
+            layers: "simiti:v_geologi_wms",
+            styles: "",
+            format: "image/png",
+            transparent: true,
+            version: "1.1.1",
+            srs: "EPSG:4326",
+            tiled: false,
+          },
+        );
+
+        geologiWmsLayer.on("tileerror", (event: any) => {
+          console.error("SIMITI: tile WMS Geologi gagal dimuat", {
+            error: event?.error?.message || event?.message || "WMS tile error",
+            tile: event?.tile?.src,
+          });
+        });
+
+        layerGroupsRef.current[tableName] = geologiWmsLayer;
+        geologiWmsLayer.addTo(mapAtRequest);
+
+        await fetchGeologiData();
+
+        console.log("SIMITI: Geologi Nasional menggunakan GeoServer WMS", {
+          url: geoserverWmsUrl,
+          layer: "simiti:v_geologi_wms",
+          zoom,
+        });
+
+        return;
       }
 
       // Lahan Kritis nasional memakai GeoServer WMS agar seluruh polygon
@@ -3397,6 +3558,14 @@ const Kerawanan = () => {
           `Format GeoJSON untuk "${tableName}" tidak sesuai. Periksa respons endpoint ${apiLayerName}/geojson.`,
         );
       }
+
+      // PERFORMANCE HOTFIX:
+      // Jangan melakukan Turf Intersection untuk setiap feature risiko saat
+      // menerima GeoJSON. Dataset risiko dapat berisi ribuan polygon; operasi
+      // overlay berulang pada main thread membuat browser tampak hang.
+      // Geometri sumber dipertahankan. Batas administrasi diterapkan melalui
+      // clipping renderer SVG/WMS yang sudah tersedia di applyBencanaClipToLayer.
+      let adminGeometryClipApplied = false;
 
       // CLIP GEOMETRI SEBENARNYA: pecah MultiPolygon KHDTK menjadi Polygon
       // tunggal sebelum intersection. MultiPolygon gabungan dari beberapa
@@ -4837,12 +5006,24 @@ const Kerawanan = () => {
             return window.L.layerGroup();
           }
           const isBencanaLayer = BENCANA_FOCUS_LAYERS.has(String(tableName));
-          const tableColor = isBencanaLayer
-            ? getRiskClassColor(
-                getBencanaFeatureClass(feature),
-                getBencanaLayerColor(String(tableName)),
-              )
-            : getColorForTable(tableName);
+          const isSekatKanalLayer = String(tableName) === "sekat_kanal";
+          const sekatJenis = String(feature?.properties?.jenis ?? "").trim().toUpperCase();
+          const sekatBahan = String(feature?.properties?.bahan ?? "").trim().toUpperCase();
+
+          const tableColor = isSekatKanalLayer
+            ? sekatJenis === "SPILLWAY" && sekatBahan === "BETON"
+              ? "#2563EB"
+              : sekatJenis === "SPILLWAY" && sekatBahan === "KAYU"
+                ? "#D97706"
+                : sekatJenis === "NON SPILLWAY" && sekatBahan === "KAYU"
+                  ? "#16A34A"
+                  : "#64748B"
+            : isBencanaLayer
+              ? getRiskClassColor(
+                  getBencanaFeatureClass(feature),
+                  getBencanaLayerColor(String(tableName)),
+                )
+              : getColorForTable(tableName);
 
           // Point pada layer bencana tetap ditampilkan. Beberapa sumber bencana
           // menyimpan kejadian sebagai Point, jadi jangan dibuang karena itu membuat
@@ -4852,12 +5033,12 @@ const Kerawanan = () => {
           // terbentuk ketika map sedang add/remove/invalidateSize.
           return window.L.circleMarker([lat, lng], {
             renderer: activeGeoJsonRenderer || sharedPointCanvasRenderer,
-            radius: zoom > 10 ? 6 : 4,
+            radius: isSekatKanalLayer ? (zoom > 10 ? 8 : zoom > 7 ? 7 : 6) : (zoom > 10 ? 6 : 4),
             fillColor: tableColor,
-            color: "#000",
-            weight: 1,
+            color: isSekatKanalLayer ? "#FFFFFF" : "#000",
+            weight: isSekatKanalLayer ? 1.5 : 1,
             opacity: 1,
-            fillOpacity: 0.7,
+            fillOpacity: isSekatKanalLayer ? 0.95 : 0.7,
           });
         },
         onEachFeature: function (feature, layer) {
@@ -4869,6 +5050,11 @@ const Kerawanan = () => {
             // Klik pertama belum memilih polygon. Klik kedua pada lokasi
             // yang sama (maks. 30 meter) baru menjalankan identifikasi GIS.
             if (!confirmMapPolygonClick(event?.latlng)) return;
+
+            // Validasi geometri asli: jangan izinkan polygon di luar wilayah
+            // administrasi terpilih lolos hanya karena bounding box beririsan.
+            if (!isPointInsideSelectedAdminAreas(event?.latlng)) return;
+            if (!isPointInsideGeoFeature(event?.latlng, feature)) return;
 
             // ==================================================
             // SIMITI - FEATURE SELECTION LOCK
@@ -4957,6 +5143,10 @@ const Kerawanan = () => {
           }
         },
       });
+      (layerGroup as any)._simitiExactGeometryClip =
+        adminGeometryClipApplied ||
+        (BENCANA_FOCUS_LAYERS.has(String(tableName)) &&
+          selectedSpatialFeatureRef.current?.layerType === "khdtk");
 
       if (
         layerRequestSeqRef.current[tableName] !== requestId ||
@@ -5121,7 +5311,8 @@ const Kerawanan = () => {
         }
       }
   // SIMITI_HATCH_REFRESH_ON_LOAD
-  if (BENCANA_FOCUS_LAYERS.has(String(tableName))) refreshRiskOverlapHatch();
+  // Overlay overlap dihitung pairwise dan sangat mahal untuk layer nasional.
+      // Dinonaktifkan saat pemuatan layer agar interaksi peta tetap responsif.
 
       // Urutan layer stabil, tidak bergantung urutan checkbox diklik.
       // Semua layer risiko tetap memakai fill transparan; garis kelas dan arsiran
@@ -7563,8 +7754,17 @@ const Kerawanan = () => {
         // Layer ini memiliki panel legenda/ringkasan tersendiri.
         setActiveBottomTab("penutupanLahan2024");
         setIsBottomSummaryOpen(true);
+      } else if (tableName === "geologi") {
+        setActiveBottomTab("geologi");
+        setIsBottomSummaryOpen(true);
       } else if (tableName === "lahan_kritis") {
         setActiveBottomTab("lahan_kritis");
+        setIsBottomSummaryOpen(true);
+      } else if (tableName === "sumur_bor") {
+        setActiveBottomTab("sumur_bor");
+        setIsBottomSummaryOpen(true);
+      } else if (tableName === "rehabilitasi_hutan") {
+        setActiveBottomTab("rehabilitasi_hutan");
         setIsBottomSummaryOpen(true);
       }
 
@@ -7742,7 +7942,8 @@ const Kerawanan = () => {
         mapInstanceRef.current.removeLayer(layerGroupsRef.current[tableName]);
         delete layerGroupsRef.current[tableName];
         // SIMITI_HATCH_REFRESH_ON_REMOVE
-        if (BENCANA_FOCUS_LAYERS.has(String(tableName))) refreshRiskOverlapHatch();
+        // Overlay overlap dihitung pairwise dan sangat mahal untuk layer nasional.
+      // Dinonaktifkan saat pemuatan layer agar interaksi peta tetap responsif.
         console.log("Layer removed from map");
 
         if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
@@ -7782,6 +7983,14 @@ const Kerawanan = () => {
         if (tableName === "lahan_kritis") {
           setLahanKritisData([]);
         }
+        if (tableName === "sumur_bor") {
+          layerCacheRef.current.delete("sumur_bor");
+        }
+        if (tableName === "rehabilitasi_hutan") {
+          setRehabilitasiHutanData([]);
+          colorMappingRef.current.rehabilitasiHutan.clear();
+          layerCacheRef.current.delete("rehabilitasi_hutan");
+        }
         if (tableName === "rawan_erosi") {
           setRawanErosiData([]);
         }
@@ -7811,6 +8020,7 @@ const Kerawanan = () => {
       pengaman_pantai: "#2C2C2A",
       pengendali_sedimen: "#D4537E",
       pompa_air: "#888780",
+      sekat_kanal: "#64748B",
     };
     if (infraColors[tableName]) return infraColors[tableName];
     const colors = [
@@ -8727,7 +8937,7 @@ const Kerawanan = () => {
           try {
             mapInstanceRef.current.remove();
           } catch (error) {
-            console.warn("âš ️ Gagal membersihkan instance Leaflet lama:", error);
+            console.warn("⚠️ Gagal membersihkan instance Leaflet lama:", error);
           }
           mapInstanceRef.current = null;
         }
@@ -8872,7 +9082,7 @@ const Kerawanan = () => {
         try {
           mapInstanceRef.current.remove();
         } catch (error) {
-          console.warn("âš ️ Leaflet cleanup warning:", error);
+          console.warn("⚠️ Leaflet cleanup warning:", error);
         }
         mapInstanceRef.current = null;
       }
@@ -9362,9 +9572,62 @@ const Kerawanan = () => {
     }
   };
 
+  // ============================================================
+  // SIMITI PRECISE GIS HIT TEST
+  // Seluruh pengujian menggunakan geometri Polygon/MultiPolygon asli,
+  // bukan bounding box Leaflet. Ring bagian dalam (hole) ikut dihormati.
+  // ============================================================
+  const toPolygonFeature = (value: any) => {
+    if (!value) return null;
+    const geometry = value.type === "Feature"
+      ? value.geometry
+      : value.geometry?.type
+        ? value.geometry
+        : value;
+    if (!geometry || !["Polygon", "MultiPolygon"].includes(String(geometry.type)))
+      return null;
+    return { type: "Feature", properties: {}, geometry };
+  };
+
+  const isPointInsideGeoFeature = (latlng: any, value: any) => {
+    const lat = Number(latlng?.lat);
+    const lng = Number(latlng?.lng);
+    const polygon = toPolygonFeature(value);
+    if (!polygon || !Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+    try {
+      const pointFeature = {
+        type: "Feature",
+        properties: {},
+        geometry: { type: "Point", coordinates: [lng, lat] },
+      };
+      return booleanPointInPolygon(pointFeature as any, polygon as any, {
+        ignoreBoundary: false,
+      });
+    } catch (error) {
+      console.warn("SIMITI precise polygon hit-test gagal:", error);
+      return false;
+    }
+  };
+
+  const isPointInsideSelectedAdminAreas = (latlng: any) => {
+    if (!selectedAreas?.length) return true;
+    const deepestAreas = getDeepestSelectedAdminAreas(selectedAreas);
+    // Jika wilayah telah dipilih tetapi geometri batasnya tidak tersedia,
+    // fail-closed agar identifikasi tidak bocor ke wilayah lain.
+    if (!deepestAreas.length) return false;
+    return deepestAreas.some((area: any) =>
+      isPointInsideGeoFeature(latlng, area?.geom),
+    );
+  };
+
   const identifyEnterpriseAtPoint = (latlng: any) => {
     const map = mapInstanceRef.current;
-    if (!map || !window.L) return false;
+    if (!map || !window.L || !latlng) return false;
+    if (!isPointInsideSelectedAdminAreas(latlng)) {
+      console.info("SIMITI identify ditolak: titik di luar wilayah administrasi terpilih", latlng);
+      return false;
+    }
+
     const point = window.L.latLng(latlng.lat, latlng.lng);
     const candidates: any[] = [];
     const activeKeys = Array.from(activeLayersRef.current || new Set<string>());
@@ -9398,27 +9661,47 @@ const Kerawanan = () => {
           return;
         }
         if (!feature) return;
+
         if (child.getLatLng) {
           const ll = child.getLatLng();
-          if (ll && map.distance(point, ll) <= 35)
+          if (ll && map.distance(point, ll) <= 35) {
             candidates.push({ score: 1, feature, latlng: ll, layerName: key });
-        } else if (child.getBounds) {
+          }
+          return;
+        }
+
+        // Hanya polygon yang benar-benar memuat titik klik yang boleh menjadi
+        // kandidat. getBounds().contains() sengaja tidak dipakai sebagai hit-test.
+        if (isPointInsideGeoFeature(latlng, feature)) {
+          let polygonArea = Number.POSITIVE_INFINITY;
           try {
-            const b = child.getBounds();
-            if (b?.isValid?.() && b.contains(point))
-              candidates.push({
-                score: 2,
-                feature,
-                latlng: point,
-                layerName: key,
-              });
+            polygonArea = turfArea(toPolygonFeature(feature) as any);
           } catch {}
+          candidates.push({
+            score: 2,
+            area: polygonArea,
+            feature,
+            latlng: point,
+            layerName: key,
+          });
         }
       });
     });
 
-    if (!candidates.length) return false;
-    candidates.sort((a, b) => a.score - b.score);
+    if (!candidates.length) {
+      console.info("SIMITI identify: tidak ada feature yang tepat di titik klik", {
+        lat: latlng.lat,
+        lng: latlng.lng,
+        activeLayers: activeKeys,
+      });
+      return false;
+    }
+
+    // Jika beberapa polygon bertumpuk, pilih geometri terkecil yang memuat
+    // titik klik agar objek paling spesifik tidak kalah oleh polygon besar.
+    candidates.sort((a, b) =>
+      a.score - b.score || (a.area ?? Number.POSITIVE_INFINITY) - (b.area ?? Number.POSITIVE_INFINITY),
+    );
     const hit = candidates[0];
     openEnterpriseIdentify(
       hit.feature,
@@ -9563,7 +9846,7 @@ const Kerawanan = () => {
             results.push({
               type: "object",
               icon: data.category?.toLowerCase().includes("banjir")
-                ? "âš ️"
+                ? "⚠️"
                 : "📌",
               label: data.title || data.name || data.namobj || "Objek GIS",
               sublabel: data.category || formatTableName(layerName),
@@ -9843,6 +10126,7 @@ const Kerawanan = () => {
     "pengaman_pantai",
     "pengendali_sedimen",
     "pompa_air",
+    "sekat_kanal",
   ];
 
   useEffect(() => {
@@ -10225,7 +10509,7 @@ const Kerawanan = () => {
     }
 
     if (activeLayers.has("lahan_kritis")) {
-      tabs.push({ id: "lahan_kritis", label: "Lahan Kritis", icon: "âš ️" });
+      tabs.push({ id: "lahan_kritis", label: "Lahan Kritis", icon: "⚠️" });
     }
 
     if (activeLayers.has("rawan_erosi")) {
@@ -10281,6 +10565,13 @@ const Kerawanan = () => {
         icon: "🌲",
       });
     }
+    if (activeLayers.has("sumur_bor")) {
+      tabs.push({
+        id: "sumur_bor",
+        label: "Sumur Bor",
+        icon: "●",
+      });
+    }
     if (activeLayers.has("restorasi_gambut")) {
       tabs.push({
         id: "restorasi_gambut",
@@ -10310,6 +10601,7 @@ const Kerawanan = () => {
     if (activeLayers.has("karhutla_2025")) {
       tabs.push({ id: "kebakaran_2025", label: "Kebakaran 2025", icon: "🔥" });
     }
+
     if (activeLayers.has("kawasan_hutan") || activeLayers.has("97")) {
       tabs.push({ id: "kawasan_hutan", label: "Kawasan Hutan", icon: "🌳" });
     }
@@ -11809,6 +12101,29 @@ const Kerawanan = () => {
         }
         break;
 
+      case "sumur_bor":
+        if (activeLayers.has("sumur_bor")) {
+          return (
+            <div className="p-3 flex items-center gap-3 h-full">
+              <span
+                className="inline-flex items-center justify-center text-xl"
+                style={{ color: "#1976D2", width: "32px" }}
+              >
+                ●
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-gray-700">
+                  Sumur Bor
+                </p>
+                <p className="text-xs text-gray-500">
+                  Titik lokasi sumur bor dari GeoServer WMS
+                </p>
+              </div>
+            </div>
+          );
+        }
+        break;
+
       case "rehabilitasi_hutan":
         if (
           activeLayers.has("rehabilitasi_hutan") &&
@@ -11891,7 +12206,7 @@ const Kerawanan = () => {
             <div className="p-3 flex items-center justify-center h-full">
               <div className="text-center text-gray-500">
                 <p className="text-sm">
-                  Tidak ada data rehabilitasi hutan di area yang dipilih
+                  Legenda poligon: Rehabilitasi Hutan (GeoServer WMS). Rincian jenis tanaman dan luas tersedia melalui filter wilayah.
                 </p>
               </div>
             </div>
@@ -12956,6 +13271,18 @@ const Kerawanan = () => {
           >
             {activeInfra.map((layer, idx) => {
               const rows = infraData[layer.id] || [];
+              const sekatCounts = layer.id === "sekat_kanal"
+                ? rows.reduce((acc: Record<string, number>, row: any) => {
+                    const jenis = String(row?.jenis ?? "").trim().toUpperCase();
+                    const bahan = String(row?.bahan ?? "").trim().toUpperCase();
+                    const key =
+                      jenis === "SPILLWAY" && bahan === "BETON" ? "beton" :
+                      jenis === "SPILLWAY" && bahan === "KAYU" ? "kayu" :
+                      jenis === "NON SPILLWAY" && bahan === "KAYU" ? "non_spillway" : "lainnya";
+                    acc[key] = (acc[key] || 0) + 1;
+                    return acc;
+                  }, { beton: 0, kayu: 0, non_spillway: 0, lainnya: 0 })
+                : null;
 
               return (
                 <section
@@ -13017,6 +13344,23 @@ const Kerawanan = () => {
                       {rows.length} data
                     </span>
                   </div>
+
+                  {layer.id === "sekat_kanal" && sekatCounts && (
+                    <div style={{ padding: "10px 12px", display: "flex", flexWrap: "wrap", gap: "8px 14px", borderBottom: "1px solid #e5e7eb", background: "#f8fafc" }}>
+                      {[
+                        { key: "beton", label: "Spillway Beton", color: "#2563EB" },
+                        { key: "kayu", label: "Spillway Kayu", color: "#D97706" },
+                        { key: "non_spillway", label: "Non Spillway Kayu", color: "#16A34A" },
+                        { key: "lainnya", label: "Lainnya / Kosong", color: "#64748B" },
+                      ].map((item) => (
+                        <div key={item.key} style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "11px", color: "#475569" }}>
+                          <span style={{ width: "9px", height: "9px", borderRadius: "50%", background: item.color, flexShrink: 0 }} />
+                          <span>{item.label}</span>
+                          <strong>{sekatCounts[item.key]}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   {rows.length === 0 ? (
                     <div
@@ -13758,7 +14102,7 @@ const Kerawanan = () => {
             longitude < -180 ||
             longitude > 180
           ) {
-            console.warn("âš ️ Koordinat GPS tidak valid:", {
+            console.warn("⚠️ Koordinat GPS tidak valid:", {
               latitude,
               longitude,
               accuracy,
@@ -13819,14 +14163,14 @@ const Kerawanan = () => {
                   }
                 } catch (circleError) {
                   console.warn(
-                    "âš ️ GPS accuracy circle gagal ditampilkan:",
+                    "⚠️ GPS accuracy circle gagal ditampilkan:",
                     circleError,
                   );
                   gpsAccuracyCircleRef.current = null;
                 }
               } catch (mapError) {
                 console.warn(
-                  "âš ️ Gagal merender lokasi GPS ke Leaflet:",
+                  "⚠️ Gagal merender lokasi GPS ke Leaflet:",
                   mapError,
                 );
               }
@@ -14306,7 +14650,7 @@ const Kerawanan = () => {
     if (lower.includes("karhutla") || lower.includes("kebakaran")) {
       return "border-orange-200 bg-orange-50 text-orange-700";
     }
-    return "border-slate-200 bg-slate-50 text-slate-600";
+    return "border-slate-200 bg-white text-slate-600";
   };
 
   return (
@@ -14748,7 +15092,70 @@ const Kerawanan = () => {
           .kerawanan-workspace { padding-bottom: max(0px, env(safe-area-inset-bottom)); }
         }
 
-        .kerawanan-workspace * { min-width: 0; }
+
+        /* SIMITIGASI right panel — compact two-column reference layout.
+           Existing layer handlers, data flow and palette are unchanged. */
+        .simiti-layer-panel-header {
+          background: #ffffff;
+          border-bottom: 1px solid #e5e7eb;
+          color: #1f2937;
+        }
+        .simiti-layer-panel-header > div {
+          color: #1f2937 !important;
+        }
+        .simiti-layer-panel-header button {
+          color: #6b7280 !important;
+        }
+        .simiti-layer-list {
+          scrollbar-width: thin;
+          scrollbar-color: #c5cbd1 transparent;
+        }
+        .simiti-layer-grid { align-items: stretch; }
+        .simiti-layer-item { min-height: 20px; }
+        .simiti-layer-item input { accent-color: #64748b; }
+        .simiti-layer-list > div { margin-bottom: 10px !important; }
+        /* Garis pemisah tegas antar kategori layer pada panel kanan. */
+        .simiti-layer-category {
+          padding-bottom: 10px;
+          margin-bottom: 12px !important;
+          border-bottom: 3px solid #e2e8f0;
+        }
+
+        .simiti-layer-list h3,
+        .simiti-layer-list > div > div > button {
+          font-size: 10px !important;
+          line-height: 14px !important;
+        }
+        @media (max-width: 1279px) {
+          .kerawanan-workspace {
+            position: relative !important;
+          }
+          .kerawanan-layer-panel {
+            position: absolute !important;
+            top: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            width: min(240px, 60vw) !important;
+            min-width: min(240px, 60vw) !important;
+            max-width: min(240px, 60vw) !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            grid-column: auto !important;
+            grid-row: auto !important;
+            z-index: 1300 !important;
+            border-radius: 0 0 8px 0 !important;
+          }
+          .kerawanan-layer-panel > div {
+            height: 100% !important;
+            border-radius: 0 0 8px 0 !important;
+          }
+          .simiti-layer-list { padding: 6px !important; }
+          .simiti-layer-grid { gap: 4px !important; }
+          .simiti-layer-item { padding: 3px 4px !important; min-height: 19px !important; }
+          .simiti-layer-item span { font-size: 8px !important; line-height: 12px !important; }
+        }
+\n        .kerawanan-workspace * { min-width: 0; }
         .kerawanan-workspace input,
         .kerawanan-workspace select,
         .kerawanan-workspace button { max-width: 100%; }
@@ -16306,7 +16713,171 @@ const Kerawanan = () => {
           }
         }
 
-        `}</style>
+        /* FINAL SIMITIGASI layout: categories stacked vertically,
+           with two checkbox columns inside each category. */
+        .kerawanan-layer-panel .simiti-layer-list.dashboard-scroll {
+          display: flex !important;
+          flex-direction: column !important;
+          flex-wrap: nowrap !important;
+          align-items: stretch !important;
+          justify-content: flex-start !important;
+          gap: 10px !important;
+          padding: 7px !important;
+          overflow-x: hidden !important;
+          overflow-y: auto !important;
+          text-align: left !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-list.dashboard-scroll > div {
+          display: block !important;
+          flex: 0 0 auto !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          margin: 0 0 2px 0 !important;
+          text-align: left !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-list .simiti-layer-grid {
+          display: grid !important;
+          grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+          grid-auto-flow: row !important;
+          align-items: start !important;
+          gap: 4px 6px !important;
+          width: 100% !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-list .simiti-layer-item {
+          display: flex !important;
+          align-items: center !important;
+          justify-content: flex-start !important;
+          width: 100% !important;
+          min-width: 0 !important;
+          min-height: 20px !important;
+          padding: 3px 5px !important;
+          margin: 0 !important;
+          border: 1px solid #e5e7eb !important;
+          border-radius: 3px !important;
+          background: #ffffff !important;
+          text-align: left !important;
+          gap: 5px !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-list .simiti-layer-item input[type="checkbox"] {
+          width: 11px !important;
+          height: 11px !important;
+          min-width: 11px !important;
+          margin: 0 !important;
+          flex: 0 0 11px !important;
+          accent-color: #6b7280 !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-list .simiti-layer-item span {
+          display: block !important;
+          min-width: 0 !important;
+          width: 100% !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+          white-space: nowrap !important;
+          font-size: 12px !important;
+          line-height: 16px !important;
+          text-align: left !important;
+          color: #374151 !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-list h3,
+        .kerawanan-layer-panel .simiti-layer-list > div > div > button:first-child {
+          display: block !important;
+          width: 100% !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          color: #1f2937 !important;
+          font-size: 12px !important;
+          line-height: 17px !important;
+          font-weight: 700 !important;
+          text-align: left !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-list > div > div {
+          justify-content: flex-start !important;
+          text-align: left !important;
+          margin-bottom: 5px !important;
+          padding-bottom: 4px !important;
+          border-bottom: 1px solid #e5e7eb !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-list > div > div > button:last-child {
+          display: none !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-panel-header {
+          background: #ffffff !important;
+          color: #1f2937 !important;
+          border-bottom: 1px solid #e5e7eb !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-panel-header > div {
+          color: #1f2937 !important;
+          text-align: left !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-panel-header button {
+          color: #6b7280 !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-list {
+          scrollbar-color: #cbd5e1 transparent !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-list::-webkit-scrollbar-track {
+          background: transparent !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-list::-webkit-scrollbar-thumb {
+          background: #cbd5e1 !important;
+          border: 0 !important;
+        }
+        .kerawanan-layer-panel .simiti-layer-list::-webkit-scrollbar-thumb:hover,
+        .kerawanan-layer-panel .simiti-layer-list::-webkit-scrollbar-thumb:active {
+          background: #9ca3af !important;
+        }
+        @media (max-width: 767px) {
+          .kerawanan-layer-panel .simiti-layer-list .simiti-layer-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+          }
+        }
+        /* SIMITI PATCH 2026-11-20:
+           Panel bawah mengikuti pola tab Kerawanan-old70.
+           Panel kanan direntangkan sampai batas bawah workspace agar
+           sejajar dengan keseluruhan area peta + panel bawah.
+           Hanya layout; tidak mengubah handler, layer, API, atau data. */
+        @media (min-width: 1280px) {
+          .kerawanan-workspace {
+            position: relative !important;
+            min-height: 0 !important;
+            height: 100% !important;
+            overflow: hidden !important;
+          }
+          .kerawanan-workspace.right-layer-open > .kerawanan-layer-panel {
+            position: absolute !important;
+            top: 12px !important;
+            right: 12px !important;
+            bottom: 0 !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            display: flex !important;
+            flex-direction: column !important;
+            z-index: 1300 !important;
+          }
+          .kerawanan-workspace.right-layer-open > .kerawanan-layer-panel > div {
+            display: flex !important;
+            flex: 1 1 auto !important;
+            flex-direction: column !important;
+            min-height: 0 !important;
+            height: 100% !important;
+          }
+          .kerawanan-workspace.right-layer-open > .kerawanan-layer-panel .dashboard-scroll {
+            flex: 1 1 auto !important;
+            min-height: 0 !important;
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+          }
+          .kerawanan-workspace.right-layer-open > .kerawanan-bottom-summary {
+            align-self: stretch !important;
+          }
+        }
+        `}
+
+
+
+
+</style>
 
       {/* =========================================================
           ENTERPRISE SIDEBAR
@@ -16516,7 +17087,7 @@ const Kerawanan = () => {
                                 {result.icon}
                               </span>
                               <span className="min-w-0 flex-1">
-                                <span className="block text-[10px] font-bold text-slate-800 truncate">
+                                <span className="block text-[10px] font-bold text-slate-800 text-left truncate">
                                   {result.label}
                                 </span>
                                 <span className="block text-[8px] text-slate-400 truncate">
@@ -16686,7 +17257,7 @@ const Kerawanan = () => {
                                   <div className="text-[9px] text-slate-500">
                                     Latitude
                                   </div>
-                                  <div className="break-all font-mono text-[10px] font-bold text-slate-800">
+                                  <div className="break-all font-mono text-[10px] font-bold text-slate-800 text-left">
                                     {mapWeatherPopup.latitude.toFixed(6)}
                                   </div>
                                 </div>
@@ -16694,7 +17265,7 @@ const Kerawanan = () => {
                                   <div className="text-[9px] text-slate-500">
                                     Longitude
                                   </div>
-                                  <div className="break-all font-mono text-[10px] font-bold text-slate-800">
+                                  <div className="break-all font-mono text-[10px] font-bold text-slate-800 text-left">
                                     {mapWeatherPopup.longitude.toFixed(6)}
                                   </div>
                                 </div>
@@ -16745,13 +17316,10 @@ const Kerawanan = () => {
                   : "hidden opacity-0 pointer-events-none"
               }`}
             >
-              <div className="w-full h-full bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-                <div className="px-4 py-3 border-b border-slate-100 flex items-start justify-between">
-                  <div>
-                    <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">
-                      Layer Services
-                    </div>
-                    <div className="text-sm font-extrabold">SIMITI • Layer</div>
+              <div className="w-full h-full bg-white border border-slate-300 shadow-sm overflow-hidden flex flex-col">
+                <div className="simiti-layer-panel-header flex h-9 min-h-9 items-center justify-between gap-2 px-2.5">
+                  <div className="min-w-0 truncate text-[12px] font-extrabold text-white">
+                    <span className="mr-1.5">»</span>SIMITIGASI <span className="font-semibold">(Layer Services)</span>
                   </div>
                   <button
                     onClick={() => {
@@ -16759,7 +17327,7 @@ const Kerawanan = () => {
                       setIsRightLayerPanelOpen(false);
                     }}
                     type="button"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 text-lg hover:bg-slate-100 hover:text-slate-800 transition-colors"
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-white/90 text-lg hover:bg-white/15 transition-colors"
                     aria-label="Sembunyikan panel layer"
                     title="Sembunyikan panel layer"
                   >
@@ -16768,8 +17336,8 @@ const Kerawanan = () => {
                 </div>
 
                 {/* Enterprise filter mode switch */}
-                <div className="px-3 pt-3">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-1.5 shadow-sm">
+                <div className="hidden">
+                  <div className="rounded-xl border border-slate-200 bg-white/80 p-1.5 shadow-sm">
                     <div className="flex items-center justify-between px-1.5 pb-1.5">
                       <span className="text-[8px] font-extrabold uppercase tracking-[0.12em] text-slate-400">
                         Filter Wilayah
@@ -16810,7 +17378,7 @@ const Kerawanan = () => {
                 </div>
 
                 {/* Enterprise geographic search — directly below mode selector */}
-                <div className="px-3 pt-3">
+                <div className="hidden">
                   <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-visible">
                     <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
                       <div>
@@ -16843,7 +17411,7 @@ const Kerawanan = () => {
                                 setAreaSearchResults([]);
                                 setShowAreaSearchDropdown(false);
                               }}
-                              className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[9px] outline-none focus:border-emerald-400"
+                              className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[9px] outline-none focus:border-emerald-400"
                               aria-label="Tingkat administrasi"
                             >
                               <option value="provinsi">Provinsi</option>
@@ -16867,7 +17435,7 @@ const Kerawanan = () => {
                                     void searchAreas(areaSearchQuery);
                                   }
                                 }}
-                                className="w-full h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[9px] outline-none focus:border-emerald-400"
+                                className="w-full h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[9px] outline-none focus:border-emerald-400"
                                 placeholder={`Cari ${adminLevel}...`}
                                 aria-label="Cari wilayah administrasi"
                               />
@@ -16920,7 +17488,7 @@ const Kerawanan = () => {
                                   void searchDas(dasSearchQuery);
                                 }
                               }}
-                              className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 pl-7 pr-2.5 text-[9px] outline-none focus:border-blue-400 focus:bg-white"
+                              className="w-full h-9 rounded-lg border border-slate-200 bg-white pl-7 pr-2.5 text-[9px] outline-none focus:border-blue-400 focus:bg-white"
                               placeholder="Cari nama DAS..."
                               aria-label="Cari DAS"
                             />
@@ -17008,12 +17576,12 @@ const Kerawanan = () => {
                   </div>
                 )}
 
-                <div className="flex-1 overflow-y-auto dashboard-scroll p-3">
-                  <div className="mb-4">
-                    <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-200">
+                <div className="simiti-layer-list flex-1 min-h-0 overflow-y-auto dashboard-scroll p-2">
+                  <div className="simiti-layer-category mb-4">
+                    <div className="flex items-center justify-between mb-1.5 pb-1 border-b border-slate-200 text-left">
                       <button
                         onClick={() => enterpriseToggleGroup("kerawanan")}
-                        className="text-[11px] font-bold text-slate-800 flex-1 text-left"
+                        className="text-[11px] font-bold text-slate-800 text-left flex-1 text-left"
                       >
                         {enterpriseCollapsedGroups.has("kerawanan") ? "▸" : "▾"}{" "}
                         Kerawanan
@@ -17026,7 +17594,7 @@ const Kerawanan = () => {
                       </button>
                     </div>
                     {!enterpriseCollapsedGroups.has("kerawanan") && (
-                      <div className="space-y-1">
+                      <div className="simiti-layer-grid grid grid-cols-2 gap-1">
                         {(currentBounds &&
                         (selectedAreas.length > 0 || selectedDas.length > 0)
                           ? availableLayers.kerawanan
@@ -17036,11 +17604,11 @@ const Kerawanan = () => {
                           .map((layer) => (
                             <label
                               key={layer.id}
-                              className="flex min-w-0 items-start gap-2.5 rounded-lg border border-transparent px-2.5 py-2 hover:border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
+                              className="simiti-layer-item flex min-w-0 items-start gap-1 rounded-[3px] border border-slate-200 bg-white px-1.5 py-1 hover:bg-slate-100 cursor-pointer transition-colors"
                             >
                               <input
                                 type="checkbox"
-                                className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-emerald-700"
+                                className="mt-[1px] h-3 w-3 shrink-0 cursor-pointer accent-slate-500"
                                 checked={activeLayers.has(layer.name)}
                                 onChange={(e) =>
                                   handleLayerToggle(
@@ -17050,7 +17618,7 @@ const Kerawanan = () => {
                                 }
                                 disabled={loadingLayerNames.has(layer.name)}
                               />
-                              <span className="min-w-0 flex-1 break-words text-[10px] leading-4 text-slate-700">
+                              <span className="min-w-0 flex-1 truncate text-[8px] leading-[13px] text-slate-800">
                                 {loadingLayerNames.has(layer.name) ? "⏳ " : ""}
                                 {formatTableName(layer.name)}
                               </span>
@@ -17075,9 +17643,9 @@ const Kerawanan = () => {
                             : "Kejadian";
                       const visibleLayers = (source || []).filter(enterpriseMatchesLayer);
                       return (
-                        <div key={section} className="mb-4">
-                          <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-200">
-                            <h3 className="text-[11px] font-bold text-slate-800">
+                        <div key={section} className="simiti-layer-category mb-4">
+                          <div className="flex items-center justify-between mb-1.5 pb-1 border-b border-slate-200 text-left">
+                            <h3 className="text-[11px] font-bold text-slate-800 text-left">
                               {title}
                             </h3>
                             {section !== "kejadian" && (
@@ -17090,15 +17658,15 @@ const Kerawanan = () => {
                             )}
                           </div>
                           {!enterpriseCollapsedGroups.has(section) && (
-                            <div className="space-y-1">
+                            <div className="simiti-layer-grid grid grid-cols-2 gap-1">
                               {visibleLayers.map((layer: any) => (
                                   <label
                                     key={layer.id}
-                                    className="flex min-w-0 items-start gap-2.5 rounded-lg border border-transparent px-2.5 py-2 hover:border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
+                                    className="simiti-layer-item flex min-w-0 items-start gap-1 rounded-[3px] border border-slate-200 bg-white px-1.5 py-1 hover:bg-slate-100 cursor-pointer transition-colors"
                                   >
                                     <input
                                       type="checkbox"
-                                      className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-emerald-700"
+                                      className="mt-[1px] h-3 w-3 shrink-0 cursor-pointer accent-slate-500"
                                       checked={
                                         activeLayers.has(
                                           String(
@@ -17132,7 +17700,7 @@ const Kerawanan = () => {
                                         layer.name,
                                       )}
                                     />
-                                    <span className="min-w-0 flex-1 break-words text-[10px] leading-4 text-slate-700">
+                                    <span className="min-w-0 flex-1 truncate text-[8px] leading-[13px] text-slate-800">
                                       {formatTableName(layer.name)}
                                     </span>
                                   </label>
@@ -17180,6 +17748,7 @@ const Kerawanan = () => {
                     dta_danau: "dta_danau",
                     rehabilitasi_das: "rehabilitasi_das",
                     rehabilitasi_hutan: "rehabilitasi_hutan",
+                    sumur_bor: "sumur_bor",
                     restorasi_gambut: "restorasi_gambut",
                     penerapan_teknik_kta: "penerapan_teknik_kta",
                     kebakaran_2021: "karhutla_2021",
@@ -17478,7 +18047,7 @@ const Kerawanan = () => {
                     {uploadedFiles.length === 0 ? (
                       <label
                         htmlFor="shapefileInput"
-                        className={`group flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center transition ${
+                        className={`group flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-white px-5 py-8 text-center transition ${
                           isUploading
                             ? "cursor-not-allowed opacity-60"
                             : "hover:border-emerald-400 hover:bg-emerald-50/40"
@@ -17643,7 +18212,7 @@ const Kerawanan = () => {
                         </div>
 
                         {/* Validation */}
-                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <div className="rounded-lg border border-slate-200 bg-white p-3">
                           <div className="mb-2 flex items-center justify-between">
                             <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
                               Dataset Validation
@@ -17708,7 +18277,7 @@ const Kerawanan = () => {
                             f.name.toLowerCase().endsWith(".shp"),
                           ) && (
                             <div className="mt-2 flex items-center gap-1.5 text-[9px] text-rose-500">
-                              <span>âš </span>
+                              <span>⚠</span>
                               File .shp wajib tersedia sebelum publikasi.
                             </div>
                           )}
@@ -18161,7 +18730,7 @@ const Kerawanan = () => {
             ) : (
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                  <div className="rounded-xl border border-slate-200 bg-white p-2.5">
                     <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
                       Latitude
                     </div>
@@ -18169,7 +18738,7 @@ const Kerawanan = () => {
                       {gpsLocation.latitude?.toFixed(6) ?? "-"}
                     </div>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                  <div className="rounded-xl border border-slate-200 bg-white p-2.5">
                     <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
                       Longitude
                     </div>
@@ -18276,7 +18845,7 @@ const Kerawanan = () => {
                           className="flex items-center justify-between gap-2 rounded-lg border border-white bg-white px-2.5 py-2 shadow-sm"
                         >
                           <div className="min-w-0">
-                            <div className="truncate text-[10px] font-bold text-slate-800">
+                            <div className="truncate text-[10px] font-bold text-slate-800 text-left">
                               {threat.label}
                             </div>
                             <div className="mt-0.5 text-[9px] text-slate-500">
