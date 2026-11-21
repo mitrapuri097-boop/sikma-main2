@@ -5391,23 +5391,26 @@ const Kerawanan = () => {
     }
   };
 
+  // Request sequence menjaga hasil pencarian terbaru agar tidak ditimpa
+  // respons request lama ketika pengguna mengetik cepat / mengganti level.
+  const areaSearchRequestRef = useRef(0);
+  const dasSearchRequestRef = useRef(0);
+
   const searchAreas = async (
     query: string,
     levelOverride?: typeof adminLevel,
   ) => {
-    if (query.trim().length < 2) {
+    const trimmed = query.trim();
+    const requestId = ++areaSearchRequestRef.current;
+
+    if (trimmed.length < 2) {
       setAreaSearchResults([]);
       setShowAreaSearchDropdown(false);
       return;
     }
 
     const level = levelOverride || adminLevel;
-    const params = new URLSearchParams({
-      query: query.trim(),
-      level,
-    });
-
-    // Ambil wilayah induk yang dipilih untuk membatasi pencarian anak.
+    const params = new URLSearchParams({ query: trimmed, level });
     const latest = (targetLevel: string) =>
       [...selectedAreas].reverse().find((area) => area.level === targetLevel);
 
@@ -5428,16 +5431,17 @@ const Kerawanan = () => {
     try {
       const response = await fetch(
         `${API_URL}/api/areas/search?${params.toString()}`,
+        { headers: { Accept: "application/json" } },
       );
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       const data = await response.json();
-      setAreaSearchResults(Array.isArray(data) ? data : []);
-      setShowAreaSearchDropdown(true);
+      if (requestId !== areaSearchRequestRef.current) return;
+      const results = Array.isArray(data) ? data : [];
+      setAreaSearchResults(results);
+      setShowAreaSearchDropdown(results.length > 0);
     } catch (error) {
+      if (requestId !== areaSearchRequestRef.current) return;
       console.error("Error searching areas:", error);
       setAreaSearchResults([]);
       setShowAreaSearchDropdown(false);
@@ -6801,52 +6805,75 @@ const Kerawanan = () => {
     };
   }, []);
 
-  // Debounced search
-  const debouncedSearch = useRef<NodeJS.Timeout>();
+  // Debounced search responsif: minimal 2 karakter, jeda 280 ms,
+  // dan hanya hasil request terakhir yang boleh ditampilkan.
+  const debouncedSearch = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleAreaSearchChange = (value: string) => {
     setAreaSearchQuery(value);
+    if (debouncedSearch.current) clearTimeout(debouncedSearch.current);
 
-    if (debouncedSearch.current) {
-      clearTimeout(debouncedSearch.current);
+    const trimmed = value.trim();
+    if (trimmed.length < 2) {
+      areaSearchRequestRef.current += 1;
+      setAreaSearchResults([]);
+      setShowAreaSearchDropdown(false);
+      return;
     }
-
-    debouncedSearch.current = setTimeout(() => {
-      searchAreas(value);
-    }, 300);
+    debouncedSearch.current = setTimeout(() => void searchAreas(trimmed), 280);
   };
 
   const searchDas = async (query: string) => {
-    if (query.trim().length < 2) {
+    const trimmed = query.trim();
+    const requestId = ++dasSearchRequestRef.current;
+    if (trimmed.length < 2) {
       setDasSearchResults([]);
+      setShowDasSearchDropdown(false);
       return;
     }
 
     try {
       const response = await fetch(
-        `${API_URL}/api/das/search?query=${encodeURIComponent(query)}`,
+        `${API_URL}/api/das/search?query=${encodeURIComponent(trimmed)}`,
+        { headers: { Accept: "application/json" } },
       );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
       const data = await response.json();
-      setDasSearchResults(data);
-      setShowDasSearchDropdown(true);
+      if (requestId !== dasSearchRequestRef.current) return;
+      const results = Array.isArray(data) ? data : [];
+      setDasSearchResults(results);
+      setShowDasSearchDropdown(results.length > 0);
     } catch (error) {
+      if (requestId !== dasSearchRequestRef.current) return;
       console.error("Error searching DAS:", error);
       setDasSearchResults([]);
+      setShowDasSearchDropdown(false);
     }
   };
 
-  // Debounced search untuk DAS
-  const debouncedDasSearch = useRef<NodeJS.Timeout>();
+  const debouncedDasSearch = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleDasSearchChange = (value: string) => {
     setDasSearchQuery(value);
+    if (debouncedDasSearch.current) clearTimeout(debouncedDasSearch.current);
 
-    if (debouncedDasSearch.current) {
-      clearTimeout(debouncedDasSearch.current);
+    const trimmed = value.trim();
+    if (trimmed.length < 2) {
+      dasSearchRequestRef.current += 1;
+      setDasSearchResults([]);
+      setShowDasSearchDropdown(false);
+      return;
     }
-
-    debouncedDasSearch.current = setTimeout(() => {
-      searchDas(value);
-    }, 300);
+    debouncedDasSearch.current = setTimeout(() => void searchDas(trimmed), 280);
   };
+
+  useEffect(() => {
+    return () => {
+      if (debouncedSearch.current) clearTimeout(debouncedSearch.current);
+      if (debouncedDasSearch.current) clearTimeout(debouncedDasSearch.current);
+      areaSearchRequestRef.current += 1;
+      dasSearchRequestRef.current += 1;
+    };
+  }, []);
 
   // Function untuk select DAS
   const handleDasSelect = (das: any) => {
@@ -17510,127 +17537,135 @@ const Kerawanan = () => {
                   </button>
                 </div>
 
-                {/* Administrasi dan DAS — sebelum daftar layer */}
+                {/* Wilayah Analisis — pola interaksi dari Kerawanan-old50 */}
                 <div className="simiti-analysis-section px-2 pt-2">
-                  <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-visible">
-                    <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
-                      <div>
-                        <div className="text-[8px] font-extrabold uppercase tracking-[0.12em] text-slate-400">
-                          Wilayah Analisis
-                        </div>
-                        <div className="text-[9px] font-semibold text-slate-700 mt-0.5">
-                          {activeTab === "administrasi"
-                            ? "Administrasi"
-                            : "Daerah Aliran Sungai"}
-                        </div>
-                      </div>
-                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[8px] font-bold text-slate-600">WILAYAH</span>
+                  <div className="mb-2 rounded-xl border border-slate-200 bg-slate-50 p-1">
+                    <div className="grid grid-cols-2 gap-1">
+                      <label className={`flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-lg px-2.5 transition-all ${activeTab === "administrasi" ? "border border-slate-200 bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:bg-white/70"}`}>
+                        <input type="radio" name="kerawananMainTab" checked={activeTab === "administrasi"} onChange={() => handleMainTabChange("administrasi")} className="h-3.5 w-3.5 accent-emerald-600" />
+                        <span className="text-[10px] font-bold">Administrasi</span>
+                      </label>
+                      <label className={`flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-lg px-2.5 transition-all ${activeTab === "das" ? "border border-slate-200 bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:bg-white/70"}`}>
+                        <input type="radio" name="kerawananMainTab" checked={activeTab === "das"} onChange={() => handleMainTabChange("das")} className="h-3.5 w-3.5 accent-blue-600" />
+                        <span className="text-[10px] font-bold">DAS</span>
+                      </label>
                     </div>
-                    <div className="p-2.5">
-                      <div className="space-y-3">
-                        {/* Administrasi: Provinsi, Kabupaten, Kecamatan, Kelurahan */}
-                        <div className="rounded-lg border border-slate-200 bg-white p-2.5">
-                          <div className="mb-2 flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-slate-800">Administrasi</span>
-                            <span className="rounded-full bg-emerald-50 px-2 py-1 text-[8px] font-bold text-emerald-700">ADMIN</span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-x-2.5 gap-y-2">
-                            {[
-                              { level: "provinsi", label: "Provinsi", placeholder: "Cari provinsi..." },
-                              { level: "kabupaten", label: "Kabupaten/Kota", placeholder: "Cari kabupaten..." },
-                              { level: "kecamatan", label: "Kecamatan", placeholder: "Cari kecamatan..." },
-                              { level: "kelurahan", label: "Kelurahan/Desa", placeholder: "Cari kelurahan..." },
-                            ].map((item: any) => {
-                              const selectedArea = selectedAreas.find((area: any) => area.level === item.level);
-                              const isCurrentLevel = adminLevel === item.level;
-                              return (
-                                <div key={item.level} className="relative min-w-0">
-                                  <label className="mb-1 block truncate text-[9px] font-semibold text-slate-600">{item.label}</label>
-                                  <input
-                                    value={isCurrentLevel ? areaSearchQuery : ""}
-                                    onFocus={() => {
-                                      if (!isCurrentLevel) {
-                                        setAdminLevel(item.level);
-                                        setAreaSearchQuery("");
-                                        setAreaSearchResults([]);
-                                        setShowAreaSearchDropdown(false);
-                                      } else if (areaSearchResults.length > 0) {
-                                        setShowAreaSearchDropdown(true);
-                                      }
-                                    }}
-                                    onChange={(e) => {
-                                      if (!isCurrentLevel) setAdminLevel(item.level);
-                                      handleAreaSearchChange(e.target.value);
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") { e.preventDefault(); void searchAreas(areaSearchQuery); }
-                                    }}
-                                    className="w-full h-9 rounded-lg border border-slate-200 bg-white px-2 text-[10px] outline-none focus:border-emerald-400"
-                                    placeholder={selectedArea ? (selectedArea.label || selectedArea.nama || selectedArea.name || item.placeholder) : item.placeholder}
-                                    aria-label={item.placeholder}
-                                  />
-                                  {isCurrentLevel && showAreaSearchDropdown && areaSearchResults.length > 0 && (
-                                    <div className="absolute left-0 right-0 top-[calc(100%+3px)] z-[2400] max-h-44 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
-                                      {areaSearchResults.map((area: any, index: number) => (
-                                        <button key={`${area.id ?? area.kode ?? area.label ?? "area"}-${index}`} type="button" onClick={() => handleAreaSelect(area)} className="w-full border-b border-slate-100 px-2.5 py-2 text-left text-[10px] last:border-0 hover:bg-emerald-50">
-                                          <span className="block truncate font-semibold text-slate-700">{area.label || area.nama || area.name || "Wilayah"}</span>
-                                          <span className="mt-0.5 block text-[8px] text-slate-400">{area.level || item.level}</span>
-                                        </button>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
+                  </div>
 
-                        {/* DAS search */}
-                        <div className="rounded-lg border border-slate-200 bg-white p-2.5">
-                          <div className="mb-2 flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-slate-800">Daerah Aliran Sungai (DAS)</span>
-                            <span className="rounded-full bg-blue-50 px-2 py-1 text-[8px] font-bold text-blue-700">DAS</span>
-                          </div>
-                          <div className="relative">
+                  <div className="overflow-visible rounded-xl border border-slate-200 bg-white shadow-sm">
+                    <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+                      <div>
+                        <div className="text-[8px] font-extrabold uppercase tracking-[0.12em] text-slate-400">Wilayah Analisis</div>
+                        <div className="mt-0.5 text-[9px] font-semibold text-slate-700">{activeTab === "administrasi" ? "Administrasi" : "Daerah Aliran Sungai"}</div>
+                      </div>
+                      <span className={`rounded-full px-2 py-1 text-[7px] font-bold ${activeTab === "administrasi" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>{activeTab === "administrasi" ? "ADMIN" : "DAS"}</span>
+                    </div>
+
+                    <div className="overflow-visible p-2.5">
+                      {activeTab === "administrasi" ? (
+                        <div className="grid grid-cols-[minmax(105px,0.8fr)_minmax(0,1.5fr)] gap-2">
+                          <select
+                            value={adminLevel}
+                            onChange={(e) => {
+                              const nextLevel = e.target.value as typeof adminLevel;
+                              setAdminLevel(nextLevel);
+                              if (debouncedSearch.current) clearTimeout(debouncedSearch.current);
+                              areaSearchRequestRef.current += 1;
+                              setAreaSearchQuery("");
+                              setAreaSearchResults([]);
+                              setShowAreaSearchDropdown(false);
+                            }}
+                            className="h-10 min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[10px] text-slate-700 outline-none transition-colors focus:border-emerald-400 focus:bg-white"
+                            aria-label="Tingkat administrasi"
+                          >
+                            <option value="provinsi">Provinsi</option>
+                            <option value="kabupaten">Kabupaten/Kota</option>
+                            <option value="kecamatan">Kecamatan</option>
+                            <option value="kelurahan">Kelurahan/Desa</option>
+                          </select>
+
+                          <div className="relative min-w-0">
                             <input
-                              value={dasSearchQuery}
-                              onChange={(e) => handleDasSearchChange(e.target.value)}
-                              onFocus={() => { if (dasSearchResults.length > 0) setShowDasSearchDropdown(true); }}
-                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchDas(dasSearchQuery); } }}
-                              className="w-full h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] outline-none focus:border-blue-400"
-                              placeholder="Cari nama DAS..."
-                              aria-label="Cari nama DAS"
+                              value={areaSearchQuery}
+                              onChange={(e) => handleAreaSearchChange(e.target.value)}
+                              onFocus={() => { if (areaSearchResults.length > 0) setShowAreaSearchDropdown(true); }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  if (debouncedSearch.current) clearTimeout(debouncedSearch.current);
+                                  void searchAreas(areaSearchQuery);
+                                } else if (e.key === "Escape") setShowAreaSearchDropdown(false);
+                              }}
+                              autoComplete="off"
+                              spellCheck={false}
+                              className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[10px] text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white"
+                              placeholder={`Cari ${adminLevel}...`}
+                              aria-label={`Cari ${adminLevel}`}
                             />
-                            {showDasSearchDropdown && dasSearchResults.length > 0 && (
-                              <div className="absolute left-0 right-0 top-10 z-[2400] max-h-44 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
-                                {dasSearchResults.map((das: any, index: number) => (
-                                  <button key={`${das.id ?? das.kode ?? das.nama_das ?? "das"}-${index}`} type="button" onClick={() => handleDasSelect(das)} className="w-full border-b border-slate-100 px-2.5 py-2 text-left text-[10px] last:border-0 hover:bg-blue-50">
-                                    <span className="block truncate font-semibold text-slate-700">{das.nama_das || das.label || das.nama || das.name || "DAS"}</span>
-                                    <span className="mt-0.5 block text-[8px] text-slate-400">Daerah Aliran Sungai</span>
+                            {showAreaSearchDropdown && areaSearchResults.length > 0 && (
+                              <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-[2400] max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
+                                {areaSearchResults.map((area: any, index: number) => (
+                                  <button key={`${area.id ?? area.kode ?? area.label ?? "area"}-${index}`} type="button" onClick={() => handleAreaSelect(area)} className="w-full border-b border-slate-100 px-2.5 py-2 text-left last:border-0 hover:bg-emerald-50">
+                                    <span className="block truncate text-[10px] font-semibold text-slate-700">{area.label || area.nama || area.name || "Wilayah"}</span>
+                                    <span className="mt-0.5 block text-[8px] text-slate-400">{area.level || adminLevel}</span>
                                   </button>
                                 ))}
                               </div>
                             )}
                           </div>
                         </div>
-                      </div>
-                      {(selectedAreas.length > 0 || Boolean(selectedKhdtkName) || selectedDas.length > 0) && (
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {selectedAreas.map((area: any, index: number) => (
-                            <button key={`${area.label || area.nama || area.name}-${index}`} type="button" onClick={() => void handleRemoveArea(index)} className="max-w-full rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 text-[8px] font-semibold text-emerald-700 truncate" title="Hapus wilayah administrasi">
-                              {area.label || area.nama || area.name} ×
-                            </button>
-                          ))}
-                          {selectedDas.map((das: any, index: number) => (
-                            <button key={`${das.nama_das || das.label || das.nama || das.name}-${index}`} type="button" onClick={() => void handleRemoveDas(index)} className="max-w-full rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[8px] font-semibold text-blue-700 truncate" title="Hapus DAS">
-                              {das.nama_das || das.label || das.nama || das.name} ×
-                            </button>
-                          ))}
-                          {selectedKhdtkName && <span className="max-w-full rounded-full border border-green-200 bg-green-100 px-2 py-1 text-[8px] font-bold text-green-800 truncate">{selectedKhdtkName}</span>}
+                      ) : (
+                        <div className="relative">
+                          <input
+                            value={dasSearchQuery}
+                            onChange={(e) => handleDasSearchChange(e.target.value)}
+                            onFocus={() => { if (dasSearchResults.length > 0) setShowDasSearchDropdown(true); }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                if (debouncedDasSearch.current) clearTimeout(debouncedDasSearch.current);
+                                void searchDas(dasSearchQuery);
+                              } else if (e.key === "Escape") setShowDasSearchDropdown(false);
+                            }}
+                            autoComplete="off"
+                            spellCheck={false}
+                            className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[10px] text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-400 focus:bg-white"
+                            placeholder="Cari nama DAS..."
+                            aria-label="Cari nama DAS"
+                          />
+                          {showDasSearchDropdown && dasSearchResults.length > 0 && (
+                            <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-[2400] max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
+                              {dasSearchResults.map((das: any, index: number) => (
+                                <button key={`${das.id ?? das.kode ?? das.nama_das ?? "das"}-${index}`} type="button" onClick={() => handleDasSelect(das)} className="w-full border-b border-slate-100 px-2.5 py-2 text-left last:border-0 hover:bg-blue-50">
+                                  <span className="block truncate text-[10px] font-semibold text-slate-700">{das.nama_das || das.label || das.nama || das.name || "DAS"}</span>
+                                  <span className="mt-0.5 block text-[8px] text-slate-400">Daerah Aliran Sungai</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
 
-
+                      {(activeTab === "administrasi" ? selectedAreas.length > 0 || Boolean(selectedKhdtkName) : selectedDas.length > 0) && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {activeTab === "administrasi" ? (
+                            <>
+                              {selectedAreas.map((area: any, index: number) => (
+                                <button key={`${area.label || area.nama || area.name}-${index}`} type="button" onClick={() => void handleRemoveArea(index)} className="max-w-full truncate rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 text-[8px] font-semibold text-emerald-700" title="Hapus wilayah administrasi">
+                                  {area.label || area.nama || area.name} ×
+                                </button>
+                              ))}
+                              {selectedKhdtkName && <span className="max-w-full truncate rounded-full border border-green-200 bg-green-100 px-2 py-1 text-[8px] font-bold text-green-800">{selectedKhdtkName}</span>}
+                            </>
+                          ) : (
+                            selectedDas.map((das: any, index: number) => (
+                              <button key={`${das.nama_das || das.label || das.nama || das.name}-${index}`} type="button" onClick={() => void handleRemoveDas(index)} className="max-w-full truncate rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[8px] font-semibold text-blue-700" title="Hapus DAS">
+                                {das.nama_das || das.label || das.nama || das.name} ×
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
