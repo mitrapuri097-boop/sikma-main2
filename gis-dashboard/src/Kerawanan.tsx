@@ -1307,7 +1307,7 @@ const Kerawanan = () => {
     try {
       if (map.hasLayer(layer)) map.removeLayer(layer);
     } catch (error) {
-      console.warn("âš ï¸ Leaflet gagal remove layer, dilewati:", error);
+      console.warn("⚠️ Leaflet gagal remove layer, dilewati:", error);
     }
   };
 
@@ -1317,7 +1317,7 @@ const Kerawanan = () => {
       layer.addTo(map);
       return true;
     } catch (error) {
-      console.warn("âš ï¸ Leaflet gagal add layer, dilewati:", error);
+      console.warn("⚠️ Leaflet gagal add layer, dilewati:", error);
       return false;
     }
   };
@@ -5504,15 +5504,15 @@ if (
         `✅ Layer "${tableName}" berhasil dimuat dengan ${filterType} (${geojsonData.features.length} features)`,
       );
     } catch (error) {
-      console.error("âŒ Error loading layer:", error);
+      console.error("❌ Error loading layer:", error);
 
       let errorMessage = "";
       if (error instanceof TypeError && error.message.includes("fetch")) {
         errorMessage = `🔌 Koneksi error: Tidak dapat terhubung ke server untuk layer "${tableName}".`;
       } else if (error instanceof Error && error.message.includes("HTTP")) {
-        errorMessage = `âŒ Server error: ${error.message} untuk layer "${tableName}".`;
+        errorMessage = `❌ Server error: ${error.message} untuk layer "${tableName}".`;
       } else {
-        errorMessage = `âŒ Error memuat layer "${tableName}": ${error instanceof Error ? error.message : "Unknown error"}`;
+        errorMessage = `❌ Error memuat layer "${tableName}": ${error instanceof Error ? error.message : "Unknown error"}`;
       }
 
       setLayerError(errorMessage);
@@ -7085,11 +7085,11 @@ if (
 
           console.log("✅ DAS boundary rendered with key:", boundaryKey);
         } catch (error) {
-          console.error("âŒ Error rendering DAS boundary:", error);
+          console.error("❌ Error rendering DAS boundary:", error);
         }
       } else {
         console.log(
-          "âŒ Cannot render DAS boundary - geom missing or map not ready",
+          "❌ Cannot render DAS boundary - geom missing or map not ready",
         );
       }
 
@@ -7119,7 +7119,7 @@ if (
     if (layerGroupsRef.current[boundaryKey]) {
       safeRemoveMapLayer(layerGroupsRef.current[boundaryKey]);
       delete layerGroupsRef.current[boundaryKey];
-      console.log("ðŸ—‘ï¸ Removed DAS boundary:", boundaryKey);
+      console.log("🗑️ Removed DAS boundary:", boundaryKey);
     }
 
     if (newSelectedDas.length > 0) {
@@ -7424,11 +7424,11 @@ if (
             boundaryKey,
           );
         } catch (error) {
-          console.error("âŒ Error rendering admin boundary:", error);
+          console.error("❌ Error rendering admin boundary:", error);
         }
       } else {
         console.log(
-          "âŒ Cannot render admin boundary - geom missing or map not ready",
+          "❌ Cannot render admin boundary - geom missing or map not ready",
         );
       }
 
@@ -7471,7 +7471,7 @@ if (
     if (layerGroupsRef.current[boundaryKey]) {
       safeRemoveMapLayer(layerGroupsRef.current[boundaryKey]);
       delete layerGroupsRef.current[boundaryKey];
-      console.log("ðŸ—‘ï¸ Removed admin boundary:", boundaryKey);
+      console.log("🗑️ Removed admin boundary:", boundaryKey);
     }
 
     if (newSelectedAreas.length > 0) {
@@ -9214,7 +9214,7 @@ if (
       // Kunci init supaya dua callback script tidak pernah membuat map bersamaan.
       if (mapInitializingRef.current) return;
       if (mapInstanceRef.current) {
-        console.log("ðŸ—ºï¸ Leaflet map sudah ada, skip initialization");
+        console.log("🗺️ Leaflet map sudah ada, skip initialization");
         return;
       }
 
@@ -9225,13 +9225,13 @@ if (
 
       if (container._leaflet_id) {
         console.log(
-          "ðŸ—ºï¸ Map container masih memiliki instance Leaflet sebelumnya.",
+          "🗺️ Map container masih memiliki instance Leaflet sebelumnya.",
         );
         if (mapInstanceRef.current) {
           try {
             mapInstanceRef.current.remove();
           } catch (error) {
-            console.warn("âš ï¸ Gagal membersihkan instance Leaflet lama:", error);
+            console.warn("⚠️ Gagal membersihkan instance Leaflet lama:", error);
           }
           mapInstanceRef.current = null;
         }
@@ -9376,7 +9376,7 @@ if (
         try {
           mapInstanceRef.current.remove();
         } catch (error) {
-          console.warn("âš ï¸ Leaflet cleanup warning:", error);
+          console.warn("⚠️ Leaflet cleanup warning:", error);
         }
         mapInstanceRef.current = null;
       }
@@ -10072,7 +10072,7 @@ if (
             .forEach((area: any) => {
               results.push({
                 type: "location",
-                icon: "ðŸ“",
+                icon: "📍",
                 label: area.label || area.kab_kota || area.provinsi || q,
                 sublabel: [area.level, area.provinsi]
                   .filter(Boolean)
@@ -10140,7 +10140,7 @@ if (
             results.push({
               type: "object",
               icon: data.category?.toLowerCase().includes("banjir")
-                ? "âš ï¸"
+                ? "⚠️"
                 : "📌",
               label: data.title || data.name || data.namobj || "Objek GIS",
               sublabel: data.category || formatTableName(layerName),
@@ -10803,15 +10803,15 @@ if (
     }
 
     if (activeLayers.has("lahan_kritis")) {
-      tabs.push({ id: "lahan_kritis", label: "Lahan Kritis", icon: "âš ï¸" });
+      tabs.push({ id: "lahan_kritis", label: "Lahan Kritis", icon: "⚠️" });
     }
 
     if (activeLayers.has("rawan_erosi")) {
-      tabs.push({ id: "rawan_erosi", label: "Rawan Erosi", icon: "ðŸ”ï¸" });
+      tabs.push({ id: "rawan_erosi", label: "Rawan Erosi", icon: "⛰️" });
     }
 
     if (activeLayers.has("rawan_longsor")) {
-      tabs.push({ id: "rawan_longsor", label: "Rawan Longsor", icon: "â›°ï¸" });
+      tabs.push({ id: "rawan_longsor", label: "Rawan Longsor", icon: "⛰️" });
     }
 
     if (activeLayers.has("rawan_limpasan")) {
@@ -10826,14 +10826,14 @@ if (
       tabs.push({
         id: "bahaya_kekeringan",
         label: "Bahaya Kekeringan",
-        icon: "â˜€ï¸",
+        icon: "☀️",
       });
     }
     if (activeLayers.has("bahaya_abrasi_dan_gelombang_ekstrim")) {
       tabs.push({ id: "bahaya_abrasi", label: "Bahaya Abrasi", icon: "🌊" });
     }
     if (activeLayers.has("bahaya_banjir")) {
-      tabs.push({ id: "bahaya_banjir", label: "Bahaya Banjir", icon: "ðŸŒ§ï¸" });
+      tabs.push({ id: "bahaya_banjir", label: "Bahaya Banjir", icon: "🌧️" });
     }
     if (activeLayers.has("bahaya_banjir_bandang")) {
       tabs.push({
@@ -10843,7 +10843,7 @@ if (
       });
     }
     if (activeLayers.has("dta_danau")) {
-      tabs.push({ id: "dta_danau", label: "DTA Danau", icon: "ðŸžï¸" });
+      tabs.push({ id: "dta_danau", label: "DTA Danau", icon: "🏞️" });
     }
     if (activeLayers.has("rehabilitasi_das")) {
       tabs.push({
@@ -10863,7 +10863,7 @@ if (
       tabs.push({
         id: "sumur_bor",
         label: "Sumur Bor",
-        icon: "â—",
+        icon: "●",
       });
     }
     if (activeLayers.has("restorasi_gambut")) {
@@ -10877,7 +10877,7 @@ if (
       tabs.push({
         id: "penerapan_teknik_kta",
         label: "Teknik KTA",
-        icon: "ðŸ”ï¸",
+        icon: "⛰️",
       });
     }
     if (activeLayers.has("karhutla_2021")) {
@@ -10911,12 +10911,12 @@ if (
       tabs.push({
         id: "risiko_kekeringan",
         label: "Risiko Kekeringan",
-        icon: "â˜€ï¸",
+        icon: "☀️",
       });
     if (activeLayers.has("risiko_abrasi"))
-      tabs.push({ id: "risiko_abrasi", label: "Risiko Abrasi", icon: "ðŸ–ï¸" });
+      tabs.push({ id: "risiko_abrasi", label: "Risiko Abrasi", icon: "🏖️" });
     if (activeLayers.has("risiko_longsor"))
-      tabs.push({ id: "risiko_longsor", label: "Risiko Longsor", icon: "â›°ï¸" });
+      tabs.push({ id: "risiko_longsor", label: "Risiko Longsor", icon: "⛰️" });
     if (activeLayers.has("risiko_karhutla"))
       tabs.push({
         id: "risiko_karhutla",
@@ -10930,7 +10930,7 @@ if (
       tabs.push({
         id: "mitigasi_adaptasi",
         label: "Mitigasi & Adaptasi",
-        icon: "ðŸ—ï¸",
+        icon: "🏗️",
       });
     }
     return tabs;
@@ -11032,7 +11032,7 @@ if (
                         </h4>
                         <div className="space-y-0.5 text-xs text-gray-600">
                           <div className="flex items-center gap-1">
-                            <span className="font-medium">ðŸ“</span>
+                            <span className="font-medium">📍</span>
                             <span className="truncate">
                               {kejadian.location}
                             </span>
@@ -11051,7 +11051,7 @@ if (
                             </span>
                           </div>
                           <div className="flex items-center gap-1">
-                            <span className="font-medium">ðŸ·ï¸</span>
+                            <span className="font-medium">🏷️</span>
                             <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-[10px] font-medium">
                               {kejadian.category}
                             </span>
@@ -11067,7 +11067,7 @@ if (
                           {kejadian.curah_hujan !== undefined &&
                             kejadian.curah_hujan !== null && (
                               <div className="flex items-center gap-1">
-                                <span className="font-medium">ðŸŒ§ï¸</span>
+                                <span className="font-medium">🌧️</span>
                                 <span className="text-blue-600">
                                   {kejadian.curah_hujan} mm
                                 </span>
@@ -12407,7 +12407,7 @@ if (
                 className="inline-flex items-center justify-center text-xl"
                 style={{ color: "#1976D2", width: "32px" }}
               >
-                â—
+                ●
               </span>
               <div>
                 <p className="text-sm font-semibold text-gray-700">
@@ -13481,7 +13481,7 @@ if (
                     fontSize: "20px",
                   }}
                 >
-                  ðŸ—ï¸
+                  🏗️
                 </div>
                 <div style={{ fontSize: "13px", fontWeight: 500 }}>
                   Belum ada data Mitigasi & Adaptasi
@@ -14088,13 +14088,13 @@ if (
 
   const weatherIcon = (code?: number) => {
     const value = Number(code);
-    if (value === 0) return "â˜€ï¸";
-    if (value === 1 || value === 2) return "ðŸŒ¤ï¸";
-    if (value === 3) return "â˜ï¸";
-    if (value === 45 || value === 48) return "ðŸŒ«ï¸";
-    if (value >= 51 && value <= 67) return "ðŸŒ§ï¸";
-    if (value >= 71 && value <= 86) return "ðŸŒ¨ï¸";
-    if (value >= 95) return "â›ˆï¸";
+    if (value === 0) return "☀️";
+    if (value === 1 || value === 2) return "🌤️";
+    if (value === 3) return "☁️";
+    if (value === 45 || value === 48) return "🌫️";
+    if (value >= 51 && value <= 67) return "🌧️";
+    if (value >= 71 && value <= 86) return "🌨️";
+    if (value >= 95) return "⛈️";
     return "";
   };
 
@@ -14400,7 +14400,7 @@ if (
             longitude < -180 ||
             longitude > 180
           ) {
-            console.warn("âš ï¸ Koordinat GPS tidak valid:", {
+            console.warn("⚠️ Koordinat GPS tidak valid:", {
               latitude,
               longitude,
               accuracy,
@@ -14461,14 +14461,14 @@ if (
                   }
                 } catch (circleError) {
                   console.warn(
-                    "âš ï¸ GPS accuracy circle gagal ditampilkan:",
+                    "⚠️ GPS accuracy circle gagal ditampilkan:",
                     circleError,
                   );
                   gpsAccuracyCircleRef.current = null;
                 }
               } catch (mapError) {
                 console.warn(
-                  "âš ï¸ Gagal merender lokasi GPS ke Leaflet:",
+                  "⚠️ Gagal merender lokasi GPS ke Leaflet:",
                   mapError,
                 );
               }
@@ -15666,7 +15666,7 @@ if (
           filter: drop-shadow(0 6px 16px rgba(15,23,42,.08));
         }
 
-        /* Data labels: avoid the old tiny “dashboardâ€ look. */
+        /* Data labels: avoid the old tiny “dashboard” look. */
         .kerawanan-workspace .uppercase {
           letter-spacing: .07em;
         }
@@ -17400,7 +17400,7 @@ if (
           {isAuthenticated && (
             <div className="px-4 py-1 bg-emerald-50 border-t border-emerald-100 flex items-center justify-between">
               <span className="text-[10px] text-emerald-800 font-medium">
-                â— Logged in as Admin
+                ● Logged in as Admin
               </span>
               <button
                 onClick={handleLogout}
@@ -17581,7 +17581,7 @@ if (
                           ))
                         : !enterpriseSearchLoading && (
                             <div className="px-3 py-4 text-[9px] text-slate-400 text-center">
-                              Tidak ada hasil untuk “{enterpriseSearchQuery}â€
+                              Tidak ada hasil untuk “{enterpriseSearchQuery}”
                             </div>
                           )}
                     </div>
@@ -17682,7 +17682,7 @@ if (
                               }}
                               onPointerCancel={() => { mapInfoDragRef.current = null; }}
                             >
-                              <span className="flex items-center gap-2"><span>ðŸ“</span> Informasi Titik Peta <span className="text-[9px] font-normal normal-case text-sky-600">· </span></span>
+                              <span className="flex items-center gap-2"><span>📍</span> Informasi Titik Peta <span className="text-[9px] font-normal normal-case text-sky-600">· </span></span>
                               <button
                                 type="button"
                                 aria-label="Tutup Informasi Titik Peta"
