@@ -1185,6 +1185,24 @@ const Kerawanan = () => {
     Rendah: "#FFFF00",
     Normal: "#90EE90",
   };
+  // Override warna Rawan Limpasan dari klik legenda.
+  // Tetap digunakan pada render ulang GeoJSON maupun WMS.
+  const rawanLimpasanColorOverridesRef = useRef<Map<string, string>>(new Map());
+
+  const buildRawanLimpasanSld = (selectedClass: string, selectedColor: string) => {
+    const classes = ["Ekstrim", "Tinggi", "Rendah", "Normal"];
+    const xmlEscape = (value: string) =>
+      String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;").replace(/'/g, "&apos;");
+    const rules = classes.map((kelas) => {
+      const fill = kelas === selectedClass
+        ? selectedColor
+        : rawanLimpasanColorOverridesRef.current.get(kelas) || rawanLimpasanColors[kelas as keyof typeof rawanLimpasanColors];
+      return `<Rule><Name>${xmlEscape(kelas)}</Name><Title>${xmlEscape(kelas)}</Title><ogc:Filter><ogc:PropertyIsEqualTo><ogc:PropertyName>limpasan</ogc:PropertyName><ogc:Literal>${xmlEscape(kelas)}</ogc:Literal></ogc:PropertyIsEqualTo></ogc:Filter><PolygonSymbolizer><Fill><CssParameter name="fill">${fill}</CssParameter><CssParameter name="fill-opacity">0.65</CssParameter></Fill><Stroke><CssParameter name="stroke">${fill}</CssParameter><CssParameter name="stroke-width">1</CssParameter></Stroke></PolygonSymbolizer></Rule>`;
+    }).join("");
+    // NamedLayer wajib menunjuk nama layer GeoServer yang dipakai request WMS.
+    return `<StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld" xmlns:ogc="http://www.opengis.net/ogc" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.opengis.net/sld http://www.opengis.net/sld/StyledLayerDescriptor.xsd"><NamedLayer><Name>simiti:vw_rawan_limpasan_wms</Name><UserStyle><Name>rawan_limpasan_click_style</Name><Title>Rawan Limpasan - Click Legend Style</Title><FeatureTypeStyle>${rules}</FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>`;
+  };
 
   // Warna untuk rawan karhutla
   const rawanKarhutlaColors = {
@@ -1289,7 +1307,7 @@ const Kerawanan = () => {
     try {
       if (map.hasLayer(layer)) map.removeLayer(layer);
     } catch (error) {
-      console.warn("⚠️ Leaflet gagal remove layer, dilewati:", error);
+      console.warn("âš ï¸ Leaflet gagal remove layer, dilewati:", error);
     }
   };
 
@@ -1299,7 +1317,7 @@ const Kerawanan = () => {
       layer.addTo(map);
       return true;
     } catch (error) {
-      console.warn("⚠️ Leaflet gagal add layer, dilewati:", error);
+      console.warn("âš ï¸ Leaflet gagal add layer, dilewati:", error);
       return false;
     }
   };
@@ -1492,8 +1510,39 @@ const Kerawanan = () => {
   const getBencanaLayerColor = (tableName: string): string =>
     BENCANA_LAYER_COLORS[String(tableName)] || "#64748B";
 
+  // Ambil warna kelas dari registry yang sama dengan legenda/renderer.
+  // Pencarian case-insensitive menjaga konsistensi untuk label statistik WMS.
+  const getExactRiskPaletteColor = (layerName: string, classValue: string): string | undefined => {
+    const key = String(classValue ?? "").trim();
+    const paletteByLayer: Record<string, Record<string, string>> = {
+      rawan_erosi: rawanErosiColors,
+      rawan_longsor: rawanLongsorColors,
+      rawan_limpasan: rawanLimpasanColors,
+      rawan_karhutla: rawanKarhutlaColors,
+      bahaya_banjir: bahayaKelasColors,
+      bahaya_banjir_bandang: bahayaKelasColors,
+      bahaya_kekeringan: bahayaKelasColors,
+      bahaya_abrasi_dan_gelombang_ekstrim: bahayaKelasColors,
+    };
+    const palette = paletteByLayer[layerName];
+    if (!palette) return undefined;
+    if (palette[key]) return palette[key];
+    const normalized = key.toLowerCase().replace(/\s+/g, " ");
+    const match = Object.keys(palette).find((candidate) => candidate.toLowerCase().replace(/\s+/g, " ") === normalized);
+    return match ? palette[match] : undefined;
+  };
+
+
   // Kelas kerawanan memakai warna konsisten pada peta dan legenda.
   // Jika sumber memakai label lain, warna dasar jenis bencana tetap digunakan.
+  const getRisikoBanjirClassColor = (value: unknown, fallback: string): string => {
+    const kelas = String(value ?? "").trim().toLowerCase();
+    if (kelas === "rendah") return "#22C55E";
+    if (kelas === "sedang") return "#FACC15";
+    if (kelas === "tinggi") return "#EF4444";
+    return fallback;
+  };
+
   const getRiskClassColor = (value: unknown, fallback: string): string => {
     const kelas = String(value ?? "").trim().toLowerCase();
     if (!kelas) return fallback;
@@ -1506,7 +1555,25 @@ const Kerawanan = () => {
 
   // SLD dinamis untuk WMS nasional: warna polygon berasal dari atribut kelas
   // yang sama dengan legenda, bukan dari style default GeoServer.
-  const buildNationalRiskBanjirSld = (items: Array<{ kelas: string; color: string }>, layerName: string = "risiko_banjir") => {
+  const getRiskWmsClassColumn = (layerName: string): string => ({
+    rawan_erosi: "kls_a",
+    rawan_longsor: "unsur",
+    rawan_limpasan: "limpasan",
+    rawan_karhutla: "kelas",
+    bahaya_abrasi_dan_gelombang_ekstrim: "kelas",
+    bahaya_banjir_bandang: "kelas",
+    bahaya_banjir: "kelas",
+    bahaya_kekeringan: "kelas",
+    risiko_banjir: "kelas",
+    risiko_banjir_bandang: "kelas",
+    risiko_kekeringan: "kelas",
+    risiko_abrasi: "kelas",
+    risiko_longsor: "kelas",
+    risiko_karhutla: "kelas",
+  } as Record<string, string>)[layerName] || "kelas";
+
+
+  const buildNationalRiskBanjirSld = (items: Array<{ kelas: string; color: string }>, layerName: string = "risiko_banjir", classColumn: string = "kelas") => {
     const xmlEscape = (value: string) =>
       String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;")
         .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
@@ -1516,7 +1583,7 @@ const Kerawanan = () => {
         <Name>kelas_${index + 1}</Name>
         <Title>${xmlEscape(item.kelas)}</Title>
         <ogc:Filter><ogc:PropertyIsEqualTo>
-          <ogc:PropertyName>kelas</ogc:PropertyName>
+          <ogc:PropertyName>${xmlEscape(classColumn)}</ogc:PropertyName>
           <ogc:Literal>${xmlEscape(item.kelas)}</ogc:Literal>
         </ogc:PropertyIsEqualTo></ogc:Filter>
         <PolygonSymbolizer>
@@ -1807,6 +1874,66 @@ const Kerawanan = () => {
       props.limpasan,
     ];
     return String(candidates.find((value) => value != null && String(value).trim()) ?? "");
+  };
+
+  // Warna polygon bencana selalu membaca mapping yang juga dipakai legenda.
+  // Fallback hanya digunakan jika kelas belum tersedia pada mapping legenda.
+  const getBencanaLegendFeatureColor = (layerName: string, feature: any): string => {
+    const props = feature?.properties || {};
+    const cm = colorMappingRef.current;
+    const key = String(getBencanaFeatureClass(feature) || "").trim();
+
+if (
+  String(layerName) === "rawan_limpasan" &&
+  String(props.limpasan ?? "").trim() === "Rendah"
+) {
+  console.log("[DEBUG RAWAN LIMPASAN RENDAH]", {
+    properties: props,
+    key,
+    color: rawanLimpasanColors.Rendah,
+    mappedColor: cm.rawanLimpasan.get("Rendah"),
+  });
+}
+    const mappings: Record<string, Map<string, string>> = {
+      rawan_erosi: cm.rawanErosi,
+      rawan_longsor: cm.rawanLongsor,
+      rawan_limpasan: cm.rawanLimpasan,
+      rawan_karhutla: cm.rawanKarhutla,
+      bahaya_kekeringan: cm.bahayaKekeringan,
+      bahaya_abrasi_dan_gelombang_ekstrim: cm.bahayaAbrasi,
+      bahaya_banjir: cm.bahayaBanjir,
+      bahaya_banjir_bandang: cm.bahayaBanjirBandang,
+      risiko_banjir: cm.risikoBanjir,
+      risiko_banjir_bandang: cm.risikoBanjirBandang,
+      risiko_kekeringan: cm.risikoKekeringan,
+      risiko_abrasi: cm.risikoAbrasi,
+      risiko_longsor: cm.risikoLongsor,
+      risiko_karhutla: cm.risikoKarhutla,
+    };
+    const mapping = mappings[String(layerName)];
+    const directKeys = [
+      props.kelas, props.tingkat, props.keterangan, props.unsur, props.limpasan,
+      props.tingkat_risiko, props.tingkat_bahaya, props.kelas_risiko, props.kelas_bahaya,
+    ].filter((value) => value != null).map((value) => String(value).trim());
+
+    // Rawan Limpasan memiliki palet kelas tersendiri; jangan jatuh ke
+    // fallback umum (yang memberi kelas "Rendah" warna hijau).
+    if (String(layerName) === "rawan_limpasan") {
+      const limpasanKey = String(props.limpasan ?? key ?? "").trim();
+      // Override legenda harus diprioritaskan atas palet default agar
+      // render ulang / cache layer tidak mengembalikan warna bawaan.
+      const limpasanColor =
+        rawanLimpasanColorOverridesRef.current.get(limpasanKey) ||
+        cm.rawanLimpasan.get(limpasanKey) ||
+        rawanLimpasanColors[limpasanKey as keyof typeof rawanLimpasanColors];
+      if (limpasanColor) return limpasanColor;
+    }
+
+    for (const value of directKeys) {
+      const mapped = mapping?.get(value);
+      if (mapped) return mapped;
+    }
+    return getRiskClassColor(key, getBencanaLayerColor(String(layerName)));
   };
 
   const areaGeomToLatLngRings = (geom: any): number[][][] => {
@@ -3199,7 +3326,7 @@ const Kerawanan = () => {
             rawan_karhutla: "simiti:vw_rawan_karhutla_wms",
             rawan_erosi: "simiti:rawan_erosi",
           } as Record<string, string>)[tableName] || `simiti:${tableName}`,
-          styles: tableName === "rawan_erosi" ? "rawan_erosi_style" : "",
+          styles: tableName === "rawan_erosi" ? "rawan_erosi_style" : tableName === "bahaya_abrasi_dan_gelombang_ekstrim" ? "bahaya_abrasi_legend" : "",
           format: "image/png",
           transparent: true,
           version: "1.1.1",
@@ -3281,7 +3408,7 @@ const Kerawanan = () => {
             .filter((row: any) => String(row?.kelas ?? "").trim())
             .map((row: any) => {
               const kelas = String(row.kelas).trim();
-              let color = getRiskClassColor(kelas, fallbackRiskColor);
+              let color = (tableName === "risiko_banjir" || tableName === "risiko_banjir_bandang" || tableName === "risiko_abrasi") ? getRisikoBanjirClassColor(kelas, fallbackRiskColor) : (getExactRiskPaletteColor(tableName, kelas) || getRiskClassColor(kelas, fallbackRiskColor));
               if (tableName === "rawan_longsor") {
                 color = rawanLongsorColors[kelas as keyof typeof rawanLongsorColors] || color;
               } else if (tableName === "rawan_limpasan") {
@@ -3291,7 +3418,8 @@ const Kerawanan = () => {
               } else if (
                 tableName === "bahaya_banjir" ||
                 tableName === "bahaya_banjir_bandang" ||
-                tableName === "bahaya_kekeringan"
+                tableName === "bahaya_kekeringan" ||
+                tableName === "bahaya_abrasi_dan_gelombang_ekstrim"
               ) {
                 color = bahayaKelasColors[kelas] || color;
               }
@@ -3305,7 +3433,18 @@ const Kerawanan = () => {
           // Isi state yang benar-benar dibaca oleh panel legenda masing-masing layer.
           // WMS tidak mengirim GeoJSON ke frontend, sehingga data legenda harus
           // dipetakan dari endpoint statistik ke state khusus layer tersebut.
-          if (tableName === "bahaya_banjir_bandang") {
+          if (tableName === "bahaya_abrasi_dan_gelombang_ekstrim") {
+            const abrasiOrder = ["Tinggi", "Rendah"];
+            const abrasiItems = [...legendItems].sort(
+              (a: any, b: any) =>
+                abrasiOrder.indexOf(a.kelas) - abrasiOrder.indexOf(b.kelas),
+            );
+            setBahayaAbrasiData(abrasiItems);
+            colorMappingRef.current.bahayaAbrasi.clear();
+            abrasiItems.forEach((item: any) => {
+              colorMappingRef.current.bahayaAbrasi.set(item.kelas, item.color);
+            });
+          } else if (tableName === "bahaya_banjir_bandang") {
             setBahayaBanjirBandangData(legendItems);
           } else if (tableName === "bahaya_banjir") {
             setBahayaBanjirData(legendItems);
@@ -3397,6 +3536,7 @@ const Kerawanan = () => {
 
           const layerColorMapping =
             ({
+              bahaya_abrasi_dan_gelombang_ekstrim: colorMappingRef.current.bahayaAbrasi,
               bahaya_banjir_bandang: colorMappingRef.current.bahayaBanjirBandang,
               bahaya_banjir: colorMappingRef.current.bahayaBanjir,
               bahaya_kekeringan: colorMappingRef.current.bahayaKekeringan,
@@ -3415,21 +3555,26 @@ const Kerawanan = () => {
           // Delapan view nasional memakai default SLD yang sudah
           // dipasang langsung pada layer GeoServer.
           // Layer risiko lama tetap menggunakan SLD dinamis aplikasi.
-          if (!NATIONAL_HAZARD_WMS_LAYERS.has(tableName)) {
-            (wmsLayer as any).setParams({
-              styles: tableName === "rawan_erosi" ? "rawan_erosi_style" : "",
-              SLD_BODY: buildNationalRiskBanjirSld(
-                legendItems,
-                ({
-                  risiko_banjir_bandang: "vw_risiko_banjir_bandang_wms",
-                  risiko_abrasi: "vw_risiko_abrasi_wms",
-                  risiko_longsor: "vw_risiko_longsor_wms",
-                  risiko_karhutla: "vw_risiko_karhutla_repaired_wms",
-                } as Record<string, string>)[tableName] || tableName,
-              ),
-              CQL_FILTER: riskBanjirWmsCqlFilter,
-            });
-          }
+          // Semua layer risiko/kerawanan WMS menggunakan SLD berbasis kelas
+          // yang dibangun dari warna legenda. Tidak lagi bergantung pada style
+          // default GeoServer yang dapat menghasilkan warna berbeda.
+          (wmsLayer as any).setParams({
+            styles: "",
+            SLD_BODY: buildNationalRiskBanjirSld(
+              legendItems,
+              ({
+                risiko_banjir_bandang: "vw_risiko_banjir_bandang_wms",
+                risiko_abrasi: "vw_risiko_abrasi_wms",
+                risiko_longsor: "vw_risiko_longsor_wms",
+                risiko_karhutla: "vw_risiko_karhutla_repaired_wms",
+                rawan_limpasan: "vw_rawan_limpasan_wms",
+                rawan_karhutla: "vw_rawan_karhutla_wms",
+              } as Record<string, string>)[tableName] || tableName,
+              getRiskWmsClassColumn(tableName),
+            ),
+            CQL_FILTER: riskBanjirWmsCqlFilter,
+          }, true);
+          (wmsLayer as any).redraw?.();
 
           console.log("SIMITI: legenda risiko banjir nasional berhasil dimuat", {
             jumlahKelas: legendItems.length,
@@ -3440,7 +3585,10 @@ const Kerawanan = () => {
             "SIMITI: gagal memuat agregasi legenda risiko banjir nasional:",
             legendError,
           );
-          if (tableName === "bahaya_banjir_bandang") setBahayaBanjirBandangData([]);
+          if (tableName === "bahaya_abrasi_dan_gelombang_ekstrim") {
+            setBahayaAbrasiData([]);
+            colorMappingRef.current.bahayaAbrasi.clear();
+          } else if (tableName === "bahaya_banjir_bandang") setBahayaBanjirBandangData([]);
           else if (tableName === "bahaya_banjir") setBahayaBanjirData([]);
           else if (tableName === "bahaya_kekeringan") setBahayaKekeringanData([]);
           else if (tableName === "rawan_longsor") setRawanLongsorData([]);
@@ -4433,7 +4581,7 @@ const Kerawanan = () => {
         const arr = Array.from(kelasMap.entries()).map(([kelas, luas]) => ({
           kelas,
           luas,
-          color: getRiskClassColor(kelas, fallbackRiskColor),
+          color: (tableName === "risiko_banjir" || tableName === "risiko_banjir_bandang" || tableName === "risiko_abrasi") ? getRisikoBanjirClassColor(kelas, fallbackRiskColor) : getRiskClassColor(kelas, fallbackRiskColor),
         }));
         const risikoKey = tableName as keyof typeof risikoData;
         setRisikoData((prev) => ({ ...prev, [tableName]: arr }));
@@ -4493,10 +4641,8 @@ const Kerawanan = () => {
       if (BENCANA_FOCUS_LAYERS.has(String(tableName))) {
         const bencanaColor = getBencanaLayerColor(String(tableName));
         styleFunction = function (feature: any) {
-          const kelas = getBencanaFeatureClass(feature);
-          // Warna isi dan garis mengikuti kelas risiko pada setiap feature,
-          // bukan satu warna seragam untuk seluruh jenis bencana.
-          const classColor = getRiskClassColor(kelas, bencanaColor);
+          // Ambil warna persis dari mapping legenda layer ini.
+          const classColor = getBencanaLegendFeatureColor(String(tableName), feature) || bencanaColor;
           return {
             color: classColor,
             fillColor: classColor,
@@ -5019,10 +5165,7 @@ const Kerawanan = () => {
                   ? "#16A34A"
                   : "#64748B"
             : isBencanaLayer
-              ? getRiskClassColor(
-                  getBencanaFeatureClass(feature),
-                  getBencanaLayerColor(String(tableName)),
-                )
+              ? getBencanaLegendFeatureColor(String(tableName), feature)
               : getColorForTable(tableName);
 
           // Point pada layer bencana tetap ditampilkan. Beberapa sumber bencana
@@ -5266,10 +5409,9 @@ const Kerawanan = () => {
         layerGroup.eachLayer((layer: any) => {
           try {
             if (layer?._path?.style) layer._path.style.mixBlendMode = "normal";
-            const classColor = getRiskClassColor(
-              getBencanaFeatureClass(layer?.feature),
-              forcedBencanaColor,
-            );
+            const classColor =
+              getBencanaLegendFeatureColor(String(tableName), layer?.feature) ||
+              forcedBencanaColor;
             const style = {
               color: classColor,
               fillColor: classColor,
@@ -5362,15 +5504,15 @@ const Kerawanan = () => {
         `✅ Layer "${tableName}" berhasil dimuat dengan ${filterType} (${geojsonData.features.length} features)`,
       );
     } catch (error) {
-      console.error("❌ Error loading layer:", error);
+      console.error("âŒ Error loading layer:", error);
 
       let errorMessage = "";
       if (error instanceof TypeError && error.message.includes("fetch")) {
         errorMessage = `🔌 Koneksi error: Tidak dapat terhubung ke server untuk layer "${tableName}".`;
       } else if (error instanceof Error && error.message.includes("HTTP")) {
-        errorMessage = `❌ Server error: ${error.message} untuk layer "${tableName}".`;
+        errorMessage = `âŒ Server error: ${error.message} untuk layer "${tableName}".`;
       } else {
-        errorMessage = `❌ Error memuat layer "${tableName}": ${error instanceof Error ? error.message : "Unknown error"}`;
+        errorMessage = `âŒ Error memuat layer "${tableName}": ${error instanceof Error ? error.message : "Unknown error"}`;
       }
 
       setLayerError(errorMessage);
@@ -6943,11 +7085,11 @@ const Kerawanan = () => {
 
           console.log("✅ DAS boundary rendered with key:", boundaryKey);
         } catch (error) {
-          console.error("❌ Error rendering DAS boundary:", error);
+          console.error("âŒ Error rendering DAS boundary:", error);
         }
       } else {
         console.log(
-          "❌ Cannot render DAS boundary - geom missing or map not ready",
+          "âŒ Cannot render DAS boundary - geom missing or map not ready",
         );
       }
 
@@ -6977,7 +7119,7 @@ const Kerawanan = () => {
     if (layerGroupsRef.current[boundaryKey]) {
       safeRemoveMapLayer(layerGroupsRef.current[boundaryKey]);
       delete layerGroupsRef.current[boundaryKey];
-      console.log("🗑️ Removed DAS boundary:", boundaryKey);
+      console.log("ðŸ—‘ï¸ Removed DAS boundary:", boundaryKey);
     }
 
     if (newSelectedDas.length > 0) {
@@ -7282,11 +7424,11 @@ const Kerawanan = () => {
             boundaryKey,
           );
         } catch (error) {
-          console.error("❌ Error rendering admin boundary:", error);
+          console.error("âŒ Error rendering admin boundary:", error);
         }
       } else {
         console.log(
-          "❌ Cannot render admin boundary - geom missing or map not ready",
+          "âŒ Cannot render admin boundary - geom missing or map not ready",
         );
       }
 
@@ -7329,7 +7471,7 @@ const Kerawanan = () => {
     if (layerGroupsRef.current[boundaryKey]) {
       safeRemoveMapLayer(layerGroupsRef.current[boundaryKey]);
       delete layerGroupsRef.current[boundaryKey];
-      console.log("🗑️ Removed admin boundary:", boundaryKey);
+      console.log("ðŸ—‘ï¸ Removed admin boundary:", boundaryKey);
     }
 
     if (newSelectedAreas.length > 0) {
@@ -8200,10 +8342,8 @@ const Kerawanan = () => {
         // berdasarkan JENIS BENCANA.
         // ======================================================
         color = getBencanaLayerColor(String(layerId));
-        const classColor = getRiskClassColor(
-          getBencanaFeatureClass(layer?.feature),
-          color,
-        );
+        const classColor =
+          getBencanaLegendFeatureColor(String(layerId), layer?.feature) || color;
         const riskStyle = {
           color: classColor,
           weight: zoom > 10 ? 2.2 : 1.6,
@@ -8293,6 +8433,81 @@ const Kerawanan = () => {
     setSelectedLegendKey(key);
     setSelectedLegendType(layerType);
     setSelectedLegendColor(color);
+
+    // Rawan Limpasan: polygon GeoJSON yang benar-benar sedang dirender
+    // langsung di-style berdasarkan atribut feature.properties.limpasan.
+    if (layerType === "rawan_limpasan") {
+      const selectedClass = String(key ?? "").trim();
+      rawanLimpasanColorOverridesRef.current.set(selectedClass, color);
+      colorMappingRef.current.rawanLimpasan.set(selectedClass, color);
+
+      const activeLayer: any =
+        layerGroupsRef.current?.rawan_limpasan ||
+        layerCacheRef.current?.get?.("rawan_limpasan");
+      let matched = 0;
+      let total = 0;
+
+      const applyClassColor = (featureLayer: any) => {
+        const feature = featureLayer?.feature || featureLayer?.options?.feature;
+        const kelas = String(feature?.properties?.limpasan ?? "").trim();
+        if (!kelas) return;
+        total++;
+        const kelasColor =
+          rawanLimpasanColorOverridesRef.current.get(kelas) ||
+          colorMappingRef.current.rawanLimpasan.get(kelas) ||
+          rawanLimpasanColors[kelas as keyof typeof rawanLimpasanColors] || "#808080";
+        if (kelas === selectedClass) matched++;
+        if (typeof featureLayer.setStyle === "function") {
+          featureLayer.setStyle({
+            color: kelasColor,
+            fillColor: kelasColor,
+            weight: kelas === selectedClass ? 2.5 : 1,
+            opacity: kelas === selectedClass ? 1 : 0.8,
+            fillOpacity: kelas === selectedClass ? 0.88 : 0.62,
+          });
+        }
+      };
+
+      // MODE NASIONAL: layer Rawan Limpasan dirender sebagai WMS tile,
+      // sehingga tidak memiliki polygon Leaflet individual untuk eachLayer/setStyle.
+      // Terapkan warna melalui SLD_BODY pada request GetMap WMS, lalu redraw tile.
+      const wmsParams = activeLayer?.wmsParams || activeLayer?.options;
+      const isRawanLimpasanWms = Boolean(
+        activeLayer && typeof activeLayer.setParams === "function" &&
+        (wmsParams?.layers === "simiti:vw_rawan_limpasan_wms" ||
+          String(activeLayer?._url || "").toLowerCase().includes("/wms"))
+      );
+      if (isRawanLimpasanWms) {
+        const sldBody = buildRawanLimpasanSld(selectedClass, color);
+        activeLayer.setParams({
+          SLD_BODY: sldBody,
+          STYLES: "",
+          CQL_FILTER: "INCLUDE",
+        }, true);
+        activeLayer.redraw?.();
+        console.info("SIMITI: style WMS nasional Rawan Limpasan diubah melalui SLD_BODY", {
+          kelas: selectedClass,
+          warna: color,
+          wmsLayer: wmsParams?.layers,
+          sldBodyLength: sldBody.length,
+        });
+        return;
+      }
+
+      if (activeLayer && typeof activeLayer.eachLayer === "function") {
+        activeLayer.eachLayer(applyClassColor);
+      } else if (activeLayer && typeof activeLayer.setStyle === "function" && activeLayer.feature) {
+        applyClassColor(activeLayer);
+      }
+
+      // Redraw renderer untuk mode vektor/provinsi.
+      activeLayer?.redraw?.();
+      console.info("SIMITI: klik legenda Rawan Limpasan diterapkan ke polygon", {
+        kelas: selectedClass, warna: color, polygonTerdeteksi: total,
+        polygonKelasTerpilih: matched, layerTersedia: Boolean(activeLayer),
+      });
+      return;
+    }
 
     // Kawasan Hutan memiliki dua jalur render:
     // - Nasional: WMS GeoServer, ubah style melalui SLD_BODY.
@@ -8397,8 +8612,60 @@ const Kerawanan = () => {
       return;
     }
 
-    // Perilaku lama tetap dipertahankan untuk boundary administrasi.
-    applySelectedLegendToAdminBoundaries(color);
+    // Klik legenda mewarnai polygon/feature dengan kelas yang dipilih,
+    // bukan seluruh batas administrasi. Warna kelas lain tetap mengikuti
+    // mapping legenda masing-masing.
+    const targetGroup =
+      layerGroupsRef.current?.[layerType] ||
+      layerGroupsRef.current?.[normalizeLayerApiName(layerType)];
+    if (targetGroup && typeof targetGroup.eachLayer === "function") {
+      const selectedKey = String(key ?? "").trim();
+      let matched = 0;
+      targetGroup.eachLayer((featureLayer: any) => {
+        const props = featureLayer?.feature?.properties;
+        if (!props || typeof featureLayer.setStyle !== "function") return;
+        let featureKey = "";
+        switch (layerType) {
+          case "tutupan_lahan":
+          case "penutupan_lahan_2024":
+          case "pl2024": featureKey = String(props.pl2024_id ?? ""); break;
+          case "geologi": featureKey = `${props.namobj || ""}|${props.umurobj || ""}`; break;
+          case "jenis_tanah": featureKey = String(props.jntnh1 ?? ""); break;
+          case "lahan_kritis": featureKey = String(props.kritis ?? ""); break;
+          case "rawan_erosi": featureKey = String(props.tingkat ?? props.keterangan ?? ""); break;
+          case "rawan_longsor": featureKey = String(props.unsur ?? ""); break;
+          case "rawan_limpasan": featureKey = String(props.limpasan ?? ""); break;
+          case "rawan_karhutla":
+          case "bahaya_kekeringan":
+          case "bahaya_abrasi_dan_gelombang_ekstrim":
+          case "bahaya_banjir":
+          case "bahaya_banjir_bandang":
+          case "risiko_banjir":
+          case "risiko_banjir_bandang":
+          case "risiko_kekeringan":
+          case "risiko_abrasi":
+          case "risiko_longsor":
+          case "risiko_karhutla": featureKey = String(props.kelas ?? ""); break;
+          case "dta_danau": featureKey = String(props.tipe_danau ?? ""); break;
+          case "rehabilitasi_das": featureKey = String(props.bpdas ?? ""); break;
+          case "rehabilitasi_hutan": featureKey = String(props.jenis_tana ?? ""); break;
+          case "khdtk": featureKey = String(props.namobj ?? ""); break;
+          default: featureKey = selectedKey;
+        }
+        if (featureKey.trim() !== selectedKey) return;
+        featureLayer.setStyle({
+          color, fillColor: color, weight: 2.5, opacity: 1, fillOpacity: 0.78,
+        });
+        if (typeof featureLayer.bringToFront === "function") featureLayer.bringToFront();
+        matched++;
+      });
+      console.info("SIMITI: warna legenda diterapkan ke feature peta", {
+        layer: layerType, key: selectedKey, color, matched,
+      });
+      return;
+    }
+
+    console.warn("SIMITI: layer vektor untuk pilihan legenda belum tersedia", layerType);
   };
 
   const clearSelectedLegend = () => {
@@ -8947,7 +9214,7 @@ const Kerawanan = () => {
       // Kunci init supaya dua callback script tidak pernah membuat map bersamaan.
       if (mapInitializingRef.current) return;
       if (mapInstanceRef.current) {
-        console.log("🗺️ Leaflet map sudah ada, skip initialization");
+        console.log("ðŸ—ºï¸ Leaflet map sudah ada, skip initialization");
         return;
       }
 
@@ -8958,13 +9225,13 @@ const Kerawanan = () => {
 
       if (container._leaflet_id) {
         console.log(
-          "🗺️ Map container masih memiliki instance Leaflet sebelumnya.",
+          "ðŸ—ºï¸ Map container masih memiliki instance Leaflet sebelumnya.",
         );
         if (mapInstanceRef.current) {
           try {
             mapInstanceRef.current.remove();
           } catch (error) {
-            console.warn("⚠️ Gagal membersihkan instance Leaflet lama:", error);
+            console.warn("âš ï¸ Gagal membersihkan instance Leaflet lama:", error);
           }
           mapInstanceRef.current = null;
         }
@@ -9109,7 +9376,7 @@ const Kerawanan = () => {
         try {
           mapInstanceRef.current.remove();
         } catch (error) {
-          console.warn("⚠️ Leaflet cleanup warning:", error);
+          console.warn("âš ï¸ Leaflet cleanup warning:", error);
         }
         mapInstanceRef.current = null;
       }
@@ -9805,7 +10072,7 @@ const Kerawanan = () => {
             .forEach((area: any) => {
               results.push({
                 type: "location",
-                icon: "📍",
+                icon: "ðŸ“",
                 label: area.label || area.kab_kota || area.provinsi || q,
                 sublabel: [area.level, area.provinsi]
                   .filter(Boolean)
@@ -9873,7 +10140,7 @@ const Kerawanan = () => {
             results.push({
               type: "object",
               icon: data.category?.toLowerCase().includes("banjir")
-                ? "⚠️"
+                ? "âš ï¸"
                 : "📌",
               label: data.title || data.name || data.namobj || "Objek GIS",
               sublabel: data.category || formatTableName(layerName),
@@ -10536,15 +10803,15 @@ const Kerawanan = () => {
     }
 
     if (activeLayers.has("lahan_kritis")) {
-      tabs.push({ id: "lahan_kritis", label: "Lahan Kritis", icon: "⚠️" });
+      tabs.push({ id: "lahan_kritis", label: "Lahan Kritis", icon: "âš ï¸" });
     }
 
     if (activeLayers.has("rawan_erosi")) {
-      tabs.push({ id: "rawan_erosi", label: "Rawan Erosi", icon: "🏔️" });
+      tabs.push({ id: "rawan_erosi", label: "Rawan Erosi", icon: "ðŸ”ï¸" });
     }
 
     if (activeLayers.has("rawan_longsor")) {
-      tabs.push({ id: "rawan_longsor", label: "Rawan Longsor", icon: "⛰️" });
+      tabs.push({ id: "rawan_longsor", label: "Rawan Longsor", icon: "â›°ï¸" });
     }
 
     if (activeLayers.has("rawan_limpasan")) {
@@ -10559,14 +10826,14 @@ const Kerawanan = () => {
       tabs.push({
         id: "bahaya_kekeringan",
         label: "Bahaya Kekeringan",
-        icon: "☀️",
+        icon: "â˜€ï¸",
       });
     }
     if (activeLayers.has("bahaya_abrasi_dan_gelombang_ekstrim")) {
       tabs.push({ id: "bahaya_abrasi", label: "Bahaya Abrasi", icon: "🌊" });
     }
     if (activeLayers.has("bahaya_banjir")) {
-      tabs.push({ id: "bahaya_banjir", label: "Bahaya Banjir", icon: "🌧️" });
+      tabs.push({ id: "bahaya_banjir", label: "Bahaya Banjir", icon: "ðŸŒ§ï¸" });
     }
     if (activeLayers.has("bahaya_banjir_bandang")) {
       tabs.push({
@@ -10576,7 +10843,7 @@ const Kerawanan = () => {
       });
     }
     if (activeLayers.has("dta_danau")) {
-      tabs.push({ id: "dta_danau", label: "DTA Danau", icon: "🏞️" });
+      tabs.push({ id: "dta_danau", label: "DTA Danau", icon: "ðŸžï¸" });
     }
     if (activeLayers.has("rehabilitasi_das")) {
       tabs.push({
@@ -10596,7 +10863,7 @@ const Kerawanan = () => {
       tabs.push({
         id: "sumur_bor",
         label: "Sumur Bor",
-        icon: "●",
+        icon: "â—",
       });
     }
     if (activeLayers.has("restorasi_gambut")) {
@@ -10610,7 +10877,7 @@ const Kerawanan = () => {
       tabs.push({
         id: "penerapan_teknik_kta",
         label: "Teknik KTA",
-        icon: "🏔️",
+        icon: "ðŸ”ï¸",
       });
     }
     if (activeLayers.has("karhutla_2021")) {
@@ -10644,12 +10911,12 @@ const Kerawanan = () => {
       tabs.push({
         id: "risiko_kekeringan",
         label: "Risiko Kekeringan",
-        icon: "☀️",
+        icon: "â˜€ï¸",
       });
     if (activeLayers.has("risiko_abrasi"))
-      tabs.push({ id: "risiko_abrasi", label: "Risiko Abrasi", icon: "🏖️" });
+      tabs.push({ id: "risiko_abrasi", label: "Risiko Abrasi", icon: "ðŸ–ï¸" });
     if (activeLayers.has("risiko_longsor"))
-      tabs.push({ id: "risiko_longsor", label: "Risiko Longsor", icon: "⛰️" });
+      tabs.push({ id: "risiko_longsor", label: "Risiko Longsor", icon: "â›°ï¸" });
     if (activeLayers.has("risiko_karhutla"))
       tabs.push({
         id: "risiko_karhutla",
@@ -10663,7 +10930,7 @@ const Kerawanan = () => {
       tabs.push({
         id: "mitigasi_adaptasi",
         label: "Mitigasi & Adaptasi",
-        icon: "🏗️",
+        icon: "ðŸ—ï¸",
       });
     }
     return tabs;
@@ -10765,7 +11032,7 @@ const Kerawanan = () => {
                         </h4>
                         <div className="space-y-0.5 text-xs text-gray-600">
                           <div className="flex items-center gap-1">
-                            <span className="font-medium">📍</span>
+                            <span className="font-medium">ðŸ“</span>
                             <span className="truncate">
                               {kejadian.location}
                             </span>
@@ -10784,7 +11051,7 @@ const Kerawanan = () => {
                             </span>
                           </div>
                           <div className="flex items-center gap-1">
-                            <span className="font-medium">🏷️</span>
+                            <span className="font-medium">ðŸ·ï¸</span>
                             <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-[10px] font-medium">
                               {kejadian.category}
                             </span>
@@ -10800,7 +11067,7 @@ const Kerawanan = () => {
                           {kejadian.curah_hujan !== undefined &&
                             kejadian.curah_hujan !== null && (
                               <div className="flex items-center gap-1">
-                                <span className="font-medium">🌧️</span>
+                                <span className="font-medium">ðŸŒ§ï¸</span>
                                 <span className="text-blue-600">
                                   {kejadian.curah_hujan} mm
                                 </span>
@@ -10876,10 +11143,13 @@ const Kerawanan = () => {
                       >
                         <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                         <td className="py-2 px-2">
-                          <div
-                            className="w-8 h-4 rounded border border-gray-300"
+                          <button
+                            type="button"
+                            title={`Terapkan warna ${item.tingkat} ke peta`}
+                            className="w-8 h-4 rounded border border-gray-300 cursor-pointer hover:ring-2 hover:ring-blue-400"
                             style={{ backgroundColor: item.color }}
-                          ></div>
+                            onClick={(event) => { event.stopPropagation(); handleLegendClick(item.tingkat, "rawan_limpasan", item.color || "#808080"); }}
+                          />
                         </td>
                         <td className="py-2 px-2 text-gray-700 break-words">
                           {item.deskripsi_domain || "-"}
@@ -11575,6 +11845,7 @@ const Kerawanan = () => {
                           )
                         }
                         onMouseLeave={handleRowMouseLeave}
+                        onClick={() => handleLegendClick(item.tingkat, "rawan_limpasan", item.color || "#808080")}
                       >
                         <td className="py-2 px-2 text-gray-700">{idx + 1}</td>
                         <td className="py-2 px-2">
@@ -12136,7 +12407,7 @@ const Kerawanan = () => {
                 className="inline-flex items-center justify-center text-xl"
                 style={{ color: "#1976D2", width: "32px" }}
               >
-                ●
+                â—
               </span>
               <div>
                 <p className="text-sm font-semibold text-gray-700">
@@ -13210,7 +13481,7 @@ const Kerawanan = () => {
                     fontSize: "20px",
                   }}
                 >
-                  🏗️
+                  ðŸ—ï¸
                 </div>
                 <div style={{ fontSize: "13px", fontWeight: 500 }}>
                   Belum ada data Mitigasi & Adaptasi
@@ -13817,13 +14088,13 @@ const Kerawanan = () => {
 
   const weatherIcon = (code?: number) => {
     const value = Number(code);
-    if (value === 0) return "☀️";
-    if (value === 1 || value === 2) return "🌤️";
-    if (value === 3) return "☁️";
-    if (value === 45 || value === 48) return "🌫️";
-    if (value >= 51 && value <= 67) return "🌧️";
-    if (value >= 71 && value <= 86) return "🌨️";
-    if (value >= 95) return "⛈️";
+    if (value === 0) return "â˜€ï¸";
+    if (value === 1 || value === 2) return "ðŸŒ¤ï¸";
+    if (value === 3) return "â˜ï¸";
+    if (value === 45 || value === 48) return "ðŸŒ«ï¸";
+    if (value >= 51 && value <= 67) return "ðŸŒ§ï¸";
+    if (value >= 71 && value <= 86) return "ðŸŒ¨ï¸";
+    if (value >= 95) return "â›ˆï¸";
     return "";
   };
 
@@ -14129,7 +14400,7 @@ const Kerawanan = () => {
             longitude < -180 ||
             longitude > 180
           ) {
-            console.warn("⚠️ Koordinat GPS tidak valid:", {
+            console.warn("âš ï¸ Koordinat GPS tidak valid:", {
               latitude,
               longitude,
               accuracy,
@@ -14190,14 +14461,14 @@ const Kerawanan = () => {
                   }
                 } catch (circleError) {
                   console.warn(
-                    "⚠️ GPS accuracy circle gagal ditampilkan:",
+                    "âš ï¸ GPS accuracy circle gagal ditampilkan:",
                     circleError,
                   );
                   gpsAccuracyCircleRef.current = null;
                 }
               } catch (mapError) {
                 console.warn(
-                  "⚠️ Gagal merender lokasi GPS ke Leaflet:",
+                  "âš ï¸ Gagal merender lokasi GPS ke Leaflet:",
                   mapError,
                 );
               }
@@ -15395,7 +15666,7 @@ const Kerawanan = () => {
           filter: drop-shadow(0 6px 16px rgba(15,23,42,.08));
         }
 
-        /* Data labels: avoid the old tiny “dashboard” look. */
+        /* Data labels: avoid the old tiny “dashboardâ€ look. */
         .kerawanan-workspace .uppercase {
           letter-spacing: .07em;
         }
@@ -17129,7 +17400,7 @@ const Kerawanan = () => {
           {isAuthenticated && (
             <div className="px-4 py-1 bg-emerald-50 border-t border-emerald-100 flex items-center justify-between">
               <span className="text-[10px] text-emerald-800 font-medium">
-                ● Logged in as Admin
+                â— Logged in as Admin
               </span>
               <button
                 onClick={handleLogout}
@@ -17310,7 +17581,7 @@ const Kerawanan = () => {
                           ))
                         : !enterpriseSearchLoading && (
                             <div className="px-3 py-4 text-[9px] text-slate-400 text-center">
-                              Tidak ada hasil untuk “{enterpriseSearchQuery}”
+                              Tidak ada hasil untuk “{enterpriseSearchQuery}â€
                             </div>
                           )}
                     </div>
@@ -17411,7 +17682,7 @@ const Kerawanan = () => {
                               }}
                               onPointerCancel={() => { mapInfoDragRef.current = null; }}
                             >
-                              <span className="flex items-center gap-2"><span>📍</span> Informasi Titik Peta <span className="text-[9px] font-normal normal-case text-sky-600">· </span></span>
+                              <span className="flex items-center gap-2"><span>ðŸ“</span> Informasi Titik Peta <span className="text-[9px] font-normal normal-case text-sky-600">· </span></span>
                               <button
                                 type="button"
                                 aria-label="Tutup Informasi Titik Peta"
@@ -19161,3 +19432,4 @@ const Kerawanan = () => {
 };
 
 export default Kerawanan;
+
