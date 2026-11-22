@@ -271,10 +271,19 @@ function getTrackingUser(req) {
     }
 
     return {
+
       id: userId,
+
       username: decoded.username || null,
+
+      role: decoded.role || null,
+
+      role_id: decoded.role_id ?? null,
+
       role_name: decoded.role_name || decoded.role || null,
+
       organization_id: decoded.organization_id || null,
+
     };
   } catch {
     return null;
