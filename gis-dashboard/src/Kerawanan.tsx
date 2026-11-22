@@ -909,27 +909,17 @@ const Kerawanan = () => {
   // Kelas fungsi kawasan hutan: satu warna konsisten untuk WMS dan legenda.
   // Kode dengan deskripsi yang sama digabung agar legenda tidak duplikat.
   const KAWASAN_HUTAN_LEGEND = [
-    { codes: ["0", "000000"], fungsikws: "0", deskripsi_domain: "Tidak Terdefinisi", color: "#94A3B8" },
-    { codes: ["100000"], fungsikws: "100000", deskripsi_domain: "Kawasan Suaka Alam/Kawasan Pelestarian Alam", color: "#FACC15" },
-    { codes: ["100100"], fungsikws: "100100", deskripsi_domain: "Hutan Lindung", color: "#F97316" },
-    { codes: ["100200"], fungsikws: "100200", deskripsi_domain: "Hutan (Kawasan) Suaka Alam/Wisata", color: "#A855F7" },
-    { codes: ["100300", "100400"], fungsikws: "100300", deskripsi_domain: "Hutan Produksi Tetap", color: "#DC2626" },
-    { codes: ["100500"], fungsikws: "100500", deskripsi_domain: "Hutan Produksi yang dapat di Konversi", color: "#06B6D4" },
-    { codes: ["100600"], fungsikws: "100600", deskripsi_domain: "Hutan Negara Bebas", color: "#F8FAFC" },
-    { codes: ["100700"], fungsikws: "100700", deskripsi_domain: "Areal Penggunaan Lain", color: "#A3A3A3" },
-    { codes: ["500100"], fungsikws: "500100", deskripsi_domain: "Danau", color: "#2563EB" },
-    { codes: ["500300"], fungsikws: "500300", deskripsi_domain: "Tubuh Air", color: "#0EA5E9" },
-    { codes: ["100210"], fungsikws: "100210", deskripsi_domain: "Cagar Alam", color: "#84CC16" },
-    { codes: ["100220"], fungsikws: "100220", deskripsi_domain: "Suaka Margasatwa", color: "#22C55E" },
-    { codes: ["100230"], fungsikws: "100230", deskripsi_domain: "Taman Buru", color: "#FB7185" },
-    { codes: ["100240"], fungsikws: "100240", deskripsi_domain: "Taman Nasional", color: "#16A34A" },
-    { codes: ["100250"], fungsikws: "100250", deskripsi_domain: "Taman Wisata Alam/Hutan Wisata", color: "#14B8A6" },
-    { codes: ["100260"], fungsikws: "100260", deskripsi_domain: "Taman Hutan Raya", color: "#65A30D" },
-    { codes: ["100201"], fungsikws: "100201", deskripsi_domain: "Hutan Suaka Alam/Wisata (Perairan)", color: "#7C3AED" },
-    { codes: ["100211"], fungsikws: "100211", deskripsi_domain: "Cagar Alam (Perairan)", color: "#C084FC" },
-    { codes: ["100221"], fungsikws: "100221", deskripsi_domain: "Suaka Margasatwa (Perairan)", color: "#D946EF" },
-    { codes: ["100241"], fungsikws: "100241", deskripsi_domain: "Taman Nasional (Perairan)", color: "#15803D" },
-    { codes: ["100251"], fungsikws: "100251", deskripsi_domain: "Taman Wisata Alam/Hutan Wisata (Perairan)", color: "#0F766E" },
+    { codes: ["100100"], fungsikws: "100100", deskripsi_domain: "Hutan Lindung", color: "#FF6B6B" },
+    { codes: ["100700"], fungsikws: "100700", deskripsi_domain: "Areal Penggunaan Lain", color: "#4ECDC4" },
+    { codes: ["100300", "100400"], fungsikws: "100300", deskripsi_domain: "Hutan Produksi Tetap", color: "#45B7D1" },
+    { codes: ["100000", "100200", "100210", "100220", "100230"], fungsikws: "100000", deskripsi_domain: "Cagar Alam", color: "#FFA07A" },
+    { codes: ["100500"], fungsikws: "100500", deskripsi_domain: "Hutan Produksi yang dapat di Konversi", color: "#98D8C8" },
+    { codes: ["100240", "100241"], fungsikws: "100240", deskripsi_domain: "Taman Nasional", color: "#F7DC6F" },
+    { codes: ["100260"], fungsikws: "100260", deskripsi_domain: "Taman Hutan Raya", color: "#BB8FCE" },
+    { codes: ["100250", "100251"], fungsikws: "100250", deskripsi_domain: "Taman Wisata Alam/Hutan Wisata", color: "#85C1E2" },
+    { codes: ["0", "000000"], fungsikws: "0", deskripsi_domain: "Tidak Terdefinisi", color: "#F8B739" },
+    { codes: ["500100", "500300"], fungsikws: "500100", deskripsi_domain: "Tubuh Air", color: "#52BE80" },
+    { codes: ["100201", "100211", "100221"], fungsikws: "100201", deskripsi_domain: "Cagar Alam (Perairan)", color: "#EC7063" },
   ] as const;
   const [kawasanHutanData, setKawasanHutanData] = useState<
     Array<{ fungsikws: string; deskripsi_domain: string; color?: string }>
@@ -1609,7 +1599,7 @@ const Kerawanan = () => {
         </ogc:PropertyIsEqualTo></ogc:Filter>
         <PolygonSymbolizer>
           <Fill><CssParameter name="fill">${xmlEscape(item.color)}</CssParameter>
-            <CssParameter name="fill-opacity">${layerName === "vw_risiko_abrasi_wms" ? "1.0" : "0.78"}</CssParameter></Fill>
+            <CssParameter name="fill-opacity">${(layerName === "vw_risiko_abrasi_wms" || layerName === "vw_rawan_karhutla_wms") ? "1.0" : "0.78"}</CssParameter></Fill>
           <Stroke><CssParameter name="stroke">#FFFFFF</CssParameter>
             <CssParameter name="stroke-width">0.25</CssParameter>
             <CssParameter name="stroke-opacity">0.45</CssParameter></Stroke>
