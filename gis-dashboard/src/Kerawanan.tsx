@@ -1165,18 +1165,31 @@ const Kerawanan = () => {
     "> 480 Ton/Ha/Tahun": "#8B0000", // Sangat Tinggi - Dark Red
   };
 
-  // Warna untuk rawan longsor
-  const rawanLongsorColors = {
-    Tinggi: "#FF4500",
-    "Sangat Rendah": "#90EE90",
-    Menengah: "#FFA500",
-    Rendah: "#FFFF00",
-    Danau: "#1E90FF",
-    "Danau Tapal Kuda": "#4169E1",
-    "Danau/Situ": "#00BFFF",
-    Waduk: "#4682B4",
-    "Alur Aliran Bahan Rombakan": "#8B4513",
+  // Warna Rawan Longsor Nasional mengikuti 9 kategori atribut `unsur`
+  // pada public.rawan_longsor dan SLD resmi GeoServer.
+  // Lima kelas kerawanan berwarna; empat kelas perairan transparan.
+  const rawanLongsorColors: Record<string, string> = {
+    "Sangat Rendah": "#A5D6A7",
+    Rendah: "#2EAD62",
+    Menengah: "#F5D547",
+    Tinggi: "#E53935",
+    "Alur Aliran Bahan Rombakan": "#795548",
+    Danau: "transparent",
+    "Danau Tapal Kuda": "transparent",
+    "Danau/Situ": "transparent",
+    Waduk: "transparent",
   };
+  const rawanLongsorClassOrder = [
+    "Sangat Rendah",
+    "Rendah",
+    "Menengah",
+    "Tinggi",
+    "Alur Aliran Bahan Rombakan",
+    "Danau",
+    "Danau Tapal Kuda",
+    "Danau/Situ",
+    "Waduk",
+  ];
 
   // Warna untuk rawan limpasan
   const rawanLimpasanColors = {
@@ -1216,6 +1229,14 @@ const Kerawanan = () => {
     Tinggi: "#FF0000",
     Sedang: "#FFA500",
     Rendah: "#FFFF00",
+  };
+
+  // Warna khusus Bahaya Abrasi dan Gelombang Ekstrem.
+  // Sengaja dipisahkan dari palette bahayaKelasColors agar layer bahaya
+  // lainnya tetap memakai mapping warna yang sudah ada.
+  const bahayaAbrasiColors: Record<string, string> = {
+    Rendah: "#22C55E",
+    Tinggi: "#EF4444",
   };
 
   const dtaDanauColors: Record<string, string> = {
@@ -1522,7 +1543,7 @@ const Kerawanan = () => {
       bahaya_banjir: bahayaKelasColors,
       bahaya_banjir_bandang: bahayaKelasColors,
       bahaya_kekeringan: bahayaKelasColors,
-      bahaya_abrasi_dan_gelombang_ekstrim: bahayaKelasColors,
+      bahaya_abrasi_dan_gelombang_ekstrim: bahayaAbrasiColors,
     };
     const palette = paletteByLayer[layerName];
     if (!palette) return undefined;
@@ -1588,7 +1609,7 @@ const Kerawanan = () => {
         </ogc:PropertyIsEqualTo></ogc:Filter>
         <PolygonSymbolizer>
           <Fill><CssParameter name="fill">${xmlEscape(item.color)}</CssParameter>
-            <CssParameter name="fill-opacity">0.78</CssParameter></Fill>
+            <CssParameter name="fill-opacity">${layerName === "vw_risiko_abrasi_wms" ? "1.0" : "0.78"}</CssParameter></Fill>
           <Stroke><CssParameter name="stroke">#FFFFFF</CssParameter>
             <CssParameter name="stroke-width">0.25</CssParameter>
             <CssParameter name="stroke-opacity">0.45</CssParameter></Stroke>
@@ -1606,6 +1627,52 @@ const Kerawanan = () => {
           <FeatureTypeStyle>${rules}</FeatureTypeStyle>
         </UserStyle></NamedLayer>
       </StyledLayerDescriptor>`;
+  };
+
+  // SLD khusus Bahaya Abrasi dan Gelombang Ekstrem.
+  // Layer ini hanya memiliki kelas Rendah dan Tinggi; warna polygon WMS
+  // dikunci langsung di sini agar tidak bergantung pada style default GeoServer.
+  const buildBahayaAbrasiSld = () => {
+    // SLD mengikuti struktur XML acuan. NamedLayer wajib menunjuk ke
+    // nama layer WMS yang sebenarnya, bukan nama style.
+    const makeRule = (kelas: string, fill: string, stroke: string) => `
+        <sld:Rule>
+          <sld:Name>${kelas}</sld:Name>
+          <ogc:Filter>
+            <ogc:PropertyIsEqualTo>
+              <ogc:PropertyName>kelas</ogc:PropertyName>
+              <ogc:Literal>${kelas}</ogc:Literal>
+            </ogc:PropertyIsEqualTo>
+          </ogc:Filter>
+          <sld:PolygonSymbolizer>
+            <sld:Fill>
+              <sld:CssParameter name="fill">${fill}</sld:CssParameter>
+              <sld:CssParameter name="fill-opacity">1.0</sld:CssParameter>
+            </sld:Fill>
+            <sld:Stroke>
+              <sld:CssParameter name="stroke">${stroke}</sld:CssParameter>
+              <sld:CssParameter name="stroke-width">0.25</sld:CssParameter>
+            </sld:Stroke>
+          </sld:PolygonSymbolizer>
+        </sld:Rule>`;
+    return `<?xml version="1.0" encoding="UTF-8"?>
+      <sld:StyledLayerDescriptor
+        version="1.0.0"
+        xmlns:sld="http://www.opengis.net/sld"
+        xmlns:ogc="http://www.opengis.net/ogc"
+        xmlns:gml="http://www.opengis.net/gml"
+        xmlns="http://www.opengis.net/sld">
+        <sld:NamedLayer>
+          <sld:Name>simiti:bahaya_abrasi_dan_gelombang_ekstrim</sld:Name>
+          <sld:UserStyle>
+            <sld:Title>Bahaya Abrasi dan Gelombang Ekstrem - Rendah dan Tinggi</sld:Title>
+            <sld:FeatureTypeStyle>
+              ${makeRule("Rendah", "#22C55E", "#166534")}
+              ${makeRule("Tinggi", "#EF4444", "#991B1B")}
+            </sld:FeatureTypeStyle>
+          </sld:UserStyle>
+        </sld:NamedLayer>
+      </sld:StyledLayerDescriptor>`;
   };
 
   // SLD eksplisit untuk Kawasan Hutan Nasional.
@@ -1933,6 +2000,18 @@ if (
       const mapped = mapping?.get(value);
       if (mapped) return mapped;
     }
+
+    // Risiko abrasi: jika polygon dirender sebelum statistik legenda selesai
+    // dimuat, gunakan palet yang sama persis dengan warna pada tabel legenda.
+    // Ini mencegah kelas Sedang memakai fallback oranye (#F59E0B), padahal
+    // legenda menampilkan kuning (#FACC15).
+    if (String(layerName) === "risiko_abrasi") {
+      return getRisikoBanjirClassColor(
+        key,
+        getBencanaLayerColor(String(layerName)),
+      );
+    }
+
     return getRiskClassColor(key, getBencanaLayerColor(String(layerName)));
   };
 
@@ -3405,7 +3484,15 @@ if (
           }
           const fallbackRiskColor = getBencanaLayerColor(tableName);
           const legendItems = legendRows
-            .filter((row: any) => String(row?.kelas ?? "").trim())
+            .filter((row: any) => {
+              const kelas = String(row?.kelas ?? "").trim().toLowerCase();
+              if (!kelas) return false;
+              // Layer abrasi hanya memiliki dua kelas valid: Rendah dan Tinggi.
+              if (tableName === "bahaya_abrasi_dan_gelombang_ekstrim") {
+                return kelas === "rendah" || kelas === "tinggi";
+              }
+              return true;
+            })
             .map((row: any) => {
               const kelas = String(row.kelas).trim();
               let color = (tableName === "risiko_banjir" || tableName === "risiko_banjir_bandang" || tableName === "risiko_abrasi") ? getRisikoBanjirClassColor(kelas, fallbackRiskColor) : (getExactRiskPaletteColor(tableName, kelas) || getRiskClassColor(kelas, fallbackRiskColor));
@@ -3415,11 +3502,12 @@ if (
                 color = rawanLimpasanColors[kelas as keyof typeof rawanLimpasanColors] || color;
               } else if (tableName === "rawan_karhutla") {
                 color = rawanKarhutlaColors[kelas as keyof typeof rawanKarhutlaColors] || color;
+              } else if (tableName === "bahaya_abrasi_dan_gelombang_ekstrim") {
+                color = bahayaAbrasiColors[kelas] || color;
               } else if (
                 tableName === "bahaya_banjir" ||
                 tableName === "bahaya_banjir_bandang" ||
-                tableName === "bahaya_kekeringan" ||
-                tableName === "bahaya_abrasi_dan_gelombang_ekstrim"
+                tableName === "bahaya_kekeringan"
               ) {
                 color = bahayaKelasColors[kelas] || color;
               }
@@ -3428,6 +3516,12 @@ if (
                 luas: Number(row.luasHa ?? 0) || 0,
                 color,
               };
+            })
+            .sort((a: any, b: any) => {
+              if (tableName !== "rawan_longsor") return 0;
+              const aIndex = rawanLongsorClassOrder.indexOf(a.kelas);
+              const bIndex = rawanLongsorClassOrder.indexOf(b.kelas);
+              return (aIndex < 0 ? 999 : aIndex) - (bIndex < 0 ? 999 : bIndex);
             });
 
           // Isi state yang benar-benar dibaca oleh panel legenda masing-masing layer.
@@ -3558,23 +3652,51 @@ if (
           // Semua layer risiko/kerawanan WMS menggunakan SLD berbasis kelas
           // yang dibangun dari warna legenda. Tidak lagi bergantung pada style
           // default GeoServer yang dapat menghasilkan warna berbeda.
-          (wmsLayer as any).setParams({
-            styles: "",
-            SLD_BODY: buildNationalRiskBanjirSld(
-              legendItems,
-              ({
-                risiko_banjir_bandang: "vw_risiko_banjir_bandang_wms",
-                risiko_abrasi: "vw_risiko_abrasi_wms",
-                risiko_longsor: "vw_risiko_longsor_wms",
-                risiko_karhutla: "vw_risiko_karhutla_repaired_wms",
-                rawan_limpasan: "vw_rawan_limpasan_wms",
-                rawan_karhutla: "vw_rawan_karhutla_wms",
-              } as Record<string, string>)[tableName] || tableName,
-              getRiskWmsClassColumn(tableName),
-            ),
-            CQL_FILTER: riskBanjirWmsCqlFilter,
-          }, true);
-          (wmsLayer as any).redraw?.();
+          // Rawan Longsor nasional sudah memiliki SLD resmi di GeoServer.
+          // Pertahankan style bawaan yang terbukti tampil pada request WMS awal.
+          // SLD dinamis frontend tidak diterapkan untuk layer ini karena aturan
+          // kelas hasil agregasi `kelas` dapat berbeda dari atribut WMS `unsur`;
+          // menggantinya dapat membuat tile berikutnya kosong.
+          if (tableName === "rawan_longsor") {
+            (wmsLayer as any).setParams({
+              CQL_FILTER: riskBanjirWmsCqlFilter,
+            }, true);
+            (wmsLayer as any).redraw?.();
+            console.info("SIMITI: Rawan Longsor nasional mempertahankan SLD resmi GeoServer", {
+              layer: "simiti:rawan_longsor",
+              classColumn: "unsur",
+              filter: riskBanjirWmsCqlFilter,
+            });
+          } else {
+            (wmsLayer as any).setParams({
+              styles: "",
+              SLD_BODY:
+                tableName === "bahaya_abrasi_dan_gelombang_ekstrim"
+                  ? buildBahayaAbrasiSld()
+                  : buildNationalRiskBanjirSld(
+                      legendItems,
+                      ({
+                        risiko_banjir_bandang: "vw_risiko_banjir_bandang_wms",
+                        risiko_abrasi: "vw_risiko_abrasi_wms",
+                        risiko_longsor: "vw_risiko_longsor_wms",
+                        risiko_karhutla: "vw_risiko_karhutla_repaired_wms",
+                        rawan_limpasan: "vw_rawan_limpasan_wms",
+                        rawan_karhutla: "vw_rawan_karhutla_wms",
+                      } as Record<string, string>)[tableName] || tableName,
+                      getRiskWmsClassColumn(tableName),
+                    ),
+              CQL_FILTER: riskBanjirWmsCqlFilter,
+            }, true);
+            (wmsLayer as any).redraw?.();
+          }
+
+          if (tableName === "bahaya_abrasi_dan_gelombang_ekstrim") {
+            console.info("SIMITI: SLD khusus Bahaya Abrasi diterapkan", {
+              layer: tableName,
+              kelas: ["Rendah", "Tinggi"],
+              warna: { Rendah: "#22C55E", Tinggi: "#EF4444" },
+            });
+          }
 
           console.log("SIMITI: legenda risiko banjir nasional berhasil dimuat", {
             jumlahKelas: legendItems.length,
@@ -4250,10 +4372,14 @@ if (
         });
         const order = ["Tinggi", "Rendah"];
         const arr = Array.from(kelasMap.entries())
+          .filter(([kelas]) => {
+            const normalized = String(kelas).trim().toLowerCase();
+            return normalized === "rendah" || normalized === "tinggi";
+          })
           .map(([kelas, luas]) => ({
             kelas,
             luas,
-            color: bahayaKelasColors[kelas] || "#808080",
+            color: bahayaAbrasiColors[kelas] || "#808080",
           }))
           .sort(
             (a, b) =>
@@ -5838,9 +5964,14 @@ if (
                 };
                 const refKey = refKeyMap[hoveredLayerType];
                 originalColor =
+                  getBencanaLegendFeatureColor(
+                    String(hoveredLayerType),
+                    layer.feature,
+                  ) ||
                   colorMappingRef.current[refKey]?.get(
                     layer.feature.properties.kelas || "",
-                  ) || "#808080";
+                  ) ||
+                  "#808080";
               } else if (hoveredLayerType === "khdtk") {
                 originalColor =
                   colorMappingRef.current.khdtk.get(
@@ -8654,7 +8785,8 @@ if (
         }
         if (featureKey.trim() !== selectedKey) return;
         featureLayer.setStyle({
-          color, fillColor: color, weight: 2.5, opacity: 1, fillOpacity: 0.78,
+          color, fillColor: color, weight: 2.5, opacity: 1,
+          fillOpacity: layerType === "risiko_abrasi" ? 1 : 0.78,
         });
         if (typeof featureLayer.bringToFront === "function") featureLayer.bringToFront();
         matched++;
