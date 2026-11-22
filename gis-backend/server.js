@@ -15168,7 +15168,7 @@ app.get("/api/layers/:tableName/statistics", async (req, res) => {
     rawan_karhutla: {
       // Kolom kelas dan geometri terverifikasi dari query kerawanan yang sudah ada.
       relation: '"public"."rawan_karhutla"',
-      geometryColumn: "geom",
+      geometryColumn: "geom_valid",
       classColumn: "kelas",
     },
     rawan_erosi: {
