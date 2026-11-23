@@ -14997,7 +14997,8 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       tableName === "risiko_banjir" &&
       zoom <= 5 &&
       !dasFilter &&
-      !adminFilter;
+      !adminFilter &&
+      !adminCodes?.length;
 
     if (isNationalRawanBanjirOverview) {
       simplifyTolerance = Math.max(simplifyTolerance, 0.02);
