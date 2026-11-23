@@ -14750,7 +14750,20 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
 
     // Bounds memakai MBRIntersects agar kompatibel dengan MySQL 8 dan tidak
     // bergantung pada ST_MakeEnvelope PostgreSQL.
-    if (bounds) {
+    const adminFilterRequested =
+      Boolean(adminFilter) ||
+      (Array.isArray(req.query.adminCodes)
+        ? req.query.adminCodes.length > 0
+        : Boolean(req.query.adminCodes));
+
+    // Untuk Rawan Karhutla pada level administrasi, seluruh polygon dalam
+    // boundary terpilih harus dimuat. Batas viewport tidak boleh memotong
+    // hasil sehingga jumlah polygon berubah saat peta digeser/dizoom.
+    const useViewportBounds =
+      Boolean(bounds) &&
+      !(tableName === "rawan_karhutla" && adminFilterRequested);
+
+    if (useViewportBounds) {
       const wkt = makeWktBounds(bounds);
       conditions.push(
         `ST_Intersects(l.${geometryColumn}, ST_GeomFromText($1, 4326))`,
@@ -15013,6 +15026,11 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       zoom <= 11 ? 12000 :
       zoom <= 13 ? 18000 : 25000;
 
+    // Polygon Rawan Karhutla terpilih harus utuh jumlahnya; tanpa LIMIT
+    // agar hasil provinsi/kabupaten/kecamatan/desa tidak terpotong.
+    const isUnlimitedAdminRawanKarhutla =
+      tableName === "rawan_karhutla" && adminFilterRequested;
+
     // Offset hanya dipakai untuk pagination nasional. Validasi ketat agar
     // parameter tidak dapat menyisipkan SQL; urutan ctid stabil untuk halaman
     // berurutan pada tabel yang tidak memiliki primary key seragam.
@@ -15024,21 +15042,33 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
     // menggunakan GeoServer WMS; tanpa LIMIT ini adalah fallback untuk
     // kebutuhan filter/analisis lokal yang masih meminta GeoJSON.
     const isUnlimitedKawasanHutan = tableName === "kawasan_hutan";
+    const isExactRawanKarhutlaAdmin = isUnlimitedAdminRawanKarhutla;
+    const outputGeometrySql = isExactRawanKarhutlaAdmin
+      ? geometrySql
+      : `ST_SimplifyPreserveTopology(${geometrySql}, ${simplifyTolerance})`;
+    const outputPropertiesSql =
+      isExactRawanKarhutlaAdmin
+        ? `(${propertiesSql})::jsonb || jsonb_build_object(
+            'luas_ha',
+            ST_Area(ST_Transform(${geometrySql}, 6933)) / 10000.0
+          )`
+        : propertiesSql;
+    const isUnlimitedQuery = isUnlimitedKawasanHutan || isUnlimitedAdminRawanKarhutla;
     const query = `
       SELECT
-        ST_AsGeoJSON(ST_SimplifyPreserveTopology(${geometrySql}, ${simplifyTolerance}), 5) AS geometry,
-        ${propertiesSql} AS properties
+        ST_AsGeoJSON(${outputGeometrySql}, 5) AS geometry,
+        ${outputPropertiesSql} AS properties
       ${fromSql}
       WHERE ${conditions.join(" AND ")}
       ORDER BY l.ctid
-      ${isUnlimitedKawasanHutan ? "" : `LIMIT ${FEATURE_LIMIT + 1} OFFSET ${offset}`}
+      ${isUnlimitedQuery ? "" : `LIMIT ${FEATURE_LIMIT + 1} OFFSET ${offset}`}
     `;
 
     const queryStartedAt = Date.now();
     const result = await client.query(query, params);
     const queryDurationMs = Date.now() - queryStartedAt;
-    const hasMore = !isUnlimitedKawasanHutan && result.rows.length > FEATURE_LIMIT;
-    const pageRows = isUnlimitedKawasanHutan
+    const hasMore = !isUnlimitedQuery && result.rows.length > FEATURE_LIMIT;
+    const pageRows = isUnlimitedQuery
       ? result.rows
       : hasMore ? result.rows.slice(0, FEATURE_LIMIT) : result.rows;
     const serializationStartedAt = Date.now();
@@ -15235,16 +15265,17 @@ app.get("/api/layers/:tableName/statistics", async (req, res) => {
 
     const dasNames = parseArray(req.query.dasFilter, "dasFilter");
     const adminNames = parseArray(req.query.adminFilter, "adminFilter");
+    const adminCodes = parseArray(req.query.adminCodes, "adminCodes");
     const adminLevel = String(req.query.adminLevel || "").toLowerCase();
 
     const adminConfig = {
-      provinsi: { table: "provinsi", column: "provinsi" },
-      kabupaten: { table: "kab_kota", column: "kab_kota" },
-      kecamatan: { table: "kecamatan", column: "kecamatan" },
-      kelurahan: { table: "kel_desa", column: "kel_desa" },
+      provinsi: { table: "provinsi", column: "provinsi", codeColumn: "kode_prov" },
+      kabupaten: { table: "kab_kota", column: "kab_kota", codeColumn: "kode_kk" },
+      kecamatan: { table: "kecamatan", column: "kecamatan", codeColumn: "kode_kec" },
+      kelurahan: { table: "kel_desa", column: "kel_desa", codeColumn: "kode_kd" },
     };
 
-    if (adminNames.length && !adminConfig[adminLevel]) {
+    if ((adminNames.length || adminCodes.length) && !adminConfig[adminLevel]) {
       return res.status(400).json({
         success: false,
         message: "adminLevel tidak valid.",
@@ -15276,10 +15307,12 @@ app.get("/api/layers/:tableName/statistics", async (req, res) => {
     }
 
     // Pemotongan geometri berdasarkan administrasi tetap dipertahankan.
-    if (adminNames.length) {
+    if (adminNames.length || adminCodes.length) {
       const config = adminConfig[adminLevel];
+      const adminColumn = adminCodes.length ? config.codeColumn : config.column;
+      const adminValues = adminCodes.length ? adminCodes : adminNames;
 
-      params.push(adminNames);
+      params.push(adminValues);
 
       const adminParam = `$${params.length}`;
 
@@ -15287,7 +15320,7 @@ app.get("/api/layers/:tableName/statistics", async (req, res) => {
         CROSS JOIN LATERAL (
           SELECT ST_UnaryUnion(ST_Collect(b.geom_valid)) AS clip_geom
           FROM "${config.table}" b
-          WHERE b."${config.column}" = ANY(${adminParam}::text[])
+          WHERE b."${adminColumn}" = ANY(${adminParam}::text[])
             AND b.geom_valid IS NOT NULL
         ) admin_scope
       `;

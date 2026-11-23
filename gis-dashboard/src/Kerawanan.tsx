@@ -3331,7 +3331,11 @@ if (
         // administrasi aktif agar adminCodes/adminLevel diproses backend
         // dan geometry benar-benar di-clip dengan ST_Intersection.
         !(tableName === "risiko_banjir" && selectedAreas.length > 0) &&
-        !(tableName === "risiko_karhutla" && selectedAreas.length > 0);
+        !(tableName === "risiko_karhutla" && selectedAreas.length > 0) &&
+        // Rawan Karhutla administrasi wajib memakai GeoJSON backend agar
+        // polygon dipotong ST_Intersection dengan boundary yang sama,
+        // bukan hanya INTERSECTS pada WMS.
+        !(tableName === "rawan_karhutla" && selectedAreas.length > 0);
 
       const wmsGeometryColumn = "geom_valid";
       const wmsClassColumn =
@@ -3452,8 +3456,32 @@ if (
           };
           if (token) legendHeaders.Authorization = `Bearer ${token}`;
 
+          let legendStatisticsUrl = `${API_URL}/api/layers/${tableName}/statistics`;
+          if (selectedAreas.length > 0) {
+            const legendDeepestAreas = getDeepestSelectedAdminAreas(selectedAreas);
+            const legendAdminLevel = legendDeepestAreas[0]?.level;
+            const legendAdminCodes = legendDeepestAreas
+              .map((area: any) => {
+                switch (legendAdminLevel) {
+                  case "provinsi": return area.kode_prov;
+                  case "kabupaten": return area.kode_kk;
+                  case "kecamatan": return area.kode_kec;
+                  case "kelurahan": return area.kode_kd;
+                  default: return "";
+                }
+              })
+              .filter((code: any) => Boolean(code && String(code).trim()));
+
+            if (legendAdminLevel && legendAdminCodes.length > 0) {
+              const legendParams = new URLSearchParams();
+              legendParams.set("adminLevel", legendAdminLevel);
+              legendParams.set("adminCodes", JSON.stringify(legendAdminCodes));
+              legendStatisticsUrl += `?${legendParams.toString()}`;
+            }
+          }
+
           const legendResponse = await fetch(
-            `${API_URL}/api/layers/${tableName}/statistics`,
+            legendStatisticsUrl,
             {
               method: "GET",
               headers: legendHeaders,
