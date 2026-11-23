@@ -3326,6 +3326,10 @@ if (
                     (!activeSpatialFocus?.feature?.geometry && zoom <= 5)
               )
         ) &&
+        // Risiko Banjir harus memakai endpoint GeoJSON saat filter
+        // administrasi aktif agar adminCodes/adminLevel diproses backend
+        // dan geometry benar-benar di-clip dengan ST_Intersection.
+        !(tableName === "risiko_banjir" && selectedAreas.length > 0) &&
         !(tableName === "risiko_karhutla" && selectedAreas.length > 0);
 
       const wmsGeometryColumn = "geom_valid";
