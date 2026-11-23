@@ -1207,12 +1207,13 @@ const Kerawanan = () => {
     return `<StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld" xmlns:ogc="http://www.opengis.net/ogc" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.opengis.net/sld http://www.opengis.net/sld/StyledLayerDescriptor.xsd"><NamedLayer><Name>simiti:vw_rawan_limpasan_wms</Name><UserStyle><Name>rawan_limpasan_click_style</Name><Title>Rawan Limpasan - Click Legend Style</Title><FeatureTypeStyle>${rules}</FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>`;
   };
 
-  // Warna untuk rawan karhutla
-  const rawanKarhutlaColors = {
-    "Sangat Tinggi": "#8B0000",
-    Tinggi: "#FF0000",
-    Sedang: "#FFA500",
-    Rendah: "#FFFF00",
+  // Warna Rawan Karhutla nasional mengikuti SLD GeoServer
+  // vw_rawan_karhutla_wms agar warna polygon, legenda, dan SLD_BODY identik.
+  const rawanKarhutlaColors: Record<string, string> = {
+    "Sangat Tinggi": "#FF0000",
+    Tinggi: "#FFFF00",
+    Sedang: "#00FF00",
+    Rendah: "#0000FF",
   };
 
   const bahayaKelasColors: Record<string, string> = {
@@ -13404,7 +13405,17 @@ if (
                     </tr>
                   </thead>
                   <tbody>
-                    {risikoLayerData.map((item, idx) => (
+                    {risikoLayerData.map((item, idx) => {
+                      // Warna legenda memakai resolver yang sama dengan style polygon Leaflet.
+                      // Jadi warna swatch, highlight, dan warna kelas pada peta tetap sinkron.
+                      const legendColor =
+                        getBencanaLegendFeatureColor(String(activeBottomTab), {
+                          properties: { kelas: item.kelas },
+                        }) ||
+                        item.color ||
+                        "#808080";
+
+                      return (
                       <tr
                         key={idx}
                         className={`border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors ${(activeBottomTab === "risiko_banjir" || activeBottomTab === "risiko_banjir_bandang" || activeBottomTab === "risiko_kekeringan" || activeBottomTab === "risiko_abrasi" || activeBottomTab === "risiko_longsor" || activeBottomTab === "risiko_karhutla" || NATIONAL_HAZARD_WMS_LAYERS.has(activeBottomTab)) && selectedLegendKey === item.kelas ? "bg-blue-100 ring-1 ring-inset ring-blue-300" : ""}`}
@@ -13441,13 +13452,13 @@ if (
                               return;
                             }
                           }
-                          handleLegendClick(item.kelas, activeBottomTab, item.color || "#808080");
+                          handleLegendClick(item.kelas, activeBottomTab, legendColor);
                         }}
                         onMouseEnter={() =>
                           handleRowMouseEnter(
                             item.kelas,
                             activeBottomTab,
-                            item.color || "#808080",
+                            legendColor,
                           )
                         }
                         onMouseLeave={handleRowMouseLeave}
@@ -13456,7 +13467,7 @@ if (
                         <td className="py-1 px-2">
                           <div
                             className="w-8 h-4 rounded border border-gray-300"
-                            style={{ backgroundColor: item.color }}
+                            style={{ backgroundColor: legendColor }}
                           ></div>
                         </td>
                         <td className="py-1 px-2 text-gray-700 break-words">
@@ -13466,7 +13477,8 @@ if (
                           {item.luas ? item.luas.toFixed(2) : "0"}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
