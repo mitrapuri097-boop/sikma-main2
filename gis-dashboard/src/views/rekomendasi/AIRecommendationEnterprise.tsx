@@ -303,6 +303,47 @@ type McdaResult = {
   }>;
 };
 
+type PointRecommendation = {
+  recommendation_id: string;
+  model_type: string;
+  priority: string;
+  suitability_score: number | null;
+  constraint_status: string;
+  reasons: string[];
+  required_checks: string[];
+  failed_constraints: string[];
+  uncertainty: string[];
+  existing_assets: Array<{ table: string; nama?: string | null; jarak_m: number }>;
+};
+
+type PointAnalysis = {
+  success: boolean;
+  analysis_id?: string;
+  hazard: string | null;
+  no_mapped_risk?: boolean;
+  message?: string;
+  location?: { lat: number; lng: number; radius_m: number; area_ha: number };
+  diagnosis?: Array<{
+    issue: string;
+    severity: string;
+    shares_percent?: { tinggi: number; sedang: number; rendah: number };
+    events_in_radius?: number | null;
+  }>;
+  mcda?: McdaResult;
+  recommendations?: PointRecommendation[];
+  nearest_assets?: Array<{ table: string; nama?: string | null; jarak_m: number }>;
+  data_status?: { missing_data: string[]; data_quality: string };
+  limitations?: string[];
+  model_version?: string;
+};
+
+const POINT_STATUS_LABEL: Record<string, string> = {
+  ELIGIBLE_FOR_FURTHER_TECHNICAL_REVIEW: "Layak dikaji lebih lanjut",
+  NEEDS_FIELD_VERIFICATION: "Perlu verifikasi lapangan",
+  NEEDS_DATA: "Data belum cukup",
+  NOT_ELIGIBLE: "Tidak layak (constraint)",
+};
+
 const normalizeHazard = (category = ""): Hazard | null => {
   const value = category.toLowerCase();
   if (value.includes("banjir")) return "Banjir";
@@ -362,6 +403,14 @@ export default function AIRecommendationEnterprise() {
   const [aiFallbackMcda, setAiFallbackMcda] = useState<McdaResult | null>(
     null,
   );
+  // Mode klik titik: data kerawanan sekitar titik -> model mitigasi (aturan GIS).
+  const [pointMode, setPointMode] = useState(false);
+  const [pointRadius, setPointRadius] = useState(1500);
+  const [pointLoading, setPointLoading] = useState(false);
+  const [pointError, setPointError] = useState("");
+  const [pointResult, setPointResult] = useState<PointAnalysis | null>(null);
+  const pointLayerRef = useRef<L.LayerGroup | null>(null);
+  const pointRadiusRef = useRef(pointRadius);
   const thematicLayerGroupsRef = useRef<Map<string, L.Layer>>(new Map());
   const thematicRequestSeqRef = useRef(0);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1382,6 +1431,83 @@ export default function AIRecommendationEnterprise() {
       if (!visible && map.hasLayer(layer)) map.removeLayer(layer);
     });
   }, [incidentLayerVisible, boundaryLayerVisible]);
+
+  const analyzePoint = useCallback(async (lat: number, lng: number, radius: number) => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    if (!pointLayerRef.current) pointLayerRef.current = L.layerGroup().addTo(map);
+    const layer = pointLayerRef.current;
+    layer.clearLayers();
+    L.circle([lat, lng], {
+      radius,
+      color: "#0f766e",
+      weight: 2,
+      dashArray: "6 4",
+      fillColor: "#14b8a6",
+      fillOpacity: 0.12,
+    }).addTo(layer);
+    L.circleMarker([lat, lng], {
+      radius: 7,
+      color: "#fff",
+      weight: 2,
+      fillColor: "#0f766e",
+      fillOpacity: 1,
+    }).addTo(layer);
+    setPointLoading(true);
+    setPointError("");
+    setPointResult(null);
+    try {
+      const response = await smitiFetch(`${API_URL}/api/ai/point-mitigation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat, lng, radius_m: radius, hazard: "auto" }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(
+          data?.message ||
+            (response.status === 401
+              ? "Sesi login berakhir. Silakan login ulang."
+              : `HTTP ${response.status}`),
+        );
+      }
+      setPointResult(data as PointAnalysis);
+    } catch (error: any) {
+      setPointError(error?.message || "Analisis titik gagal.");
+    } finally {
+      setPointLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    pointRadiusRef.current = pointRadius;
+  }, [pointRadius]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    const container = map.getContainer();
+    if (!pointMode) {
+      container.style.cursor = "";
+      return;
+    }
+    container.style.cursor = "crosshair";
+    const onClick = (event: L.LeafletMouseEvent) => {
+      void analyzePoint(event.latlng.lat, event.latlng.lng, pointRadiusRef.current);
+    };
+    map.on("click", onClick);
+    return () => {
+      map.off("click", onClick);
+      container.style.cursor = "";
+    };
+  }, [pointMode, analyzePoint]);
+
+  useEffect(() => {
+    if (pointMode) return;
+    pointLayerRef.current?.clearLayers();
+    setPointResult(null);
+    setPointError("");
+  }, [pointMode]);
 
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
@@ -2544,6 +2670,15 @@ export default function AIRecommendationEnterprise() {
                 </button>
                 <button
                   type="button"
+                  className={`ai-map-tool ${pointMode ? "active" : ""}`}
+                  onClick={() => setPointMode((v) => !v)}
+                  aria-pressed={pointMode}
+                  title="Analisis titik: klik peta untuk melihat model mitigasi"
+                >
+                  <Crosshair size={16} />
+                </button>
+                <button
+                  type="button"
                   className="ai-map-tool"
                   onClick={() => setShowLayers((v) => !v)}
                   title="Layer"
@@ -2554,6 +2689,114 @@ export default function AIRecommendationEnterprise() {
 
               <div className="simiti-map-stage ai-map-stage">
                 <div ref={mapRef} className="simiti-map" />
+
+                {pointMode && (
+                  <div className="point-card" role="region" aria-label="Analisis titik">
+                    <div className="point-card-head">
+                      <div>
+                        <small>ANALISIS TITIK</small>
+                        <h3>Model mitigasi di titik terpilih</h3>
+                      </div>
+                      <button type="button" onClick={() => setPointMode(false)} aria-label="Tutup">
+                        <X size={15} />
+                      </button>
+                    </div>
+                    <label className="point-radius">
+                      Radius analisis: <b>{pointRadius >= 1000 ? `${pointRadius / 1000} km` : `${pointRadius} m`}</b>
+                      <input
+                        type="range"
+                        min={500}
+                        max={5000}
+                        step={500}
+                        value={pointRadius}
+                        onChange={(e) => setPointRadius(Number(e.target.value))}
+                      />
+                    </label>
+                    {!pointResult && !pointLoading && !pointError && (
+                      <p className="point-hint">Klik titik mana pun di peta. Sistem membaca data kerawanan, lahan, dan sarana di sekitar titik, lalu mengusulkan model mitigasi.</p>
+                    )}
+                    {pointLoading && <p className="point-hint">Menganalisis data di sekitar titik…</p>}
+                    {pointError && <p className="point-error">{pointError}</p>}
+                    {pointResult?.no_mapped_risk && <p className="point-hint">{pointResult.message}</p>}
+                    {pointResult && !pointResult.no_mapped_risk && (
+                      <>
+                        <div className="point-summary">
+                          <div>
+                            <small>Bencana dominan</small>
+                            <strong>{(pointResult.hazard || "").replace("_", " ")}</strong>
+                          </div>
+                          <div>
+                            <small>Skor MCDA</small>
+                            <strong>
+                              {pointResult.mcda?.score ?? "—"}
+                              {pointResult.mcda?.score != null ? "/100" : ""}
+                            </strong>
+                          </div>
+                          <div>
+                            <small>Kelengkapan data</small>
+                            <strong>{pointResult.mcda?.coverage_percent ?? "—"}%</strong>
+                          </div>
+                        </div>
+                        {pointResult.diagnosis?.[0]?.shares_percent && (
+                          <p className="point-diag">
+                            Risiko di radius: Tinggi {pointResult.diagnosis[0].shares_percent.tinggi}% · Sedang{" "}
+                            {pointResult.diagnosis[0].shares_percent.sedang}% · Rendah{" "}
+                            {pointResult.diagnosis[0].shares_percent.rendah}%
+                            {pointResult.diagnosis[0].events_in_radius != null
+                              ? ` · ${pointResult.diagnosis[0].events_in_radius} kejadian`
+                              : ""}
+                          </p>
+                        )}
+                        {(pointResult.recommendations?.length ?? 0) === 0 && (
+                          <p className="point-hint">Belum ada model mitigasi yang memenuhi aturan untuk kondisi di titik ini.</p>
+                        )}
+                        <ol className="point-reco">
+                          {pointResult.recommendations?.map((r) => (
+                            <li key={r.recommendation_id} className={`status-${r.constraint_status}`}>
+                              <div className="point-reco-head">
+                                <b>{r.model_type}</b>
+                                <span>
+                                  {r.suitability_score != null ? `${Math.round(r.suitability_score)}/100 · ` : ""}
+                                  {r.priority.replace("_", " ").toLowerCase()}
+                                </span>
+                              </div>
+                              <em className="point-status">{POINT_STATUS_LABEL[r.constraint_status] || r.constraint_status}</em>
+                              {r.reasons.map((reason) => (
+                                <p key={reason}>{reason}</p>
+                              ))}
+                              {r.required_checks.length > 0 && (
+                                <small>Periksa: {r.required_checks.join("; ")}</small>
+                              )}
+                              {r.uncertainty.length > 0 && (
+                                <small className="point-unc">Ketidakpastian: {r.uncertainty.join(" ")}</small>
+                              )}
+                            </li>
+                          ))}
+                        </ol>
+                        {(pointResult.nearest_assets?.length ?? 0) > 0 && (
+                          <details className="point-assets">
+                            <summary>Sarana eksisting terdekat</summary>
+                            <ul>
+                              {pointResult.nearest_assets!
+                                .slice()
+                                .sort((a, b) => a.jarak_m - b.jarak_m)
+                                .slice(0, 6)
+                                .map((a) => (
+                                  <li key={a.table}>
+                                    {a.table.replace(/_/g, " ")}: {a.jarak_m >= 1000 ? `${(a.jarak_m / 1000).toFixed(1)} km` : `${a.jarak_m} m`}
+                                    {a.nama ? ` — ${a.nama}` : ""}
+                                  </li>
+                                ))}
+                            </ul>
+                          </details>
+                        )}
+                        <p className="point-foot">
+                          Kandidat, belum diverifikasi lapangan. {pointResult.limitations?.[0]}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 {showLayers && (
                   <div className="simiti-map-layer-card ai-layer-card">

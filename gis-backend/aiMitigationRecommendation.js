@@ -24,6 +24,7 @@ const express = require("express");
 const jwt = require("jsonwebtoken");
 const OpenAI = require("openai");
 const { computeMcda, riskClassValue } = require("./aiMitigationScoring");
+const { createPointMitigationHandler } = require("./aiPointMitigation");
 
 const VERSION = "SIMITI-AI-MITIGATION-V5.0";
 // gpt-4.1-mini dihentikan OpenAI 14 Jan 2027; pengganti resminya gpt-6-luna.
@@ -1404,6 +1405,18 @@ function createAiMitigationRecommendationRouter(pool) {
 
   // Cek konfigurasi tanpa memanggil OpenAI (tidak membocorkan key).
   router.get("/status", (req, res) => res.json(aiStatus()));
+
+  // Analisis titik klik: data kerawanan sekitar titik -> model mitigasi (aturan §8).
+  router.post(
+    "/point-mitigation",
+    aiAuth,
+    aiRateLimit,
+    createPointMitigationHandler(pool, {
+      loadSpatialEvidence, screenHazards, queryWithTimeout, loadSpatialCatalog, quoteIdent,
+      pickClassColumn, RISK_TABLES, MITIGATION_TABLES, RELEVANT_MITIGATION,
+      NAME_HINTS: MITIGATION_NAME_HINTS, VERSION,
+    }),
+  );
 
   router.post("/mitigation-recommendation", aiAuth, aiRateLimit, async (req, res) => {
     const context = req.body?.context || {};
