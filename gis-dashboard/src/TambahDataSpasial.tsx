@@ -2,10 +2,15 @@ import React, { useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { API_URL } from "./api";
 
-type Section = "kerawanan" | "lainnya" | "kejadian";
+type Section =
+  | "kerawanan"
+  | "mitigasiAdaptasi"
+  | "lainnya"
+  | "kejadian";
 
 const SECTION_TITLES: Record<Section, string> = {
   kerawanan: "Kerawanan",
+  mitigasiAdaptasi: "Mitigasi dan Adaptasi",
   lainnya: "Lainnya",
   kejadian: "Kejadian",
 };
@@ -21,6 +26,12 @@ const SECTION_OPTIONS: Array<{
     title: "Kerawanan",
     description: "Data ancaman, bahaya, dan risiko bencana",
     icon: "◈",
+  },
+  {
+    value: "mitigasiAdaptasi",
+    title: "Mitigasi dan Adaptasi",
+    description: "Data upaya pengurangan risiko dan penyesuaian terhadap dampak bencana",
+    icon: "✳",
   },
   {
     value: "lainnya",
@@ -623,6 +634,7 @@ const TambahDataSpasial = () => {
             <div className="mt-3 grid grid-cols-1 gap-2">
               {SECTION_OPTIONS.map((option) => {
                 const selected = currentSection === option.value;
+                const isMitigationOption = option.value === "mitigasiAdaptasi";
                 return (
                   <button
                     key={option.value}
@@ -635,6 +647,10 @@ const TambahDataSpasial = () => {
                     disabled={isUploading}
                     aria-pressed={selected}
                     className={`flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                      isMitigationOption
+                        ? "ml-5 w-[calc(100%-1.25rem)] border-l-4 border-l-emerald-300 bg-emerald-50/40"
+                        : ""
+                    } ${
                       selected
                         ? "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-500/10"
                         : "border-slate-200 bg-slate-50 hover:border-emerald-300 hover:bg-emerald-50/60"
@@ -843,7 +859,7 @@ const TambahDataSpasial = () => {
                 )}
                 </div>
 
-
+                
               </div>
 
               <div className="px-6 pb-6 pt-3 sm:px-7 sm:pb-7 sm:pt-3 lg:mr-[380px]">
@@ -1153,7 +1169,7 @@ const TambahDataSpasial = () => {
                   {uploadProgress < 100 ? "Mengupload..." : "Memproses..."}
                 </>
               ) : (
-                <>ï¼‹ Publikasikan Layer</>
+                <>＋ Publikasikan Layer</>
               )}
             </button>
           </div>
