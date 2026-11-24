@@ -9,8 +9,9 @@
  *  - §4    : jarak ke sarana eksisting terdekat (tidak menggandakan infrastruktur)
  *  - §14.1/Lampiran B : bentuk keluaran
  *
- * Seluruh angka, skor, jarak, dan koordinat berasal dari analisis GIS.
- * Tidak ada pemanggilan LLM di sini: keluaran deterministik dan bisa ditelusuri.
+ * Seluruh angka, skor, jarak, dan koordinat berasal dari analisis GIS/aturan.
+ * LLM (opsional) hanya merangkai narasi dari hasil tersebut; narasi yang memuat
+ * angka di luar masukan dibuang, dan kegagalan LLM tidak mengubah hasil aturan.
  */
 
 const MODEL_VERSION = "0.1.0-point-rules";
@@ -341,6 +342,100 @@ function applyRules(hazard, ctx, mcdaScore) {
   ).map((item, i) => ({ recommendation_id: `REC-${String(i + 1).padStart(3, "0")}`, ...item }));
 }
 
+const EXPLAIN_PROMPT = [
+  "Anda menjelaskan hasil analisis GIS SIMITI (sistem mitigasi bencana hidrometeorologi kehutanan) kepada perencana.",
+  "Gunakan HANYA fakta pada JSON masukan. Dilarang menambah angka, nama tempat, koordinat, kapasitas, biaya, atau klaim penurunan risiko yang tidak ada di masukan.",
+  "Jangan mengubah skor, status constraint, atau urutan rekomendasi. Jangan merekomendasikan model yang tidak ada di daftar.",
+  "Jangan menulis kode status mentah (mis. NEEDS_FIELD_VERIFICATION); gunakan padanan bahasa Indonesia: layak dikaji lebih lanjut, perlu verifikasi lapangan, data belum cukup, tidak layak. Jangan menulis kategori prioritas dengan huruf kapital.",
+  "Setiap rekomendasi adalah kandidat yang belum diverifikasi: sebut pemeriksaan wajib dan data yang belum tersedia bila relevan.",
+  "Jika status NOT_ELIGIBLE, jelaskan mengapa tidak layak dan arahkan ke alternatif yang ada di daftar.",
+  "Bahasa Indonesia, ringkas, teknis, 2-3 kalimat per rekomendasi, ringkasan maks 3 kalimat.",
+].join(" ");
+
+const EXPLAIN_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ringkasan", "rekomendasi"],
+  properties: {
+    ringkasan: { type: "string" },
+    rekomendasi: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["recommendation_id", "narasi"],
+        properties: { recommendation_id: { type: "string" }, narasi: { type: "string" } },
+      },
+    },
+  },
+};
+
+/** Angka pada narasi harus berasal dari masukan; bila tidak, narasi dibuang. */
+function numbersGrounded(text, sourceJson) {
+  const nums = String(text).match(/\d+(?:[.,]\d+)*/g) || [];
+  // Bandingkan sebagai nilai: "21.753" (ribuan ID) == 21753, "65,1" == 65.1.
+  const toNumber = (token) => {
+    if (/^\d{1,3}(\.\d{3})+$/.test(token)) return Number(token.replace(/\./g, ""));
+    return Number(token.replace(",", "."));
+  };
+  const sourceNums = new Set(
+    (sourceJson.match(/\d+(?:\.\d+)?/g) || []).map((n) => Number(n)).filter(Number.isFinite),
+  );
+  const near = (v) => [...sourceNums].some((x) => Math.abs(x - v) < 0.051 || (x >= 10 && Math.abs(x - v) / x < 0.0051));
+  return nums.every((token) => {
+    const v = toNumber(token);
+    return Number.isFinite(v) && (sourceNums.has(v) || near(v));
+  });
+}
+
+async function explainWithLlm(deps, payload) {
+  const { OpenAI, model } = deps;
+  const client = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    timeout: Number(process.env.AI_POINT_EXPLAIN_TIMEOUT_MS || 30000),
+    maxRetries: 0,
+  });
+  const input = {
+    lokasi: { radius_m: payload.location.radius_m, luas_ha: payload.location.area_ha },
+    bencana_dominan: payload.hazard,
+    diagnosis: payload.diagnosis,
+    skor_mcda: payload.mcda ? { score: payload.mcda.score, category: payload.mcda.category, coverage_percent: payload.mcda.coverage_percent } : null,
+    rekomendasi: payload.recommendations.map((r) => ({
+      recommendation_id: r.recommendation_id,
+      model: r.model_type,
+      prioritas: r.priority,
+      skor: r.suitability_score,
+      status_constraint: r.constraint_status,
+      fakta: r.reasons,
+      pemeriksaan_wajib: r.required_checks,
+      data_belum_tersedia: r.uncertainty,
+    })),
+    data_belum_tersedia: payload.data_status?.missing_data || [],
+  };
+  const sourceJson = JSON.stringify(input);
+  const response = await client.responses.create({
+    model,
+    input: [
+      { role: "system", content: [{ type: "input_text", text: EXPLAIN_PROMPT }] },
+      { role: "user", content: [{ type: "input_text", text: sourceJson }] },
+    ],
+    text: { format: { type: "json_schema", name: "simiti_point_explanation", strict: true, schema: EXPLAIN_SCHEMA } },
+  });
+  const text = response?.output_text
+    || (response?.output || []).flatMap((o) => o?.content || []).find((c) => c?.type === "output_text")?.text;
+  const parsed = JSON.parse(text);
+  const ids = new Set(payload.recommendations.map((r) => r.recommendation_id));
+  const items = {};
+  let dropped = 0;
+  for (const item of parsed.rekomendasi || []) {
+    if (!ids.has(item.recommendation_id) || !item.narasi) continue;
+    if (!numbersGrounded(item.narasi, sourceJson)) { dropped++; continue; }
+    items[item.recommendation_id] = item.narasi.trim();
+  }
+  const summaryOk = parsed.ringkasan && numbersGrounded(parsed.ringkasan, sourceJson);
+  return { summary: summaryOk ? parsed.ringkasan.trim() : null, items, dropped, model };
+}
+
 function createPointMitigationHandler(pool, deps) {
   const {
     loadSpatialEvidence, screenHazards, queryWithTimeout, loadSpatialCatalog, quoteIdent,
@@ -447,10 +542,12 @@ function createPointMitigationHandler(pool, deps) {
         });
       }
 
-      const [{ evidence, mapLayers }, assets] = await Promise.all([
+      const [{ evidence, mapLayers }, allAssets] = await Promise.all([
         loadSpatialEvidence(pool, hazard, { geometry: bufferGeom }),
         nearestAssets(lat, lng, hazard),
       ]);
+      // Sarana > 50 km tidak relevan untuk keputusan di titik ini.
+      const assets = allAssets.filter((a) => a.jarak_m <= 50000);
 
       const ctx = {
         hazard,
@@ -477,8 +574,27 @@ function createPointMitigationHandler(pool, deps) {
         .filter(([k, v]) => k !== "hydro_proxy" && !v?.available)
         .map(([, v]) => `${v?.label || "layer"}: ${v?.error ? "gagal dioverlay" : "tidak ada fitur / tabel tidak ditemukan"}`);
 
+      let explanation = { ai_used: false, summary: null, items: {} };
+      const wantExplain = req.body?.explain !== false;
+      if (wantExplain && recommendations.length && process.env.OPENAI_API_KEY && deps.OpenAI) {
+        const draft = {
+          location, hazard, mcda, recommendations,
+          diagnosis: [{ issue: `Risiko ${hazard.replace("_", " ")}`, shares_percent: ctx.risk, events_in_radius: ctx.events }],
+          data_status: { missing_data: [] },
+        };
+        try {
+          const ex = await explainWithLlm({ OpenAI: deps.OpenAI, model: process.env.OPENAI_MODEL || deps.DEFAULT_MODEL }, draft);
+          explanation = { ai_used: true, model: ex.model, summary: ex.summary, items: ex.items, dropped_ungrounded: ex.dropped };
+        } catch (error) {
+          console.warn("[AI POINT] penjelasan LLM gagal:", error?.code || error?.status || error?.message);
+          explanation = { ai_used: false, summary: null, items: {}, error: "Penjelasan AI tidak tersedia; aturan dan angka GIS tetap ditampilkan." };
+        }
+      }
+
       return res.json({
         ...base,
+        ai_used: explanation.ai_used,
+        explanation,
         hazard,
         hazard_source: auto ? "auto" : "user",
         no_mapped_risk: false,
@@ -527,4 +643,4 @@ function createPointMitigationHandler(pool, deps) {
   };
 }
 
-module.exports = { createPointMitigationHandler, _internal: { applyRules, riskShares, classShare, nearestOf, RULES } };
+module.exports = { createPointMitigationHandler, _internal: { numbersGrounded, applyRules, riskShares, classShare, nearestOf, RULES } };

@@ -335,6 +335,13 @@ type PointAnalysis = {
   data_status?: { missing_data: string[]; data_quality: string };
   limitations?: string[];
   model_version?: string;
+  explanation?: {
+    ai_used: boolean;
+    model?: string;
+    summary: string | null;
+    items: Record<string, string>;
+    error?: string;
+  };
 };
 
 const POINT_STATUS_LABEL: Record<string, string> = {
@@ -2737,6 +2744,15 @@ export default function AIRecommendationEnterprise() {
                             <strong>{pointResult.mcda?.coverage_percent ?? "—"}%</strong>
                           </div>
                         </div>
+                        {pointResult.explanation?.summary && (
+                          <div className="point-ai">
+                            <small>PENJELASAN AI</small>
+                            <p>{pointResult.explanation.summary}</p>
+                          </div>
+                        )}
+                        {pointResult.explanation?.error && (
+                          <p className="point-hint">{pointResult.explanation.error}</p>
+                        )}
                         {pointResult.diagnosis?.[0]?.shares_percent && (
                           <p className="point-diag">
                             Risiko di radius: Tinggi {pointResult.diagnosis[0].shares_percent.tinggi}% · Sedang{" "}
@@ -2761,9 +2777,11 @@ export default function AIRecommendationEnterprise() {
                                 </span>
                               </div>
                               <em className="point-status">{POINT_STATUS_LABEL[r.constraint_status] || r.constraint_status}</em>
-                              {r.reasons.map((reason) => (
-                                <p key={reason}>{reason}</p>
-                              ))}
+                              {pointResult.explanation?.items?.[r.recommendation_id] ? (
+                                <p className="point-ai-item">{pointResult.explanation.items[r.recommendation_id]}</p>
+                              ) : (
+                                r.reasons.map((reason) => <p key={reason}>{reason}</p>)
+                              )}
                               {r.required_checks.length > 0 && (
                                 <small>Periksa: {r.required_checks.join("; ")}</small>
                               )}
@@ -2791,7 +2809,11 @@ export default function AIRecommendationEnterprise() {
                           </details>
                         )}
                         <p className="point-foot">
-                          Kandidat, belum diverifikasi lapangan. {pointResult.limitations?.[0]}
+                          Kandidat, belum diverifikasi lapangan.{" "}
+                          {pointResult.explanation?.ai_used
+                            ? `Narasi disusun AI (${pointResult.explanation.model}) dari hasil analisis GIS; angka dan status berasal dari aturan.`
+                            : "Alasan berasal dari aturan dan data GIS."}{" "}
+                          {pointResult.limitations?.[0]}
                         </p>
                       </>
                     )}

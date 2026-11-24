@@ -57,3 +57,17 @@ test("tanpa skor MCDA memakai dasar netral 50, tidak error", () => {
   assert.ok(recs.length > 0);
   assert.ok(recs.every((r) => r.verification_status === undefined)); // diisi di handler, bukan di aturan
 });
+
+test("numbersGrounded: angka di luar masukan ditolak", () => {
+  const src = JSON.stringify({ skor: 65.1, jarak_m: 400, fakta: ["Risiko Tinggi 40%"] });
+  assert.equal(_internal.numbersGrounded("Skor 65,1 dan jarak 400 m, risiko 40%.", src), true);
+  assert.equal(_internal.numbersGrounded("Biaya sekitar 500 juta rupiah.", src), false);
+  assert.equal(_internal.numbersGrounded("Tanpa angka sama sekali.", src), true);
+});
+
+test("numbersGrounded: format ribuan Indonesia dan desimal koma dikenali", () => {
+  const src = JSON.stringify({ jarak_m: 21753, skor: 62.5, luas_ha: 706.86 });
+  assert.equal(_internal.numbersGrounded("Sarana ±21.753 m, skor 62,5, luas 706,86 ha.", src), true);
+  assert.equal(_internal.numbersGrounded("Jarak 35.000 m.", src), false);
+  assert.equal(_internal.numbersGrounded("Skor 90.", src), false);
+});

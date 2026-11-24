@@ -1414,7 +1414,7 @@ function createAiMitigationRecommendationRouter(pool) {
     createPointMitigationHandler(pool, {
       loadSpatialEvidence, screenHazards, queryWithTimeout, loadSpatialCatalog, quoteIdent,
       pickClassColumn, RISK_TABLES, MITIGATION_TABLES, RELEVANT_MITIGATION,
-      NAME_HINTS: MITIGATION_NAME_HINTS, VERSION,
+      NAME_HINTS: MITIGATION_NAME_HINTS, VERSION, OpenAI, DEFAULT_MODEL,
     }),
   );
 
