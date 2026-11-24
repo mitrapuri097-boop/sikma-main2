@@ -2,19 +2,20 @@ import {
   Bell,
   ChevronDown,
   Menu,
-  Moon,
-  Search,
-  Settings,
-  Sun,
   User,
   LogOut,
-  CircleHelp,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 
 import { useEffect, useState } from "react";
 
 interface HeaderProps {
+  /** Mobile: buka drawer navigasi. */
   onMenuClick?: () => void;
+  /** Desktop: ciutkan/buka sidebar. */
+  onToggleSidebar?: () => void;
+  sidebarCollapsed?: boolean;
   hideMenu?: boolean;
 }
 
@@ -37,8 +38,12 @@ interface CurrentUser {
   last_login?: string;
 }
 
-export default function Header({ onMenuClick, hideMenu = false }: HeaderProps) {
-  const [dark, setDark] = useState(false);
+export default function Header({
+  onMenuClick,
+  onToggleSidebar,
+  sidebarCollapsed = false,
+  hideMenu = false,
+}: HeaderProps) {
   const [showProfile, setShowProfile] = useState(false);
   const [showNotification, setShowNotification] = useState(false);
 
@@ -60,8 +65,6 @@ export default function Header({ onMenuClick, hideMenu = false }: HeaderProps) {
 
     try {
       const user = JSON.parse(storedUser);
-
-      console.log("Current SIMITI User:", user);
 
       setCurrentUser(user);
     } catch (error) {
@@ -145,6 +148,19 @@ export default function Header({ onMenuClick, hideMenu = false }: HeaderProps) {
         </button>
         )}
 
+        {/* DESKTOP SIDEBAR TOGGLE (satu-satunya tombol ciut/buka sidebar) */}
+        {!hideMenu && onToggleSidebar && (
+          <button
+            type="button"
+            onClick={onToggleSidebar}
+            aria-label={sidebarCollapsed ? "Buka sidebar" : "Ciutkan sidebar"}
+            title={sidebarCollapsed ? "Buka sidebar" : "Ciutkan sidebar"}
+            className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 md:flex"
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={21} /> : <PanelLeftClose size={21} />}
+          </button>
+        )}
+
         {/* SEARCH */}
 
         <div
@@ -174,54 +190,6 @@ export default function Header({ onMenuClick, hideMenu = false }: HeaderProps) {
         "
       >
         {/* =======================================================
-            HELP
-        ======================================================= */}
-
-        <button
-          type="button"
-          aria-label="Help"
-          className="
-            hidden
-            lg:flex
-            w-10
-            h-10
-            items-center
-            justify-center
-            rounded-xl
-            text-slate-500
-            hover:text-slate-900
-            hover:bg-slate-100
-            transition
-          "
-        >
-          <CircleHelp size={20} />
-        </button>
-
-        {/* =======================================================
-            THEME
-        ======================================================= */}
-
-        <button
-          type="button"
-          onClick={() => setDark(!dark)}
-          aria-label="Toggle theme"
-          className="
-            w-10
-            h-10
-            flex
-            items-center
-            justify-center
-            rounded-xl
-            text-slate-500
-            hover:text-slate-900
-            hover:bg-slate-100
-            transition
-          "
-        >
-          {dark ? <Sun size={20} /> : <Moon size={20} />}
-        </button>
-
-        {/* =======================================================
             NOTIFICATION
         ======================================================= */}
 
@@ -246,19 +214,6 @@ export default function Header({ onMenuClick, hideMenu = false }: HeaderProps) {
           >
             <Bell size={20} />
 
-            <span
-              className="
-                absolute
-                top-[8px]
-                right-[8px]
-                w-2
-                h-2
-                rounded-full
-                bg-red-500
-                ring-2
-                ring-white
-              "
-            />
           </button>
 
           {/* NOTIFICATION DROPDOWN */}
@@ -292,53 +247,10 @@ export default function Header({ onMenuClick, hideMenu = false }: HeaderProps) {
               >
                 <div className="font-semibold text-slate-800">Notifikasi</div>
 
-                <span
-                  className="
-                    text-xs
-                    font-medium
-                    text-emerald-600
-                  "
-                >
-                  1 baru
-                </span>
               </div>
 
-              <div className="p-4">
-                <div
-                  className="
-                    flex
-                    gap-3
-                    p-3
-                    rounded-xl
-                    bg-slate-50
-                  "
-                >
-                  <div
-                    className="
-                      w-9
-                      h-9
-                      rounded-lg
-                      bg-emerald-100
-                      text-emerald-600
-                      flex
-                      items-center
-                      justify-center
-                      shrink-0
-                    "
-                  >
-                    <Bell size={17} />
-                  </div>
-
-                  <div>
-                    <div className="text-sm font-medium text-slate-800">
-                      Sistem siap digunakan
-                    </div>
-
-                    <div className="text-xs text-slate-500 mt-1">
-                      Selamat datang di SIMITI Enterprise GIS.
-                    </div>
-                  </div>
-                </div>
+              <div className="px-5 py-8 text-center text-sm text-slate-500">
+                Belum ada notifikasi.
               </div>
             </div>
           )}
@@ -479,54 +391,6 @@ export default function Header({ onMenuClick, hideMenu = false }: HeaderProps) {
               {/* MENU */}
 
               <div className="p-2">
-                <button
-                  type="button"
-                  className="
-                    w-full
-                    flex
-                    items-center
-                    gap-3
-                    px-3
-                    py-2.5
-                    rounded-xl
-                    text-sm
-                    text-slate-600
-                    hover:bg-slate-100
-                    hover:text-slate-900
-                    transition
-                  "
-                >
-                  <User size={17} />
-
-                  <span>Profil Saya</span>
-                </button>
-
-                <button
-                  type="button"
-                  className="
-                    w-full
-                    flex
-                    items-center
-                    gap-3
-                    px-3
-                    py-2.5
-                    rounded-xl
-                    text-sm
-                    text-slate-600
-                    hover:bg-slate-100
-                    hover:text-slate-900
-                    transition
-                  "
-                >
-                  <Settings size={17} />
-
-                  <span>Pengaturan</span>
-                </button>
-
-                <div className="my-2 border-t border-slate-100" />
-
-                {/* LOGOUT */}
-
                 <button
                   type="button"
                   onClick={handleLogout}

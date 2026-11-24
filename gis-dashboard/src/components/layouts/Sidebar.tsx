@@ -31,8 +31,6 @@ import {
   Network,
   Globe2,
   RefreshCw,
-  ChevronLeft,
-  ChevronRight,
   ChevronDown,
   X,
   Circle,
@@ -1022,7 +1020,7 @@ export default function Sidebar({
           className="
             fixed
             inset-0
-            z-40
+            z-[1990]
             bg-slate-950/70
             backdrop-blur-[3px]
             md:hidden
@@ -1041,6 +1039,7 @@ export default function Sidebar({
           z-50
           flex
           h-screen
+          w-[288px]
           flex-col
           overflow-hidden
           border-r
@@ -1052,11 +1051,13 @@ export default function Sidebar({
           duration-300
           ease-in-out
 
+          max-md:z-[2000]
           md:relative
+          md:translate-x-0
 
-          ${collapsed ? "md:w-[82px]" : "md:w-[292px]"}
+          ${collapsed ? "md:w-[80px]" : "md:w-[288px]"}
 
-          ${mobileOpen ? "w-[292px]" : "-left-[292px] md:left-0"}
+          ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
         `}
       >
         {/* ====================================================
@@ -1067,7 +1068,7 @@ export default function Sidebar({
           className={`
             relative
             flex
-            h-[76px]
+            h-[70px]
             shrink-0
             items-center
             border-b
@@ -1176,64 +1177,6 @@ export default function Sidebar({
               "
             >
               <X size={17} />
-            </button>
-          )}
-
-          {/* DESKTOP COLLAPSE */}
-
-          {!collapsed && onToggle && (
-            <button
-              type="button"
-              onClick={onToggle}
-              title="Collapse Sidebar"
-              className="
-                hidden
-                h-8
-                w-8
-                items-center
-                justify-center
-                rounded-lg
-                text-slate-400
-                transition-all
-                hover:bg-slate-800
-                hover:text-white
-                md:flex
-              "
-            >
-              <ChevronLeft size={17} />
-            </button>
-          )}
-
-          {/* EXPAND */}
-
-          {collapsed && onToggle && (
-            <button
-              type="button"
-              onClick={onToggle}
-              title="Expand Sidebar"
-              className="
-                absolute
-                -right-3
-                top-6
-                z-50
-                hidden
-                h-7
-                w-7
-                items-center
-                justify-center
-                rounded-full
-                border
-                border-slate-700
-                bg-slate-900
-                text-slate-300
-                shadow-xl
-                transition
-                hover:border-emerald-500/40
-                hover:text-white
-                md:flex
-              "
-            >
-              <ChevronRight size={14} />
             </button>
           )}
         </div>

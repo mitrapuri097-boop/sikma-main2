@@ -535,3 +535,112 @@
 .point-ai small { color: #0f766e; font-weight: 700; letter-spacing: .04em; }
 .point-ai p { margin: 4px 0 0; line-height: 1.45; }
 .point-ai-item { color: #334155; }
+.point-userlayers { background: #f8fafc; border-radius: 8px; padding: 6px 8px; color: #475569; font-size: 12px; line-height: 1.4; margin: 6px 0; }
+
+/* =====================================================================
+   POLISH FINAL (dimuat paling akhir; menang atas pro.css yang !important)
+   Layout global sudah memberi padding + max-width, jadi halaman tidak
+   boleh menambah padding/margin sendiri (menghindari "kartu dalam kartu").
+   ===================================================================== */
+.simiti-ai-module { background: transparent !important; min-height: 0 !important; }
+.simiti-ai-module .simiti-enterprise-body {
+  max-width: none !important; margin: 0 !important; padding: 0 !important;
+}
+.simiti-ai-module .simiti-enterprise-main {
+  display: flex !important; flex-direction: column !important;
+  gap: 20px !important; padding: 0 !important;
+}
+
+/* Hero gelap + judul terang */
+.simiti-ai-module .ai-module-header {
+  position: relative !important; overflow: hidden !important;
+  align-items: center !important; justify-content: space-between !important;
+  gap: 20px 28px !important; margin: 0 !important;
+  padding: clamp(20px, 2.4vw, 30px) clamp(20px, 2.6vw, 34px) !important;
+  min-height: 0 !important; border: 1px solid rgba(255,255,255,.12) !important;
+  border-radius: 20px !important; color: #fff !important;
+  background:
+    radial-gradient(circle at 88% 12%, rgba(46,198,222,.30), transparent 28%),
+    radial-gradient(circle at 60% 120%, rgba(19,117,197,.42), transparent 36%),
+    linear-gradient(118deg, #071f43 0%, #083d78 54%, #0876a9 100%) !important;
+  box-shadow: 0 14px 36px rgba(4,39,79,.16) !important;
+}
+.simiti-ai-module .ai-module-header::after { display: none !important; }
+.simiti-ai-module .ai-module-title { align-items: center !important; flex: 1 1 420px !important; gap: 16px !important; }
+.simiti-ai-module .ai-title-icon {
+  color: #c3f5ff !important; background: rgba(255,255,255,.14) !important;
+  border: 1px solid rgba(255,255,255,.22) !important; box-shadow: none !important;
+  width: 52px !important; height: 52px !important; flex-basis: 52px !important;
+}
+.simiti-ai-module .ai-eyebrow { color: #8fdff0 !important; }
+.simiti-ai-module .ai-module-title h1 { color: #fff !important; margin: 4px 0 6px !important; }
+.simiti-ai-module .ai-module-title h1 span { color: #7ee7f0 !important; }
+.simiti-ai-module .ai-module-title p { color: rgba(235,246,255,.82) !important; }
+.simiti-ai-module .ai-header-actions { justify-content: flex-end !important; }
+.simiti-ai-module .ai-live-status {
+  background: rgba(255,255,255,.10) !important; border: 1px solid rgba(255,255,255,.22) !important;
+  color: #d9f7ff !important;
+}
+.simiti-ai-module .ai-live-status b { color: #63e6b0 !important; }
+.simiti-ai-module .ai-refresh {
+  background: rgba(255,255,255,.96) !important; border-color: transparent !important; color: #0f2a4a !important;
+}
+.simiti-ai-module .ai-primary-action {
+  background: #14b8a6 !important; border-color: #14b8a6 !important; color: #04332e !important;
+  box-shadow: 0 6px 16px rgba(20,184,166,.35) !important;
+}
+.simiti-ai-module .ai-primary-action:hover { background: #2dd4bf !important; }
+
+/* Jarak antar blok seragam (gap diatur oleh .simiti-enterprise-main) */
+.simiti-ai-module .ai-kpi-strip { margin: 0 !important; }
+.simiti-ai-module .ai-workspace,
+.simiti-ai-module .simiti-dashboard-grid { margin: 0 !important; }
+.simiti-ai-module section,
+.simiti-ai-module .process-flow { margin-top: 0; }
+
+@media (max-width: 650px) {
+  .simiti-ai-module .ai-module-header { padding: 18px !important; border-radius: 16px !important; }
+  .simiti-ai-module .ai-header-actions { justify-content: flex-start !important; width: 100%; }
+}
+
+/* ---- Toolbar peta: 3 tombol alat (navigasi, analisis titik, layer) satu baris ---- */
+.simiti-ai-module .ai-map-toolbar { grid-template-columns: minmax(0, 1fr) auto auto auto !important; align-items: end !important; gap: 10px 8px !important; padding: 16px !important; }
+.simiti-ai-module .ai-admin-cascade { grid-column: 1 / -1 !important; }
+.simiti-ai-module .ai-map-scope { grid-column: 1 !important; min-width: 0 !important; padding: 7px 12px !important; border: 1px solid #dbe5ef !important; border-radius: 10px !important; background: #f9fbfd !important; box-shadow: none !important; }
+.simiti-ai-module .ai-map-scope strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.simiti-ai-module .ai-map-tool { width: 42px !important; height: 42px !important; border-radius: 11px !important; grid-row: auto !important; }
+.simiti-ai-module .ai-map-tool.active { background: #0f766e !important; border-color: #0f766e !important; color: #fff !important; }
+@media (max-width: 1280px) { .simiti-ai-module .ai-admin-cascade { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
+@media (max-width: 640px) {
+  .simiti-ai-module .ai-map-toolbar { grid-template-columns: minmax(0, 1fr) auto auto auto !important; }
+  .simiti-ai-module .ai-admin-cascade { grid-template-columns: 1fr !important; }
+}
+
+/* ---- Kartu layer di peta: tidak melebihi peta, scrollbar tipis & terang ---- */
+.simiti-ai-module .simiti-map-layer-card {
+  max-height: calc(100% - 28px) !important; overflow-y: auto !important; overflow-x: hidden !important;
+  scrollbar-width: thin; scrollbar-color: #c3cfdb transparent;
+}
+.simiti-ai-module .simiti-map-layer-card::-webkit-scrollbar { width: 6px; }
+.simiti-ai-module .simiti-map-layer-card::-webkit-scrollbar-thumb { background: #c3cfdb; border-radius: 6px; }
+.simiti-ai-module .simiti-map-layer-card::-webkit-scrollbar-track { background: transparent; }
+.simiti-ai-module .simiti-map-layer-card { width: 240px !important; font-size: 12px; }
+.simiti-ai-module .layer-check b, .simiti-ai-module .layer-ai-title b { font-size: 12px !important; }
+.simiti-ai-module .layer-check, .simiti-ai-module .layer-ai-title { font-size: 12px !important; width: 100%; background: transparent; border-left: 0; border-right: 0; border-top: 0; cursor: pointer; text-align: left; }
+
+/* ---- Tile statistik bencana: teks terbaca ---- */
+.simiti-ai-module .hazard-kpi-grid { gap: 8px !important; padding: 14px 0 !important; }
+.simiti-ai-module .hazard-kpi { padding: 12px 4px !important; border: 0 !important; border-radius: 12px !important; gap: 4px !important; box-shadow: 0 4px 10px rgba(15,23,42,.10) !important; }
+.simiti-ai-module .hazard-kpi > span { background: rgba(255,255,255,.24) !important; color: #fff !important; width: 30px !important; height: 30px !important; }
+.simiti-ai-module .hazard-kpi strong { color: #fff !important; font-size: 22px !important; }
+.simiti-ai-module .hazard-kpi small { color: rgba(255,255,255,.96) !important; font-size: 10.5px !important; font-weight: 700 !important; line-height: 1.25 !important; }
+.simiti-ai-module .hazard-kpi:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.simiti-ai-module .hazard-kpi small { overflow-wrap: normal !important; word-break: keep-all !important; font-size: 10px !important; }
+.simiti-ai-module .hazard-kpi { padding-left: 2px !important; padding-right: 2px !important; }
+.simiti-ai-module .simiti-enterprise-main > section,
+.simiti-ai-module .simiti-enterprise-main > header { margin-top: 0 !important; margin-bottom: 0 !important; }
+@media (max-width: 900px) {
+  .simiti-ai-module .ai-module-header { flex-direction: column !important; align-items: flex-start !important; }
+  .simiti-ai-module .ai-module-title { flex: 0 0 auto !important; align-items: flex-start !important; width: 100% !important; }
+  .simiti-ai-module .ai-header-actions { width: 100% !important; justify-content: flex-start !important; }
+}

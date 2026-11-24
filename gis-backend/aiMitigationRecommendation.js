@@ -456,7 +456,12 @@ async function summarizeLayer(pool, entry, geometry, selectedAreaM2, classHints,
   // diperbaiki dengan ST_MakeValid (untuk TopologyException / geometri invalid).
   for (const repairPredicate of [false, true]) {
     try {
-      result = await queryWithTimeout(pool, buildSql(repairPredicate), [geometry]);
+      result = await queryWithTimeout(
+        pool,
+        buildSql(repairPredicate),
+        [geometry],
+        Number(selectedAreaM2) > Number(process.env.AI_LARGE_AREA_M2 || 1.5e9) ? LARGE_SUMMARY_TIMEOUT_MS : QUERY_TIMEOUT_MS,
+      );
       lastError = null;
       break;
     } catch (error) {
@@ -835,17 +840,55 @@ function zoneFeature(row, extra) {
 // pakai ST_Collect (tanpa dissolve) agar tidak timeout. Luas jadi perkiraan.
 const LARGE_AREA_M2 = Number(process.env.AI_LARGE_AREA_M2 || 1.5e9);
 const isLargeArea = (selectedAreaM2) => Number(selectedAreaM2) > LARGE_AREA_M2;
-// Toleransi simplifikasi (derajat): wilayah besar ≈ 500 m, selain itu mengikuti luas wilayah.
+// Wilayah besar: geometri layer diturunkan presisinya ke grid ±1 km
+// (ST_ReducePrecision, tetap valid) lalu di-union per kelas dan dipotong sekali
+// ke batas wilayah. Jauh lebih cepat dan ringan (±puluhan-ratusan KB) daripada
+// memotong ribuan fitur satu per satu. Hanya untuk tabel EPSG:4326 (derajat).
+const LARGE_AREA_GRID_DEG = Number(process.env.AI_LARGE_AREA_GRID_DEG || 0.01);
+// Toleransi simplifikasi output (derajat).
 const mapLayerTolerance = (selectedAreaM2) =>
-  isLargeArea(selectedAreaM2) ? 0.005 : simplifyTolerance(selectedAreaM2);
-const MAP_LAYER_TIMEOUT_MS = Number(process.env.AI_MAP_LAYER_TIMEOUT_MS || 30000);
+  isLargeArea(selectedAreaM2) ? 0.002 : simplifyTolerance(selectedAreaM2);
+
+/** SQL zona untuk wilayah besar: reduce precision -> union per kelas -> clip sekali. */
+function largeAreaZoneSql({ table, geomRef, whereGeom, classExpr, classFilter = "", toWgs84 = (x) => x }) {
+  return `
+    ${SELECTED_AREA_CTE},
+    z AS (
+      SELECT ${classExpr} AS kelas,
+             ST_CollectionExtract(ST_MakeValid(ST_ReducePrecision(${geomRef}, ${LARGE_AREA_GRID_DEG})), 3) AS g
+      FROM ${table} t CROSS JOIN a
+      WHERE ${whereGeom}
+    ),
+    u AS (
+      SELECT kelas, ST_CollectionExtract(ST_MakeValid(ST_Union(g)), 3) AS g
+      FROM z WHERE g IS NOT NULL AND NOT ST_IsEmpty(g) ${classFilter}
+      GROUP BY kelas
+    ),
+    c AS (
+      SELECT kelas, ST_CollectionExtract(ST_Intersection(${toWgs84("u.g")}, a.geom), 3) AS g
+      FROM u CROSS JOIN a
+    )
+    SELECT kelas,
+           ST_AsGeoJSON(ST_SimplifyPreserveTopology(g, $2), 5) AS gj,
+           ST_Area(ST_Transform(g, 6933))::float8 AS luas_m2
+    FROM c WHERE g IS NOT NULL AND NOT ST_IsEmpty(g)
+  `;
+}
+const MAP_LAYER_TIMEOUT_MS = Number(process.env.AI_MAP_LAYER_TIMEOUT_MS || 60000);
+// Ringkasan layer untuk wilayah besar diberi waktu lebih lama (DB remote bisa sibuk).
+const LARGE_SUMMARY_TIMEOUT_MS = Number(process.env.AI_LARGE_SUMMARY_TIMEOUT_MS || 40000);
 
 /** Zona risiko hazard terpilih, dipotong ke wilayah dan digabung per kelas. */
 async function loadRiskZones(pool, hazard, geometry, selectedAreaM2) {
   const large = isLargeArea(selectedAreaM2);
-  const riskGeom = large ? "ST_SimplifyPreserveTopology(r.geom_valid, $2)" : "r.geom_valid";
-  const merge = large ? "ST_Collect" : "ST_Union";
-  const sql = `
+  const riskGeom = "r.geom_valid";
+  const merge = "ST_Union";
+  const sql = large ? largeAreaZoneSql({
+    table: RISK_TABLES[hazard],
+    geomRef: "t.geom_valid",
+    whereGeom: "t.geom_valid IS NOT NULL AND t.geom_valid && a.geom AND ST_Intersects(t.geom_valid, a.geom)",
+    classExpr: "COALESCE(NULLIF(BTRIM(t.kelas), ''), 'Tidak diketahui')",
+  }) : `
     ${SELECTED_AREA_CTE},
     z AS (
       SELECT COALESCE(NULLIF(BTRIM(r.kelas), ''), 'Tidak diketahui') AS kelas,
@@ -889,11 +932,17 @@ async function loadCriticalLandZones(pool, criticalLayer, geometry, selectedArea
   const qGeom = quoteIdent(entry.geomColumn);
   const areaExpr = areaInTableSrid(srid);
   const rawGeom = srid === 4326 ? `ST_SetSRID(t.${qGeom}, 4326)` : `t.${qGeom}`;
-  const large = isLargeArea(selectedAreaM2);
+  const large = isLargeArea(selectedAreaM2) && srid === 4326;
   const baseGeom = entry.geomColumn === "geom_valid" ? rawGeom : `ST_MakeValid(${rawGeom})`;
-  const fixedGeom = large ? `ST_SimplifyPreserveTopology(${baseGeom}, $2)` : baseGeom;
-  const merge = large ? "ST_Collect" : "ST_Union";
-  const sql = `
+  const fixedGeom = baseGeom;
+  const merge = "ST_Union";
+  const sql = large ? largeAreaZoneSql({
+    table: quoteIdent(entry.table),
+    geomRef: baseGeom,
+    whereGeom: `t.${qGeom} IS NOT NULL AND ${rawGeom} && a.geom AND ST_Intersects(${rawGeom}, a.geom)`,
+    classExpr: `COALESCE(NULLIF(BTRIM(t.${quoteIdent(criticalLayer.class_column)}::text), ''), 'Tidak diketahui')`,
+    classFilter: "AND LOWER(kelas) NOT LIKE '%tidak%'",
+  }) : `
     ${SELECTED_AREA_CTE},
     z AS (
       SELECT COALESCE(NULLIF(BTRIM(t.${quoteIdent(criticalLayer.class_column)}::text), ''), 'Tidak diketahui') AS kelas,
@@ -976,7 +1025,7 @@ async function loadMitigationPoints(pool, hazard, geometry, existing) {
 async function loadMapLayers(pool, hazard, geometry, evidence) {
   const areaM2 = Number(evidence?.area_m2 || 0);
   const safe = (promise, name) => promise.catch((error) => {
-    console.warn("[AI MITIGATION] map layer failed:", name, error?.code || error?.message);
+    console.warn("[AI MITIGATION] map layer failed:", name, error?.code || "", String(error?.message || "").slice(0, 140));
     return null;
   });
   const [riskZones, criticalLand, mitigation] = await Promise.all([
@@ -998,7 +1047,50 @@ async function loadMapLayers(pool, hazard, geometry, evidence) {
   return { ...layers, omitted, note: "Lapisan peta untuk tampilan saja; tidak dikirim ke model AI." };
 }
 
-async function loadSpatialEvidence(pool, hazard, area) {
+/**
+ * Layer tambahan yang dicentang pengguna di peta -> ringkasan overlay dengan
+ * wilayah analisis (kelas dominan, luas, persen), untuk dipakai AI sebagai
+ * bukti tambahan. Hanya tabel yang ada di katalog spasial yang diterima, dan
+ * layer yang sudah dianalisis secara bawaan ditandai agar tidak ganda.
+ */
+const MAX_USER_LAYERS = 8;
+async function loadUserSelectedLayers(pool, names, geometry, selectedAreaM2) {
+  const requested = [...new Set((Array.isArray(names) ? names : [])
+    .map((n) => String(n || "").trim().toLowerCase())
+    .filter((n) => /^[a-z0-9_]{2,63}$/.test(n)))].slice(0, MAX_USER_LAYERS);
+  if (!requested.length) return null;
+
+  const catalog = await loadSpatialCatalog(pool);
+  const builtin = new Set([
+    ...Object.values(RISK_TABLES),
+    ...MITIGATION_TABLES,
+    ...Object.values(SUPPORTING_LAYERS).flatMap((c) => c.tables || []),
+  ]);
+  const results = await mapLimit(requested, 3, async (name) => {
+    const entry = catalog.get(name);
+    if (!entry) return { table: name, status: "not_spatial", note: "Layer ini bukan tabel spasial yang dapat dioverlay (mis. layer kejadian/WMS)." };
+    if (builtin.has(name)) return { table: name, status: "already_analysed", note: "Layer ini sudah termasuk analisis bawaan AI." };
+    const summary = await summarizeLayer(
+      pool, entry, geometry, selectedAreaM2,
+      ["kelas", "klas", "kategori", "keterangan", "fungsi", "jenis", "nama", "tipe"],
+    );
+    return {
+      table: name,
+      status: summary.available ? "analysed" : summary.error ? "failed" : "no_overlap",
+      features: summary.features,
+      coverage_ratio: summary.coverage_ratio ?? null,
+      classes: (summary.classes || []).slice(0, 5),
+      note: summary.note,
+    };
+  });
+  return {
+    requested,
+    layers: results,
+    note: "Layer tambahan dipilih pengguna di peta; dipakai sebagai bukti hanya bila relevan dengan bencana dan wilayah.",
+  };
+}
+
+async function loadSpatialEvidence(pool, hazard, area, options = {}) {
   const geometry = parsePolygonGeometry(area.geom || area.geometry);
 
   const areaResult = await queryWithTimeout(
@@ -1103,6 +1195,13 @@ async function loadSpatialEvidence(pool, hazard, area) {
   ]);
   evidence.priority_locations = priorityLocations;
   evidence.mcda = computeMcda(evidence);
+  if (options.activeLayers?.length) {
+    try {
+      evidence.user_layers = await loadUserSelectedLayers(pool, options.activeLayers, geometry, selectedAreaM2);
+    } catch (error) {
+      console.warn("[AI MITIGATION] user layers failed:", error?.code || error?.message);
+    }
+  }
   return { geometry, evidence, mapLayers };
 }
 
@@ -1339,6 +1438,7 @@ const SYSTEM_PROMPT = [
   "Bila hazard_source = auto, sebutkan bahwa jenis bencana dipilih sistem dari skrining tabel risiko.",
   "Lokasi prioritas (priority_locations) ditentukan GIS; jangan membuat atau mengubah koordinat.",
   "Jangan mengklaim kondisi hulu-hilir, hujan, geologi, lereng, atau area terbakar jika evidence tidak mendukung.",
+  "user_selected_layers (bila ada) adalah layer tambahan yang dicentang pengguna di peta; pakai sebagai bukti hanya bila relevan, sebut nama tabelnya, dan abaikan yang berstatus failed/no_overlap/not_spatial selain menyebutnya sebagai keterbatasan.",
   "Gunakan Bahasa Indonesia yang ringkas dan teknis.",
 ].join(" ");
 
@@ -1383,6 +1483,7 @@ function compactEvidenceForPrompt(evidence) {
         key: i.key, weight: i.weight, available: i.available, value: i.value, basis: i.basis,
       })),
     },
+    user_selected_layers: evidence.user_layers || null,
     limitations: evidence.limitations,
   };
 }
@@ -1501,7 +1602,7 @@ function createAiMitigationRecommendationRouter(pool) {
 
     let spatial;
     try {
-      spatial = await loadSpatialEvidence(pool, hazard, area);
+      spatial = await loadSpatialEvidence(pool, hazard, area, { activeLayers: context.active_layers });
     } catch (error) {
       console.error("[AI MITIGATION] Spatial evidence query failed:", JSON.stringify({
         name: error?.name ?? null,
@@ -1581,7 +1682,7 @@ function createAiMitigationRecommendationRouter(pool) {
     }
 
     const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
-    const key = cacheKey(hazard, geometry, model);
+    const key = cacheKey(hazard, `${geometry}|${[...new Set(Array.isArray(context.active_layers) ? context.active_layers : [])].sort().join(",")}`, model);
     const cached = cacheGet(key);
     if (cached) {
       return res.json({ ...cached, area: areaLabel, meta: { ...cached.meta, cached: true } });
