@@ -21,6 +21,7 @@ import {
   Wind,
   X,
   ChevronLeft,
+  ChevronRight,
   Eye,
   EyeOff,
   Navigation,
@@ -273,9 +274,33 @@ type AiRecommendation = {
     expected_effect: string;
     why: string;
     evidence: string[];
-    implementation_notes: string;
+    implementation_notes: string | string[];
   }>;
-  meta?: { model?: string; source?: string; generated_at?: string };
+  adaptation_measures?: string[];
+  data_gaps?: string[];
+  mcda?: McdaResult;
+  meta?: {
+    model?: string;
+    source?: string;
+    generated_at?: string;
+    cached?: boolean;
+  };
+};
+
+type McdaResult = {
+  score: number | null;
+  category: string;
+  coverage_percent: number;
+  low_coverage?: boolean;
+  indicators: Array<{
+    key: string;
+    label: string;
+    weight: number;
+    available: boolean;
+    value: number | null;
+    contribution: number;
+    basis: string;
+  }>;
 };
 
 const normalizeHazard = (category = ""): Hazard | null => {
@@ -331,6 +356,10 @@ export default function AIRecommendationEnterprise() {
   const [mitigationVisible, setMitigationVisible] = useState(true);
   // Lapisan peta tetap ditampilkan walau langkah AI gagal (mis. key belum ada).
   const [aiFallbackLayers, setAiFallbackLayers] = useState<MapLayers | null>(
+    null,
+  );
+  // MCDA tetap dikirim backend walaupun langkah OpenAI gagal.
+  const [aiFallbackMcda, setAiFallbackMcda] = useState<McdaResult | null>(
     null,
   );
   const thematicLayerGroupsRef = useRef<Map<string, L.Layer>>(new Map());
@@ -2129,6 +2158,11 @@ export default function AIRecommendationEnterprise() {
   }, [candidates]);
 
   const topRecommendations = aiResult?.recommendations?.slice(0, 3) || [];
+  const mcdaInfo: McdaResult | null = aiResult?.mcda || aiFallbackMcda;
+  const aiAdaptation = aiResult?.adaptation_measures ?? [];
+  const adaptationMeasures = aiAdaptation.length
+    ? aiAdaptation.slice(0, 4)
+    : ["Early Warning System", "Peningkatan kesiapsiagaan", "Jalur evakuasi"];
 
   const runAnalysis = () => {
     const topSpatial = spatialRecommendations[0];
