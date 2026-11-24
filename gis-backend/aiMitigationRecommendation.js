@@ -346,11 +346,22 @@ function areaM2Expr(expr, srid) {
   return `ST_Area(ST_Transform(${withSrid}, 6933))`;
 }
 
+// Batas wilayah dengan banyak vertex (provinsi/kabupaten besar) disederhanakan
+// (toleransi ~1/1000 dari sisi terpanjang bbox, ≈ beberapa ratus meter untuk
+// provinsi) agar overlay ST_Intersection tidak kena timeout. Wilayah kecil
+// (<= 2000 vertex) dipakai apa adanya.
 const SELECTED_AREA_CTE = `
-  WITH a AS (
+  WITH raw_area AS (
+    SELECT ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)) AS g
+  ),
+  a AS (
     SELECT ST_CollectionExtract(
-      ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)), 3
+      CASE WHEN ST_NPoints(g) > 2000
+        THEN ST_MakeValid(ST_SimplifyPreserveTopology(
+          g, GREATEST(ST_XMax(g) - ST_XMin(g), ST_YMax(g) - ST_YMin(g)) / 1000.0))
+        ELSE g END, 3
     ) AS geom
+    FROM raw_area
   )
 `;
 
@@ -417,7 +428,11 @@ async function summarizeLayer(pool, entry, geometry, selectedAreaM2, classHints,
     : `'(tanpa kolom kelas)'::text`;
 
   const isValidColumn = entry.geomColumn === "geom_valid";
-  const fixedGeom = isValidColumn ? rawGeom : `ST_MakeValid(${rawGeom})`;
+  const validGeom = isValidColumn ? rawGeom : `ST_MakeValid(${rawGeom})`;
+  // Wilayah besar: sederhanakan fitur (~200 m) sebelum overlay agar tidak timeout.
+  const fixedGeom = Number(selectedAreaM2) > Number(process.env.AI_LARGE_AREA_M2 || 1.5e9)
+    ? `ST_SimplifyPreserveTopology(${validGeom}, 0.002)`
+    : validGeom;
   const interExpr = `ST_CollectionExtract(ST_Intersection(${fixedGeom}, ${areaExpr}), 3)`;
 
   // repairPredicate=false: predikat pada geometri asli (cepat, pakai indeks).
@@ -815,20 +830,32 @@ function zoneFeature(row, extra) {
   }
 }
 
+// Wilayah besar (> ~1.500 km²): sederhanakan tiap fitur sebelum dipotong dan
+// pakai ST_Collect (tanpa dissolve) agar tidak timeout. Luas jadi perkiraan.
+const LARGE_AREA_M2 = Number(process.env.AI_LARGE_AREA_M2 || 1.5e9);
+const isLargeArea = (selectedAreaM2) => Number(selectedAreaM2) > LARGE_AREA_M2;
+// Toleransi simplifikasi (derajat): wilayah besar ≈ 500 m, selain itu mengikuti luas wilayah.
+const mapLayerTolerance = (selectedAreaM2) =>
+  isLargeArea(selectedAreaM2) ? 0.005 : simplifyTolerance(selectedAreaM2);
+const MAP_LAYER_TIMEOUT_MS = Number(process.env.AI_MAP_LAYER_TIMEOUT_MS || 30000);
+
 /** Zona risiko hazard terpilih, dipotong ke wilayah dan digabung per kelas. */
 async function loadRiskZones(pool, hazard, geometry, selectedAreaM2) {
+  const large = isLargeArea(selectedAreaM2);
+  const riskGeom = large ? "ST_SimplifyPreserveTopology(r.geom_valid, $2)" : "r.geom_valid";
+  const merge = large ? "ST_Collect" : "ST_Union";
   const sql = `
     ${SELECTED_AREA_CTE},
     z AS (
       SELECT COALESCE(NULLIF(BTRIM(r.kelas), ''), 'Tidak diketahui') AS kelas,
-             ST_CollectionExtract(ST_Intersection(r.geom_valid, a.geom), 3) AS g
+             ST_CollectionExtract(ST_Intersection(${riskGeom}, a.geom), 3) AS g
       FROM ${RISK_TABLES[hazard]} r CROSS JOIN a
       WHERE r.geom_valid IS NOT NULL
         AND r.geom_valid && a.geom
         AND ST_Intersects(r.geom_valid, a.geom)
     ),
     u AS (
-      SELECT kelas, ST_Union(g) AS g
+      SELECT kelas, ${merge}(g) AS g
       FROM z WHERE g IS NOT NULL AND NOT ST_IsEmpty(g)
       GROUP BY kelas
     )
@@ -837,7 +864,7 @@ async function loadRiskZones(pool, hazard, geometry, selectedAreaM2) {
            ST_Area(ST_Transform(g, 6933))::float8 AS luas_m2
     FROM u
   `;
-  const result = await queryWithTimeout(pool, sql, [geometry, simplifyTolerance(selectedAreaM2)]);
+  const result = await queryWithTimeout(pool, sql, [geometry, mapLayerTolerance(selectedAreaM2)], MAP_LAYER_TIMEOUT_MS);
   const features = (result.rows || [])
     .map((row) => zoneFeature(row, {
       layer: "risk_zone",
@@ -861,7 +888,10 @@ async function loadCriticalLandZones(pool, criticalLayer, geometry, selectedArea
   const qGeom = quoteIdent(entry.geomColumn);
   const areaExpr = areaInTableSrid(srid);
   const rawGeom = srid === 4326 ? `ST_SetSRID(t.${qGeom}, 4326)` : `t.${qGeom}`;
-  const fixedGeom = entry.geomColumn === "geom_valid" ? rawGeom : `ST_MakeValid(${rawGeom})`;
+  const large = isLargeArea(selectedAreaM2);
+  const baseGeom = entry.geomColumn === "geom_valid" ? rawGeom : `ST_MakeValid(${rawGeom})`;
+  const fixedGeom = large ? `ST_SimplifyPreserveTopology(${baseGeom}, $2)` : baseGeom;
+  const merge = large ? "ST_Collect" : "ST_Union";
   const sql = `
     ${SELECTED_AREA_CTE},
     z AS (
@@ -873,7 +903,7 @@ async function loadCriticalLandZones(pool, criticalLayer, geometry, selectedArea
         AND ST_Intersects(${fixedGeom}, ${areaExpr})
     ),
     u AS (
-      SELECT kelas, ST_Union(g) AS g FROM z
+      SELECT kelas, ${merge}(g) AS g FROM z
       WHERE g IS NOT NULL AND NOT ST_IsEmpty(g)
         AND LOWER(kelas) NOT LIKE '%tidak%'
       GROUP BY kelas
@@ -883,7 +913,7 @@ async function loadCriticalLandZones(pool, criticalLayer, geometry, selectedArea
            ST_Area(ST_Transform(${to4326("g", srid)}, 6933))::float8 AS luas_m2
     FROM u
   `;
-  const result = await queryWithTimeout(pool, sql, [geometry, simplifyTolerance(selectedAreaM2)]);
+  const result = await queryWithTimeout(pool, sql, [geometry, mapLayerTolerance(selectedAreaM2)], MAP_LAYER_TIMEOUT_MS);
   const features = (result.rows || [])
     .map((row) => zoneFeature(row, { layer: "critical_land", source: entry.table }))
     .filter(Boolean);
