@@ -497,3 +497,41 @@
   .simiti-ai-module .dash-card { padding:13px; }
   .simiti-ai-module .enterprise-factors>div { grid-template-columns:1fr 70px 28px; }
 }
+
+/* ---- Analisis titik (klik peta) ---- */
+.ai-map-tool.active { background: #0f766e; color: #fff; }
+.point-card {
+  position: absolute; z-index: 1000; top: 12px; right: 58px; width: min(340px, calc(100% - 70px));
+  max-height: calc(100% - 24px); overflow: auto; background: #fff; border-radius: 14px;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.22); padding: 14px; font-size: 13px; color: #1e293b;
+}
+.point-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.point-card-head small { color: #0f766e; font-weight: 700; letter-spacing: .04em; }
+.point-card-head h3 { margin: 2px 0 0; font-size: 15px; }
+.point-card-head button { border: 0; background: transparent; cursor: pointer; color: #64748b; }
+.point-radius { display: block; margin: 10px 0 4px; }
+.point-radius input { width: 100%; }
+.point-hint { color: #475569; margin: 8px 0; line-height: 1.45; }
+.point-error { color: #b91c1c; margin: 8px 0; }
+.point-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
+.point-summary div { background: #f1f5f9; border-radius: 10px; padding: 8px; }
+.point-summary small { display: block; color: #64748b; font-size: 11px; }
+.point-summary strong { text-transform: capitalize; font-size: 14px; }
+.point-diag { color: #475569; margin: 4px 0 8px; }
+.point-reco { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.point-reco li { border: 1px solid #e2e8f0; border-left: 4px solid #0f766e; border-radius: 10px; padding: 8px 10px; }
+.point-reco li.status-NOT_ELIGIBLE { border-left-color: #b91c1c; background: #fef2f2; }
+.point-reco li.status-NEEDS_DATA { border-left-color: #d97706; }
+.point-reco-head { display: flex; justify-content: space-between; gap: 8px; }
+.point-reco-head span { color: #0f766e; font-weight: 600; white-space: nowrap; }
+.point-status { display: block; font-style: normal; font-size: 11px; color: #64748b; margin: 2px 0; }
+.point-reco p { margin: 4px 0; line-height: 1.4; }
+.point-reco small { display: block; color: #64748b; margin-top: 2px; }
+.point-reco .point-unc { color: #b45309; }
+.point-assets { margin: 10px 0 0; }
+.point-assets ul { margin: 6px 0 0; padding-left: 18px; }
+.point-foot { margin: 10px 0 0; color: #64748b; font-size: 11px; line-height: 1.4; }
+.point-ai { background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
+.point-ai small { color: #0f766e; font-weight: 700; letter-spacing: .04em; }
+.point-ai p { margin: 4px 0 0; line-height: 1.45; }
+.point-ai-item { color: #334155; }

@@ -198,7 +198,67 @@ const hazardMarkerGlyph = (hazard: Hazard | null) => {
   return "◆";
 };
 
+type PriorityLocation = {
+  rank: number;
+  lat: number;
+  lng: number;
+  kelas: string;
+  luas_ha: number;
+  source?: string;
+  basis?: string;
+};
+
+type HazardScreeningRow = {
+  hazard: string;
+  features: number;
+  events: number | null;
+  score: number;
+  high_risk_percent: number;
+};
+
+type MapLayers = {
+  risk_zones?: any | null;
+  critical_land?: any | null;
+  existing_mitigation?: any | null;
+  omitted?: string[];
+};
+
+const RISK_ZONE_COLORS: Record<string, string> = {
+  "sangat tinggi": "#991b1b",
+  tinggi: "#dc2626",
+  sedang: "#f59e0b",
+  rendah: "#eab308",
+};
+const riskZoneColor = (kelas?: string) =>
+  RISK_ZONE_COLORS[String(kelas || "").trim().toLowerCase()] || "#94a3b8";
+const MITIGATION_LABELS: Record<string, string> = {
+  sekat_kanal: "Sekat kanal",
+  sumur_bor: "Sumur bor",
+  bendung: "Bendung",
+  bendungan: "Bendungan",
+  embung: "Embung",
+  danau: "Danau",
+  situ: "Situ",
+  pengaman_pantai: "Pengaman pantai",
+  pompa_air: "Pompa air",
+  pengendali_sedimen: "Pengendali sedimen",
+  reforestasi_20232024: "Reforestasi 2023–2024",
+  dta_danau: "DTA danau",
+  rehabilitasi_das: "Rehabilitasi DAS",
+  rehabilitasi_hutan: "Rehabilitasi hutan",
+  restorasi_gambut: "Restorasi gambut",
+  penerapan_teknik_kta: "Teknik KTA",
+};
+
 type AiRecommendation = {
+  area?: string;
+  map_layers?: MapLayers | null;
+  hazard?: string | null;
+  hazard_source?: "auto" | "user";
+  hazard_screening?: HazardScreeningRow[] | null;
+  ai_used?: boolean;
+  no_mapped_risk?: boolean;
+  priority_locations?: PriorityLocation[];
   diagnosis?: string;
   risk_level?: string;
   primary_drivers?: string[];
@@ -214,9 +274,81 @@ type AiRecommendation = {
     expected_effect: string;
     why: string;
     evidence: string[];
-    implementation_notes: string;
+    implementation_notes: string | string[];
   }>;
-  meta?: { model?: string; source?: string; generated_at?: string };
+  adaptation_measures?: string[];
+  data_gaps?: string[];
+  mcda?: McdaResult;
+  meta?: {
+    model?: string;
+    source?: string;
+    generated_at?: string;
+    cached?: boolean;
+  };
+};
+
+type McdaResult = {
+  score: number | null;
+  category: string;
+  coverage_percent: number;
+  low_coverage?: boolean;
+  indicators: Array<{
+    key: string;
+    label: string;
+    weight: number;
+    available: boolean;
+    value: number | null;
+    contribution: number;
+    basis: string;
+  }>;
+};
+
+type PointRecommendation = {
+  recommendation_id: string;
+  model_type: string;
+  priority: string;
+  suitability_score: number | null;
+  constraint_status: string;
+  reasons: string[];
+  required_checks: string[];
+  failed_constraints: string[];
+  uncertainty: string[];
+  existing_assets: Array<{ table: string; nama?: string | null; jarak_m: number }>;
+};
+
+type PointAnalysis = {
+  success: boolean;
+  analysis_id?: string;
+  hazard: string | null;
+  no_mapped_risk?: boolean;
+  message?: string;
+  location?: { lat: number; lng: number; radius_m: number; area_ha: number };
+  diagnosis?: Array<{
+    issue: string;
+    severity: string;
+    shares_percent?: { tinggi: number; sedang: number; rendah: number };
+    events_in_radius?: number | null;
+  }>;
+  mcda?: McdaResult;
+  recommendations?: PointRecommendation[];
+  nearest_assets?: Array<{ table: string; nama?: string | null; jarak_m: number }>;
+  data_status?: { missing_data: string[]; data_quality: string };
+  limitations?: string[];
+  model_version?: string;
+  explanation?: {
+    ai_used: boolean;
+    model?: string;
+    summary: string | null;
+    items: Record<string, string>;
+    error?: string;
+  };
+};
+
+const POINT_STATUS_LABEL: Record<string, string> = {
+  ELIGIBLE_FOR_FURTHER_TECHNICAL_REVIEW: "Layak dikaji lebih lanjut",
+  NEEDS_FIELD_VERIFICATION: "Perlu verifikasi lapangan",
+  NEEDS_DATA: "Data belum cukup",
+  NOT_ELIGIBLE: "Tidak layak (constraint)",
 };
 
 const normalizeHazard = (category = ""): Hazard | null => {
@@ -262,6 +394,30 @@ export default function AIRecommendationEnterprise() {
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
   const recommendationLayerRef = useRef<L.LayerGroup | null>(null);
   const boundaryLayerRef = useRef<L.LayerGroup | null>(null);
+  const riskZoneLayerRef = useRef<L.LayerGroup | null>(null);
+  const criticalLayerRef = useRef<L.LayerGroup | null>(null);
+  const mitigationLayerRef = useRef<L.LayerGroup | null>(null);
+  const [incidentLayerVisible, setIncidentLayerVisible] = useState(true);
+  const [boundaryLayerVisible, setBoundaryLayerVisible] = useState(true);
+  const [riskZoneVisible, setRiskZoneVisible] = useState(true);
+  const [criticalVisible, setCriticalVisible] = useState(true);
+  const [mitigationVisible, setMitigationVisible] = useState(true);
+  // Lapisan peta tetap ditampilkan walau langkah AI gagal (mis. key belum ada).
+  const [aiFallbackLayers, setAiFallbackLayers] = useState<MapLayers | null>(
+    null,
+  );
+  // MCDA tetap dikirim backend walaupun langkah OpenAI gagal.
+  const [aiFallbackMcda, setAiFallbackMcda] = useState<McdaResult | null>(
+    null,
+  );
+  // Mode klik titik: data kerawanan sekitar titik -> model mitigasi (aturan GIS).
+  const [pointMode, setPointMode] = useState(false);
+  const [pointRadius, setPointRadius] = useState(1500);
+  const [pointLoading, setPointLoading] = useState(false);
+  const [pointError, setPointError] = useState("");
+  const [pointResult, setPointResult] = useState<PointAnalysis | null>(null);
+  const pointLayerRef = useRef<L.LayerGroup | null>(null);
+  const pointRadiusRef = useRef(pointRadius);
   const thematicLayerGroupsRef = useRef<Map<string, L.Layer>>(new Map());
   const thematicRequestSeqRef = useRef(0);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -849,13 +1005,17 @@ export default function AIRecommendationEnterprise() {
   }, [groupCandidatesByBoundary, recommendationLimit]);
 
   const requestAi = useCallback(
-    async (candidate: Candidate | null) => {
-      if (!candidate) {
+    async (candidate: Candidate | null, hazardOverride?: string) => {
+      // Tanpa kandidat (wilayah tanpa titik kejadian) analisis tetap jalan
+      // untuk wilayah terpilih; hazard dari chip filter atau "auto".
+      if (!candidate && !selectedAreaBoundary?.feature) {
         setAiResult(null);
         return;
       }
       setAiLoading(true);
       setAiError("");
+      setAiFallbackMcda(null);
+      setAiFallbackLayers(null);
       try {
         let areaForAi: {
           label: string;
@@ -876,6 +1036,8 @@ export default function AIRecommendationEnterprise() {
             geom: selectedGeometry,
             source: "selected_area",
           };
+        } else if (!candidate) {
+          throw new Error("Pilih wilayah (provinsi sampai kecamatan) terlebih dahulu.");
         } else {
           const boundaryResponse = await smitiFetch(
             `${API_URL}/api/spatial/area-boundary`,
@@ -930,27 +1092,29 @@ export default function AIRecommendationEnterprise() {
                   geom: areaForAi.geom,
                 },
                 area_source: areaForAi.source,
-                hazard: candidate.hazard.toLowerCase(),
-                incident_id: candidate.id,
-                incident_title: candidate.title,
-                category_source: candidate.category,
-                event_date: candidate.date,
+                hazard: candidate
+                  ? candidate.hazard.toLowerCase()
+                  : hazardOverride || "auto",
+                incident_id: candidate?.id ?? null,
+                incident_title: candidate?.title ?? null,
+                category_source: candidate?.category ?? null,
+                event_date: candidate?.date ?? null,
                 das:
-                  candidate.das ||
+                  candidate?.das ||
                   selectedDas?.nama_das ||
                   selectedDas?.name ||
                   selectedDas?.das_name ||
                   null,
-                das_id: selectedDas?.id ?? candidate.das_id ?? null,
+                das_id: selectedDas?.id ?? candidate?.das_id ?? null,
                 bnpb_flood_risk_index: bnpbFlood.value,
                 bnpb_flood_risk_source: bnpbFlood.service,
                 rainfall_average: floodEvidence.avgRainfall,
                 rainfall_maximum: floodEvidence.maxRainfall,
                 flood_event_count: floodEvidence.count,
-                latitude: candidate.lat,
-                longitude: candidate.lng,
-                curah_hujan: candidate.curah_hujan,
-                description: candidate.description,
+                latitude: candidate?.lat ?? null,
+                longitude: candidate?.lng ?? null,
+                curah_hujan: candidate?.curah_hujan ?? null,
+                description: candidate?.description ?? null,
                 source: "SIMITI live spatial evidence",
               },
             }),
@@ -958,7 +1122,14 @@ export default function AIRecommendationEnterprise() {
         );
         const data = await response.json().catch(() => null);
         if (!response.ok || !data?.success) {
-          throw new Error(data?.message || `HTTP ${response.status}`);
+          if (data?.mcda) setAiFallbackMcda(data.mcda);
+          if (data?.map_layers) setAiFallbackLayers(data.map_layers);
+          throw new Error(
+            data?.message ||
+              (response.status === 401
+                ? "Sesi login berakhir. Silakan login ulang."
+                : `HTTP ${response.status}`),
+          );
         }
         setAiResult(data);
       } catch (error: any) {
@@ -976,6 +1147,12 @@ export default function AIRecommendationEnterprise() {
     void fetchLayerCount();
   }, [fetchIncidents, fetchLayerCount]);
 
+  // Ref ke versi terbaru requestAi: efek seleksi hanya memicu AI saat lokasi
+  // yang dipilih berubah, bukan setiap kali data wilayah/evidence ikut berubah.
+  const requestAiRef = useRef(requestAi);
+  useEffect(() => {
+    requestAiRef.current = requestAi;
+  }, [requestAi]);
   // Sinkronkan layer tematik dengan katalog WebGIS.
   // Pola mengikuti Kerawanan.tsx: katalog dari /api/layers, data vektor
   // dari endpoint GeoJSON; layer nasional yang sudah terverifikasi memakai WMS GeoServer.
@@ -1171,9 +1348,173 @@ export default function AIRecommendationEnterprise() {
 
   useEffect(() => {
     if (!selected) return;
-    void requestAi(selected);
+    void requestAiRef.current(selected);
     setDrawerOpen(true);
-  }, [selectedId, requestAi]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+
+  // Lapisan "dasar keputusan AI": data yang sama yang dibaca backend untuk AI.
+  const mapLayers: MapLayers | null = aiResult?.map_layers || aiFallbackLayers;
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const zoneLayer = riskZoneLayerRef.current;
+    const criticalLayer = criticalLayerRef.current;
+    const mitigationLayer = mitigationLayerRef.current;
+    if (!map) return;
+    zoneLayer?.clearLayers();
+    criticalLayer?.clearLayers();
+    mitigationLayer?.clearLayers();
+
+    if (zoneLayer && riskZoneVisible && mapLayers?.risk_zones?.features?.length) {
+      L.geoJSON(mapLayers.risk_zones, {
+        pane: "simitiZonePane",
+        style: (feature: any) => {
+          const color = riskZoneColor(feature?.properties?.kelas);
+          return { color, weight: 1, fillColor: color, fillOpacity: 0.32 };
+        },
+        onEachFeature: (feature: any, layer) => {
+          const p = feature?.properties || {};
+          layer.bindTooltip(
+            `Risiko ${p.kelas} · ±${p.luas_ha} ha${
+              p.persen_wilayah != null ? ` (${p.persen_wilayah}% wilayah)` : ""
+            }`,
+            { sticky: true },
+          );
+        },
+      }).addTo(zoneLayer);
+    }
+
+    if (criticalLayer && criticalVisible && mapLayers?.critical_land?.features?.length) {
+      L.geoJSON(mapLayers.critical_land, {
+        pane: "simitiCriticalPane",
+        style: () => ({
+          color: "#7c3aed",
+          weight: 1.2,
+          dashArray: "4 3",
+          fillColor: "#7c3aed",
+          fillOpacity: 0.14,
+        }),
+        onEachFeature: (feature: any, layer) => {
+          const p = feature?.properties || {};
+          layer.bindTooltip(`Lahan ${p.kelas} · ±${p.luas_ha} ha`, { sticky: true });
+        },
+      }).addTo(criticalLayer);
+    }
+
+    if (mitigationLayer && mitigationVisible && mapLayers?.existing_mitigation?.features?.length) {
+      L.geoJSON(mapLayers.existing_mitigation, {
+        pointToLayer: (feature: any, latlng) =>
+          L.circleMarker(latlng, {
+            radius: 6,
+            color: "#1d4ed8",
+            weight: 2,
+            fillColor: feature?.properties?.relevan ? "#3b82f6" : "#bfdbfe",
+            fillOpacity: 0.95,
+          }),
+        onEachFeature: (feature: any, layer) => {
+          const p = feature?.properties || {};
+          const jenis = MITIGATION_LABELS[p.jenis] || p.jenis;
+          layer.bindTooltip(
+            `${jenis}${p.nama ? `: ${p.nama}` : ""}${
+              p.relevan ? " · relevan untuk bencana ini" : ""
+            }`,
+          );
+        },
+      }).addTo(mitigationLayer);
+    }
+  }, [mapLayers, riskZoneVisible, criticalVisible, mitigationVisible]);
+
+  // Sembunyikan/tampilkan layer peta yang benar-benar digambar halaman ini.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const pairs: Array<[L.LayerGroup | null, boolean]> = [
+      [markerLayerRef.current, incidentLayerVisible],
+      [boundaryLayerRef.current, boundaryLayerVisible],
+    ];
+    if (!map) return;
+    pairs.forEach(([layer, visible]) => {
+      if (!layer) return;
+      if (visible && !map.hasLayer(layer)) layer.addTo(map);
+      if (!visible && map.hasLayer(layer)) map.removeLayer(layer);
+    });
+  }, [incidentLayerVisible, boundaryLayerVisible]);
+
+  const analyzePoint = useCallback(async (lat: number, lng: number, radius: number) => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    if (!pointLayerRef.current) pointLayerRef.current = L.layerGroup().addTo(map);
+    const layer = pointLayerRef.current;
+    layer.clearLayers();
+    L.circle([lat, lng], {
+      radius,
+      color: "#0f766e",
+      weight: 2,
+      dashArray: "6 4",
+      fillColor: "#14b8a6",
+      fillOpacity: 0.12,
+    }).addTo(layer);
+    L.circleMarker([lat, lng], {
+      radius: 7,
+      color: "#fff",
+      weight: 2,
+      fillColor: "#0f766e",
+      fillOpacity: 1,
+    }).addTo(layer);
+    setPointLoading(true);
+    setPointError("");
+    setPointResult(null);
+    try {
+      const response = await smitiFetch(`${API_URL}/api/ai/point-mitigation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat, lng, radius_m: radius, hazard: "auto" }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(
+          data?.message ||
+            (response.status === 401
+              ? "Sesi login berakhir. Silakan login ulang."
+              : `HTTP ${response.status}`),
+        );
+      }
+      setPointResult(data as PointAnalysis);
+    } catch (error: any) {
+      setPointError(error?.message || "Analisis titik gagal.");
+    } finally {
+      setPointLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    pointRadiusRef.current = pointRadius;
+  }, [pointRadius]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    const container = map.getContainer();
+    if (!pointMode) {
+      container.style.cursor = "";
+      return;
+    }
+    container.style.cursor = "crosshair";
+    const onClick = (event: L.LeafletMouseEvent) => {
+      void analyzePoint(event.latlng.lat, event.latlng.lng, pointRadiusRef.current);
+    };
+    map.on("click", onClick);
+    return () => {
+      map.off("click", onClick);
+      container.style.cursor = "";
+    };
+  }, [pointMode, analyzePoint]);
+
+  useEffect(() => {
+    if (pointMode) return;
+    pointLayerRef.current?.clearLayers();
+    setPointResult(null);
+    setPointError("");
+  }, [pointMode]);
 
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
@@ -1193,7 +1534,13 @@ export default function AIRecommendationEnterprise() {
 
     markerLayerRef.current = L.layerGroup().addTo(map);
     recommendationLayerRef.current = L.layerGroup().addTo(map);
+    // Zona di bawah garis batas dan titik (overlayPane = 400).
+    map.createPane("simitiZonePane").style.zIndex = "350";
+    map.createPane("simitiCriticalPane").style.zIndex = "360";
+    riskZoneLayerRef.current = L.layerGroup().addTo(map);
+    criticalLayerRef.current = L.layerGroup().addTo(map);
     boundaryLayerRef.current = L.layerGroup().addTo(map);
+    mitigationLayerRef.current = L.layerGroup().addTo(map);
     mapInstanceRef.current = map;
 
     const syncAdminLevel = () => {
@@ -1225,6 +1572,9 @@ export default function AIRecommendationEnterprise() {
       markerLayerRef.current = null;
       recommendationLayerRef.current = null;
       boundaryLayerRef.current = null;
+      riskZoneLayerRef.current = null;
+      criticalLayerRef.current = null;
+      mitigationLayerRef.current = null;
       thematicLayerGroupsRef.current.clear();
     };
   }, []);
@@ -1857,9 +2207,30 @@ export default function AIRecommendationEnterprise() {
   };
 
   const exportGeoJson = () => {
+    const exportSource = selectedAreaBoundary?.feature
+      ? visibleLocations
+      : filteredCandidates;
+    const priorityFeatures = (aiResult?.priority_locations || []).map((loc) => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [loc.lng, loc.lat] },
+      properties: {
+        type: "priority_location",
+        rank: loc.rank,
+        kelas_risiko: loc.kelas,
+        luas_ha: loc.luas_ha,
+        hazard: aiResult?.hazard ?? null,
+        source: loc.source ?? null,
+        basis: loc.basis ?? null,
+      },
+    }));
+    const layerFeatures = [
+      ...(mapLayers?.risk_zones?.features || []),
+      ...(mapLayers?.critical_land?.features || []),
+      ...(mapLayers?.existing_mitigation?.features || []),
+    ];
     const data = {
       type: "FeatureCollection",
-      features: filteredCandidates.map((item) => ({
+      features: [...priorityFeatures, ...layerFeatures, ...exportSource.map((item) => ({
         type: "Feature",
         geometry: { type: "Point", coordinates: [item.lng, item.lat] },
         properties: {
@@ -1872,7 +2243,7 @@ export default function AIRecommendationEnterprise() {
           curah_hujan: item.curah_hujan,
           description: item.description,
         },
-      })),
+      }))],
     };
 
     const blob = new Blob([JSON.stringify(data, null, 2)], {
@@ -1920,20 +2291,49 @@ export default function AIRecommendationEnterprise() {
   }, [candidates]);
 
   const topRecommendations = aiResult?.recommendations?.slice(0, 3) || [];
+  const mcdaInfo: McdaResult | null = aiResult?.mcda || aiFallbackMcda;
+  const aiAdaptation = aiResult?.adaptation_measures ?? [];
+  const adaptationMeasures = aiAdaptation.length
+    ? aiAdaptation.slice(0, 4)
+    : ["Early Warning System", "Peningkatan kesiapsiagaan", "Jalur evakuasi"];
 
   const runAnalysis = () => {
     const topSpatial = spatialRecommendations[0];
     const candidate =
       topSpatial?.representative || selectedAreaFilteredCandidates[0] || null;
+    setDrawerOpen(true);
     if (!candidate) {
-      setAiError("Belum ada kandidat lokasi pada wilayah terpilih.");
-      setDrawerOpen(true);
+      if (!selectedAreaBoundary?.feature) {
+        setAiError(
+          "Pilih wilayah (provinsi sampai kecamatan) terlebih dahulu untuk menjalankan analisis AI.",
+        );
+        return;
+      }
+      // Wilayah tanpa titik kejadian: tetap dianalisis dari data risiko,
+      // lingkungan dan sarana. Satu chip bencana aktif = hazard itu; "Semua" = auto.
+      const hazardChoice =
+        hazards.size === 1 ? Array.from(hazards)[0].toLowerCase() : "auto";
+      setSelectedId(null);
+      void requestAi(null, hazardChoice);
       return;
     }
     setRecommendationLayerVisible(true);
-    setSelectedId(candidate.id);
-    setDrawerOpen(true);
-    requestAi(candidate);
+    if (String(selectedId) === String(candidate.id)) {
+      void requestAi(candidate);
+    } else {
+      setSelectedId(candidate.id); // efek seleksi yang memanggil AI (sekali)
+    }
+  };
+
+  const openBestLocation = () => {
+    if (visibleLocations[0]) {
+      setSelectedId(visibleLocations[0].id);
+      return;
+    }
+    const best = aiResult?.priority_locations?.[0];
+    if (best) {
+      mapInstanceRef.current?.flyTo([best.lat, best.lng], 13, { duration: 0.8 });
+    }
   };
 
   const recommendationScore = topRecommendation
@@ -2006,10 +2406,12 @@ export default function AIRecommendationEnterprise() {
                 <MapPinned size={17} />
               </span>
               <div>
-                <small>LOKASI DIANALISIS</small>
+                <small>
+                  {selectedAreaBoundary ? "TITIK KEJADIAN DI WILAYAH" : "LOKASI DIANALISIS"}
+                </small>
                 <strong>
                   {selectedAreaBoundary
-                    ? filteredCandidates.length
+                    ? selectedAreaFilteredCandidates.length
                     : candidates.length}
                 </strong>
                 <em>{selectedAreaBoundary?.label || "Seluruh data SIMITI"}</em>
@@ -2021,8 +2423,16 @@ export default function AIRecommendationEnterprise() {
               </span>
               <div>
                 <small>LOKASI PRIORITAS</small>
-                <strong>{visibleLocations.length}</strong>
-                <em>Hasil spatial scoring</em>
+                <strong>
+                  {aiResult?.priority_locations?.length
+                    ? aiResult.priority_locations.length
+                    : visibleLocations.length}
+                </strong>
+                <em>
+                  {aiResult?.priority_locations?.length
+                    ? `Zona risiko ${aiResult.priority_locations[0].kelas} (GIS)`
+                    : "Hasil spatial scoring"}
+                </em>
               </div>
             </div>
             <div className="ai-kpi-card">
@@ -2032,12 +2442,27 @@ export default function AIRecommendationEnterprise() {
               <div>
                 <small>RISIKO DOMINAN</small>
                 <strong>
-                  {spatialRecommendations[0]?.dominantHazard || "—"}
+                  {aiResult?.hazard
+                    ? aiResult.hazard.replace("_", " ").replace(/^./, (c) => c.toUpperCase())
+                    : spatialRecommendations[0]?.dominantHazard || "—"}
                 </strong>
                 <em>
-                  {spatialRecommendations[0]
-                    ? `${spatialRecommendations[0].count} evidence kejadian`
-                    : "Pilih wilayah"}
+                  {aiResult?.hazard
+                    ? (() => {
+                        const top = aiResult.hazard_screening?.find(
+                          (h) => h.hazard === aiResult.hazard,
+                        );
+                        const pct = aiResult.map_layers?.risk_zones?.features
+                          ?.filter((f: any) => /tinggi/i.test(String(f.properties?.kelas)))
+                          .reduce((sum: number, f: any) => sum + (Number(f.properties?.persen_wilayah) || 0), 0);
+                        const share = top?.high_risk_percent ?? pct;
+                        return `${share ? `${Math.round(share * 10) / 10}% wilayah risiko tinggi` : "Risiko terpetakan"}${
+                          aiResult.hazard_source === "auto" ? " · dipilih otomatis" : ""
+                        }`;
+                      })()
+                    : spatialRecommendations[0]
+                      ? `${spatialRecommendations[0].count} evidence kejadian`
+                      : "Pilih wilayah"}
                 </em>
               </div>
             </div>
@@ -2252,6 +2677,15 @@ export default function AIRecommendationEnterprise() {
                 </button>
                 <button
                   type="button"
+                  className={`ai-map-tool ${pointMode ? "active" : ""}`}
+                  onClick={() => setPointMode((v) => !v)}
+                  aria-pressed={pointMode}
+                  title="Analisis titik: klik peta untuk melihat model mitigasi"
+                >
+                  <Crosshair size={16} />
+                </button>
+                <button
+                  type="button"
                   className="ai-map-tool"
                   onClick={() => setShowLayers((v) => !v)}
                   title="Layer"
@@ -2262,6 +2696,129 @@ export default function AIRecommendationEnterprise() {
 
               <div className="simiti-map-stage ai-map-stage">
                 <div ref={mapRef} className="simiti-map" />
+
+                {pointMode && (
+                  <div className="point-card" role="region" aria-label="Analisis titik">
+                    <div className="point-card-head">
+                      <div>
+                        <small>ANALISIS TITIK</small>
+                        <h3>Model mitigasi di titik terpilih</h3>
+                      </div>
+                      <button type="button" onClick={() => setPointMode(false)} aria-label="Tutup">
+                        <X size={15} />
+                      </button>
+                    </div>
+                    <label className="point-radius">
+                      Radius analisis: <b>{pointRadius >= 1000 ? `${pointRadius / 1000} km` : `${pointRadius} m`}</b>
+                      <input
+                        type="range"
+                        min={500}
+                        max={5000}
+                        step={500}
+                        value={pointRadius}
+                        onChange={(e) => setPointRadius(Number(e.target.value))}
+                      />
+                    </label>
+                    {!pointResult && !pointLoading && !pointError && (
+                      <p className="point-hint">Klik titik mana pun di peta. Sistem membaca data kerawanan, lahan, dan sarana di sekitar titik, lalu mengusulkan model mitigasi.</p>
+                    )}
+                    {pointLoading && <p className="point-hint">Menganalisis data di sekitar titik…</p>}
+                    {pointError && <p className="point-error">{pointError}</p>}
+                    {pointResult?.no_mapped_risk && <p className="point-hint">{pointResult.message}</p>}
+                    {pointResult && !pointResult.no_mapped_risk && (
+                      <>
+                        <div className="point-summary">
+                          <div>
+                            <small>Bencana dominan</small>
+                            <strong>{(pointResult.hazard || "").replace("_", " ")}</strong>
+                          </div>
+                          <div>
+                            <small>Skor MCDA</small>
+                            <strong>
+                              {pointResult.mcda?.score ?? "—"}
+                              {pointResult.mcda?.score != null ? "/100" : ""}
+                            </strong>
+                          </div>
+                          <div>
+                            <small>Kelengkapan data</small>
+                            <strong>{pointResult.mcda?.coverage_percent ?? "—"}%</strong>
+                          </div>
+                        </div>
+                        {pointResult.explanation?.summary && (
+                          <div className="point-ai">
+                            <small>PENJELASAN AI</small>
+                            <p>{pointResult.explanation.summary}</p>
+                          </div>
+                        )}
+                        {pointResult.explanation?.error && (
+                          <p className="point-hint">{pointResult.explanation.error}</p>
+                        )}
+                        {pointResult.diagnosis?.[0]?.shares_percent && (
+                          <p className="point-diag">
+                            Risiko di radius: Tinggi {pointResult.diagnosis[0].shares_percent.tinggi}% · Sedang{" "}
+                            {pointResult.diagnosis[0].shares_percent.sedang}% · Rendah{" "}
+                            {pointResult.diagnosis[0].shares_percent.rendah}%
+                            {pointResult.diagnosis[0].events_in_radius != null
+                              ? ` · ${pointResult.diagnosis[0].events_in_radius} kejadian`
+                              : ""}
+                          </p>
+                        )}
+                        {(pointResult.recommendations?.length ?? 0) === 0 && (
+                          <p className="point-hint">Belum ada model mitigasi yang memenuhi aturan untuk kondisi di titik ini.</p>
+                        )}
+                        <ol className="point-reco">
+                          {pointResult.recommendations?.map((r) => (
+                            <li key={r.recommendation_id} className={`status-${r.constraint_status}`}>
+                              <div className="point-reco-head">
+                                <b>{r.model_type}</b>
+                                <span>
+                                  {r.suitability_score != null ? `${Math.round(r.suitability_score)}/100 · ` : ""}
+                                  {r.priority.replace("_", " ").toLowerCase()}
+                                </span>
+                              </div>
+                              <em className="point-status">{POINT_STATUS_LABEL[r.constraint_status] || r.constraint_status}</em>
+                              {pointResult.explanation?.items?.[r.recommendation_id] ? (
+                                <p className="point-ai-item">{pointResult.explanation.items[r.recommendation_id]}</p>
+                              ) : (
+                                r.reasons.map((reason) => <p key={reason}>{reason}</p>)
+                              )}
+                              {r.required_checks.length > 0 && (
+                                <small>Periksa: {r.required_checks.join("; ")}</small>
+                              )}
+                              {r.uncertainty.length > 0 && (
+                                <small className="point-unc">Ketidakpastian: {r.uncertainty.join(" ")}</small>
+                              )}
+                            </li>
+                          ))}
+                        </ol>
+                        {(pointResult.nearest_assets?.length ?? 0) > 0 && (
+                          <details className="point-assets">
+                            <summary>Sarana eksisting terdekat</summary>
+                            <ul>
+                              {pointResult.nearest_assets!
+                                .slice()
+                                .sort((a, b) => a.jarak_m - b.jarak_m)
+                                .slice(0, 6)
+                                .map((a) => (
+                                  <li key={a.table}>
+                                    {a.table.replace(/_/g, " ")}: {a.jarak_m >= 1000 ? `${(a.jarak_m / 1000).toFixed(1)} km` : `${a.jarak_m} m`}
+                                    {a.nama ? ` — ${a.nama}` : ""}
+                                  </li>
+                                ))}
+                            </ul>
+                          </details>
+                        )}
+                        <p className="point-foot">
+                          Kandidat, belum diverifikasi lapangan.{" "}
+                          {pointResult.explanation?.ai_used
+                            ? `Narasi disusun AI (${pointResult.explanation.model}) dari hasil analisis GIS; angka dan status berasal dari aturan.`
+                            : "Alasan berasal dari aturan dan data GIS."}{" "}
+                          {pointResult.limitations?.[0]}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 {showLayers && (
                   <div className="simiti-map-layer-card ai-layer-card">
@@ -2277,6 +2834,80 @@ export default function AIRecommendationEnterprise() {
                         <X size={15} />
                       </button>
                     </div>
+                    <p className="layer-group-title">Dasar keputusan AI</p>
+                    {!mapLayers && (
+                      <p className="layer-note">
+                        Pilih wilayah lalu jalankan analisis AI untuk menampilkan
+                        data yang dibaca AI.
+                      </p>
+                    )}
+                    {(
+                      [
+                        [
+                          `Zona risiko ${aiResult?.hazard ? aiResult.hazard.replace("_", " ") : ""}`.trim(),
+                          mapLayers?.risk_zones?.features?.length ?? 0,
+                          "kelas",
+                          riskZoneVisible,
+                          setRiskZoneVisible,
+                        ],
+                        [
+                          "Lahan kritis",
+                          mapLayers?.critical_land?.features?.length ?? 0,
+                          "kelas",
+                          criticalVisible,
+                          setCriticalVisible,
+                        ],
+                        [
+                          "Sarana mitigasi eksisting",
+                          mapLayers?.existing_mitigation?.features?.length ?? 0,
+                          "titik",
+                          mitigationVisible,
+                          setMitigationVisible,
+                        ],
+                      ] as Array<[string, number, string, boolean, (fn: (v: boolean) => boolean) => void]>
+                    )
+                      .filter(() => Boolean(mapLayers))
+                      .map(([label, count, unit, visible, setVisible]) => (
+                        <button
+                          type="button"
+                          key={label}
+                          className={`layer-check ${visible && count ? "active" : ""}`}
+                          aria-pressed={visible}
+                          disabled={!count}
+                          onClick={() => setVisible((v) => !v)}
+                        >
+                          <span>{count ? (visible ? "✓" : "□") : "–"}</span>
+                          <b>{label}</b>
+                          <em>{count ? `${count} ${unit}` : "tidak ada"}</em>
+                        </button>
+                      ))}
+                    {(mapLayers?.omitted?.length ?? 0) > 0 && (
+                      <p className="layer-note">
+                        Sebagian lapisan terlalu besar untuk ditampilkan; pilih
+                        wilayah yang lebih kecil.
+                      </p>
+                    )}
+
+                    <p className="layer-group-title">Data pendukung</p>
+                    {(
+                      [
+                        ["Batas wilayah terpilih", boundaryLayerVisible, setBoundaryLayerVisible],
+                        ["Titik kejadian SIMITI", incidentLayerVisible, setIncidentLayerVisible],
+                        ["Kandidat dari kejadian", recommendationLayerVisible, setRecommendationLayerVisible],
+                      ] as Array<[string, boolean, (fn: (v: boolean) => boolean) => void]>
+                    ).map(([label, visible, setVisible]) => (
+                      <button
+                        type="button"
+                        key={label}
+                        className={`layer-check ${visible ? "active" : ""}`}
+                        aria-pressed={visible}
+                        onClick={() => setVisible((v) => !v)}
+                      >
+                        <span>{visible ? "✓" : "□"}</span>
+                        <b>{label}</b>
+                      </button>
+                    ))}
+
                     <div className="layer-check active" aria-label="Batas Administrasi aktif">
                       <span>✓</span>
                       <b>Batas Administrasi</b>
@@ -2348,10 +2979,38 @@ export default function AIRecommendationEnterprise() {
                       <ChevronRight size={13} />
                     </div>
                     <div className="layer-legend">
-                      <span className="dot red" /> Sangat Direkomendasikan{" "}
-                      <span className="dot orange" /> Direkomendasikan{" "}
-                      <span className="dot green" /> Cukup
+                      {riskZoneVisible && (mapLayers?.risk_zones?.features?.length ?? 0) > 0 &&
+                        mapLayers!.risk_zones.features.map((f: any) => (
+                          <span key={`z-${f.properties.kelas}`}>
+                            <i
+                              className="swatch"
+                              style={{ background: riskZoneColor(f.properties.kelas) }}
+                            />
+                            Risiko {f.properties.kelas}
+                          </span>
+                        ))}
+                      {criticalVisible && (mapLayers?.critical_land?.features?.length ?? 0) > 0 && (
+                        <span>
+                          <i className="swatch critical" /> Lahan kritis
+                        </span>
+                      )}
+                      {mitigationVisible && (mapLayers?.existing_mitigation?.features?.length ?? 0) > 0 && (
+                        <span>
+                          <i className="swatch dot-blue" /> Sarana mitigasi
+                        </span>
+                      )}
+                      {recommendationLayerVisible && visibleLocations.length > 0 && (
+                        <>
+                          <span><span className="dot red" /> Skor kejadian tinggi</span>
+                          <span><span className="dot orange" /> Sedang</span>
+                          <span><span className="dot green" /> Rendah</span>
+                        </>
+                      )}
                     </div>
+                    <p className="layer-note">
+                      Layer tematik lengkap (DAS, tutupan lahan, dll.) ada di menu
+                      GIS.
+                    </p>
                   </div>
                 )}
 
@@ -2720,24 +3379,30 @@ export default function AIRecommendationEnterprise() {
               <div className="dash-title">
                 <div>
                   <small>AI INSIGHT</small>
-                  <h3>Detail Rekomendasi #{selected ? "01" : "—"}</h3>
+                  <h3>Detail Rekomendasi #{selected || aiResult ? "01" : "—"}</h3>
                 </div>
                 {recommendationScore !== null && (
                   <span className="score-badge">{recommendationScore}/100</span>
                 )}
               </div>
-              {selected ? (
+              {selected || aiResult ? (
                 <>
                   <div className="enterprise-location-head">
                     <div className="enterprise-location-icon">
                       <MapPinned size={20} />
                     </div>
                     <div>
-                      <small>{selected.hazard.toUpperCase()}</small>
-                      <h4>{selected.title || selected.area}</h4>
+                      <small>
+                        {(selected?.hazard || aiResult?.hazard || "").toUpperCase()}
+                        {!selected && aiResult?.hazard_source === "auto"
+                          ? " · DIPILIH OTOMATIS"
+                          : ""}
+                      </small>
+                      <h4>{selected?.title || selected?.area || aiResult?.area || "Wilayah terpilih"}</h4>
                       <p>
-                        {selected.area} ·{" "}
-                        {selected.date || "Tanggal tidak tersedia"}
+                        {selected
+                          ? `${selected.area} · ${selected.date || "Tanggal tidak tersedia"}`
+                          : "Analisis wilayah · tidak ada titik kejadian tercatat"}
                       </p>
                     </div>
                     <div className="confidence-box">
@@ -2749,6 +3414,7 @@ export default function AIRecommendationEnterprise() {
                       </strong>
                     </div>
                   </div>
+                  {selected && (
                   <div className="enterprise-factors">
                     <div>
                       <span>Skor Spasial {selected.hazard}</span>
@@ -2780,6 +3446,7 @@ export default function AIRecommendationEnterprise() {
                       <strong>{selectedAreaIncidents.length}</strong>
                     </div>
                   </div>
+                  )}
                   <div className="enterprise-model-columns">
                     <div>
                       <small>MODEL MITIGASI</small>
@@ -2806,6 +3473,107 @@ export default function AIRecommendationEnterprise() {
                       </span>
                     </div>
                   </div>
+                  {mcdaInfo && (
+                    <div className="enterprise-mcda">
+                      <div className="enterprise-mcda-head">
+                        <strong>Skor Prioritas Wilayah (MCDA)</strong>
+                        <span>
+                          {mcdaInfo.score ?? "—"}
+                          {mcdaInfo.score != null ? "/100" : ""} ·{" "}
+                          {mcdaInfo.category}
+                        </span>
+                      </div>
+                      <small
+                        className={
+                          mcdaInfo.low_coverage ? "mcda-coverage low" : "mcda-coverage"
+                        }
+                      >
+                        Kelengkapan data indikator: {mcdaInfo.coverage_percent}%
+                        {mcdaInfo.low_coverage
+                          ? " — skor perlu dikonfirmasi data/survei tambahan"
+                          : ""}
+                      </small>
+                      {mcdaInfo.indicators.map((indicator) => (
+                        <div
+                          key={indicator.key}
+                          className={
+                            indicator.available ? "mcda-row" : "mcda-row missing"
+                          }
+                          title={indicator.basis}
+                        >
+                          <span>
+                            {indicator.label} <em>({indicator.weight}%)</em>
+                          </span>
+                          <i>
+                            <b style={{ width: `${indicator.value ?? 0}%` }} />
+                          </i>
+                          <strong>
+                            {indicator.available
+                              ? Math.round(Number(indicator.value))
+                              : "n/a"}
+                          </strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {topRecommendations.length > 0 && (
+                    <div className="enterprise-reco-list">
+                      <strong>Rekomendasi Intervensi</strong>
+                      <ol>
+                        {topRecommendations.map((r) => (
+                          <li key={r.intervention_id}>
+                            <div>
+                              <b>{r.intervention}</b>
+                              <span>
+                                {Math.round(Number(r.priority_score) || 0)}/100 ·
+                                urgensi {r.urgency}
+                              </span>
+                            </div>
+                            <p>{r.why}</p>
+                            {r.evidence?.length > 0 && (
+                              <small>Bukti: {r.evidence.join("; ")}</small>
+                            )}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+                  {(aiResult?.priority_locations?.length ?? 0) > 0 && (
+                    <div className="enterprise-reco-list">
+                      <strong>Zona Prioritas (ditentukan GIS)</strong>
+                      <ol>
+                        {aiResult!.priority_locations!.map((loc) => (
+                          <li key={`${loc.lat},${loc.lng}`}>
+                            <div>
+                              <b>
+                                Zona risiko {loc.kelas} · ±
+                                {loc.luas_ha.toLocaleString("id-ID")} ha
+                              </b>
+                              <button
+                                type="button"
+                                className="priority-go"
+                                onClick={() => {
+                                  setRiskZoneVisible(true);
+                                  mapInstanceRef.current?.flyTo(
+                                    [loc.lat, loc.lng],
+                                    14,
+                                    { duration: 0.8 },
+                                  );
+                                }}
+                              >
+                                Lihat di peta
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                      <small>
+                        Zona diambil dari poligon {aiResult?.hazard ? `risiko_${aiResult.hazard}` : "risiko"} kelas
+                        tertinggi di wilayah ini. Lokasi tepat penerapan butuh
+                        survei lapangan.
+                      </small>
+                    </div>
+                  )}
                   <div className="enterprise-reason">
                     <strong>Alasan Rekomendasi</strong>
                     <p>
@@ -2912,6 +3680,15 @@ export default function AIRecommendationEnterprise() {
               Saya dapat membantu membaca hasil spatial scoring dan menjelaskan
               alasan rekomendasi.
             </div>
+            {!selected && aiResult && (
+              <div className="chat-bubble bot">
+                Wilayah aktif: <b>{aiResult.area}</b>
+                {aiResult.hazard ? ` · ${aiResult.hazard}` : ""}.{" "}
+                {aiResult.ai_used === false
+                  ? "Tidak ada risiko terpetakan, AI tidak dipanggil."
+                  : `${aiResult.recommendations?.length || 0} rekomendasi, ${aiResult.priority_locations?.length || 0} titik prioritas.`}
+              </div>
+            )}
             {selected && (
               <div className="chat-bubble bot">
                 Lokasi aktif: <b>{selected.area}</b>.{" "}
@@ -2926,14 +3703,10 @@ export default function AIRecommendationEnterprise() {
             <button
               type="button"
               className="chat-action secondary"
-              onClick={() => setSelectedId(visibleLocations[0]?.id || null)}
+              onClick={openBestLocation}
             >
               Buka lokasi terbaik
             </button>
-          </div>
-          <div className="assistant-input">
-            <span>Tulis pertanyaan...</span>
-            <Sparkles size={16} />
           </div>
         </aside>
       </div>

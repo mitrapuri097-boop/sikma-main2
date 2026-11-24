@@ -213,3 +213,41 @@
   z-index: 1311 !important;
   pointer-events: auto !important;
 }
+
+/* ===== Perbaikan tata letak toolbar & panel layer (patch 3) ===== */
+/* .ai-map-tool di CSS dasar masih position:absolute (left:13px;top:68px),
+   sehingga tombol "Kembali ke Indonesia" dan "Layer" menumpuk di atas label
+   Wilayah aktif. Di toolbar grid, keduanya harus mengikuti alur grid. */
+.simiti-ai-module .ai-map-toolbar { grid-template-columns:minmax(0,1fr) auto auto !important; }
+.simiti-ai-module .ai-map-tool { position:static !important; inset:auto !important; left:auto !important; top:auto !important; box-shadow:none !important; cursor:pointer !important; }
+.simiti-ai-module .ai-map-tool:hover { border-color:#14a394 !important; color:#0f766e !important; background:#effcf8 !important; }
+.simiti-ai-module .ai-map-scope { padding:6px 11px !important; border:1px solid #dce5ee !important; border-radius:10px !important; background:#fff !important; }
+
+/* Panel layer: tombol toggle nyata, tidak perlu scroll */
+.simiti-ai-module .ai-layer-card { max-height:calc(100% - 70px) !important; padding-bottom:10px !important; }
+.simiti-ai-module .ai-layer-card .layer-check { width:100% !important; border:0 !important; border-top:1px solid #eef2f7 !important; background:transparent !important; color:#40546b !important; text-align:left !important; cursor:pointer !important; min-height:36px !important; }
+.simiti-ai-module .ai-layer-card .layer-check:hover { background:#f6faf9 !important; }
+.simiti-ai-module .ai-layer-card .layer-check span { width:16px; text-align:center; color:#0f766e; font-weight:800; }
+.simiti-ai-module .ai-layer-card .layer-ai-title { border-top:1px solid #eef2f7 !important; cursor:pointer !important; }
+.simiti-ai-module .ai-layer-card .layer-note { margin:8px 13px 0 !important; color:#718096 !important; font-size:10px !important; line-height:1.45 !important; }
+.simiti-ai-module .ai-layer-card .layer-legend { padding:0 13px !important; }
+
+/* Daftar titik prioritas di kartu detail */
+.simiti-ai-module .enterprise-reco-list .priority-go { border:1px solid #cfe3dc; background:#effcf8; color:#0f766e; border-radius:7px; padding:2px 8px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap; }
+
+/* ===== Panel Tematik "dasar keputusan AI" (patch 4) ===== */
+.simiti-ai-module .ai-layer-card .layer-group-title { margin:10px 13px 2px !important; color:#0f766e !important; font-size:9px !important; font-weight:800 !important; letter-spacing:.08em !important; text-transform:uppercase !important; }
+.simiti-ai-module .ai-layer-card .layer-check em { margin-left:auto; color:#7b8ba0; font-size:10px; font-style:normal; white-space:nowrap; }
+.simiti-ai-module .ai-layer-card .layer-check:disabled { cursor:default !important; color:#a0aec0 !important; background:transparent !important; }
+.simiti-ai-module .ai-layer-card .layer-check:disabled span { color:#cbd5e0; }
+.simiti-ai-module .ai-layer-card .layer-legend { display:flex !important; flex-wrap:wrap !important; gap:6px 10px !important; margin-top:10px !important; padding:8px 13px 0 !important; border-top:1px solid #eef2f7 !important; font-size:10px !important; line-height:1.4 !important; color:#62748a !important; }
+.simiti-ai-module .ai-layer-card .layer-legend > span { display:inline-flex !important; align-items:center !important; gap:5px !important; font-size:10px !important; }
+.simiti-ai-module .ai-layer-card .layer-legend .swatch { display:inline-block; width:12px; height:9px; border-radius:2px; opacity:.75; }
+.simiti-ai-module .ai-layer-card .layer-legend .swatch.critical { background:#7c3aed33; border:1px dashed #7c3aed; }
+.simiti-ai-module .ai-layer-card .layer-legend .swatch.dot-blue { width:10px; height:10px; border-radius:50%; background:#3b82f6; border:2px solid #1d4ed8; opacity:1; }
+.simiti-ai-module .ai-layer-card .layer-legend .dot { display:inline-block; width:8px; height:8px; border-radius:50%; }
+.simiti-ai-module .ai-layer-card .layer-legend .dot.red { background:#ef4444; }
+.simiti-ai-module .ai-layer-card .layer-legend .dot.orange { background:#f59e0b; }
+.simiti-ai-module .ai-layer-card .layer-legend .dot.green { background:#10b981; }
+.simiti-ai-module .ai-layer-card .layer-card-head { padding:10px 13px 6px !important; }
+.simiti-ai-module .ai-layer-card .layer-check { min-height:30px !important; padding:5px 13px !important; gap:8px !important; }
