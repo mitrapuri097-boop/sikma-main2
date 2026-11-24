@@ -535,3 +535,4 @@
 .point-ai small { color: #0f766e; font-weight: 700; letter-spacing: .04em; }
 .point-ai p { margin: 4px 0 0; line-height: 1.45; }
 .point-ai-item { color: #334155; }
+.point-userlayers { background: #f8fafc; border-radius: 8px; padding: 6px 8px; color: #475569; font-size: 12px; line-height: 1.4; margin: 6px 0; }

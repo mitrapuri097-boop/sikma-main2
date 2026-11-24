@@ -14,7 +14,9 @@
  * angka di luar masukan dibuang, dan kegagalan LLM tidak mengubah hasil aturan.
  */
 
-const MODEL_VERSION = "0.1.0-point-rules";
+const { loadBmkgForecast, loadFirmsHotspots } = require("./aiExternalData");
+
+const MODEL_VERSION = "0.2.0-point-rules";
 
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 const round1 = (n) => Math.round(n * 10) / 10;
@@ -215,15 +217,18 @@ const RULES = [
     hazards: ["karhutla"],
     evaluate(ctx) {
       if (ctx.risk.tinggi + ctx.risk.sedang < 10 && !(ctx.events > 0)) return null;
+      const firms = ctx.external?.firms;
+      const hot = firms?.available ? firms.hotspots : 0;
       return {
-        driver: ctx.risk.tinggi + ctx.risk.sedang * 0.6 + Math.min(30, (ctx.events || 0) * 5),
+        driver: ctx.risk.tinggi + ctx.risk.sedang * 0.6 + Math.min(30, (ctx.events || 0) * 5) + Math.min(20, hot * 5),
         status: "ELIGIBLE_FOR_FURTHER_TECHNICAL_REVIEW",
         reasons: [
           `Risiko karhutla Tinggi ${ctx.risk.tinggi}%, Sedang ${ctx.risk.sedang}%.`,
           ctx.events > 0 ? `${ctx.events} kejadian tercatat di sekitar titik.` : "Tidak ada kejadian tercatat di sekitar titik.",
-        ],
+          firms?.available ? `NASA FIRMS: ${firms.hotspots} hotspot dalam ${firms.periode_hari} hari terakhir di sekitar titik.` : null,
+        ].filter(Boolean),
         checks: ["Akses dan sumber air", "Historis titik panas"],
-        missing: ["Data hotspot eksternal (NASA FIRMS) belum diintegrasikan."],
+        missing: firms?.available ? [] : ["Data hotspot (NASA FIRMS) tidak tersedia pada analisis ini."],
       };
     },
   },
@@ -272,10 +277,15 @@ const RULES = [
     hazards: ["banjir", "banjir_bandang", "longsor"],
     evaluate(ctx) {
       if (ctx.risk.tinggi < 20) return null;
+      const bm = ctx.external?.bmkg;
+      const rain = bm?.available && bm.hujan_total_mm >= 50;
       return {
-        driver: ctx.risk.tinggi * 0.7,
+        driver: ctx.risk.tinggi * 0.7 + (rain ? 15 : 0),
         status: "ELIGIBLE_FOR_FURTHER_TECHNICAL_REVIEW",
-        reasons: [`Risiko Tinggi ${ctx.risk.tinggi}% dari area analisis; langkah nonstruktural dapat berjalan paralel dengan intervensi fisik.`],
+        reasons: [
+          `Risiko Tinggi ${ctx.risk.tinggi}% dari area analisis; langkah nonstruktural dapat berjalan paralel dengan intervensi fisik.`,
+          rain ? `BMKG memprakirakan hujan total ±${bm.hujan_total_mm} mm dalam 3 hari ke depan (${bm.slot_hujan_lebat_atau_petir} slot hujan lebat/petir).` : null,
+        ].filter(Boolean),
         checks: ["Cakupan sensor dan komunikasi", "Kesiapan masyarakat dan jalur evakuasi"],
         missing: [],
       };
@@ -346,6 +356,8 @@ const EXPLAIN_PROMPT = [
   "Anda menjelaskan hasil analisis GIS SIMITI (sistem mitigasi bencana hidrometeorologi kehutanan) kepada perencana.",
   "Gunakan HANYA fakta pada JSON masukan. Dilarang menambah angka, nama tempat, koordinat, kapasitas, biaya, atau klaim penurunan risiko yang tidak ada di masukan.",
   "Jangan mengubah skor, status constraint, atau urutan rekomendasi. Jangan merekomendasikan model yang tidak ada di daftar.",
+  "Bila ada data_eksternal (BMKG prakiraan cuaca / NASA FIRMS hotspot), sebut sumbernya dan jelaskan bahwa itu prakiraan atau indikasi, bukan observasi/batas kebakaran; jangan mengubah skor akibat data ini.",
+  "Bila ada layer_pilihan_pengguna, sebutkan sebagai bukti tambahan HANYA jika relevan (nama tabel dan persen yang tertera); jangan mengubah skor akibat layer ini.",
   "Jangan menulis kode status mentah (mis. NEEDS_FIELD_VERIFICATION); gunakan padanan bahasa Indonesia: layak dikaji lebih lanjut, perlu verifikasi lapangan, data belum cukup, tidak layak. Jangan menulis kategori prioritas dengan huruf kapital.",
   "Setiap rekomendasi adalah kandidat yang belum diverifikasi: sebut pemeriksaan wajib dan data yang belum tersedia bila relevan.",
   "Jika status NOT_ELIGIBLE, jelaskan mengapa tidak layak dan arahkan ke alternatif yang ada di daftar.",
@@ -371,21 +383,28 @@ const EXPLAIN_SCHEMA = {
 };
 
 /** Angka pada narasi harus berasal dari masukan; bila tidak, narasi dibuang. */
-function numbersGrounded(text, sourceJson) {
+function ungroundedNumbers(text, sourceJson) {
   const nums = String(text).match(/\d+(?:[.,]\d+)*/g) || [];
   // Bandingkan sebagai nilai: "21.753" (ribuan ID) == 21753, "65,1" == 65.1.
   const toNumber = (token) => {
+    if (/^\d{1,3}(\.\d{3})+,\d+$/.test(token)) return Number(token.replace(/\./g, "").replace(",", "."));
     if (/^\d{1,3}(\.\d{3})+$/.test(token)) return Number(token.replace(/\./g, ""));
     return Number(token.replace(",", "."));
   };
   const sourceNums = new Set(
     (sourceJson.match(/\d+(?:\.\d+)?/g) || []).map((n) => Number(n)).filter(Number.isFinite),
   );
+  // Satuan km/m: 1,5 km == 1500 m.
+  for (const n of [...sourceNums]) { sourceNums.add(n / 1000); sourceNums.add(n * 1000); }
   const near = (v) => [...sourceNums].some((x) => Math.abs(x - v) < 0.051 || (x >= 10 && Math.abs(x - v) / x < 0.0051));
-  return nums.every((token) => {
+  return nums.filter((token) => {
     const v = toNumber(token);
-    return Number.isFinite(v) && (sourceNums.has(v) || near(v));
+    return !(Number.isFinite(v) && (sourceNums.has(v) || near(v)));
   });
+}
+
+function numbersGrounded(text, sourceJson) {
+  return ungroundedNumbers(text, sourceJson).length === 0;
 }
 
 async function explainWithLlm(deps, payload) {
@@ -411,6 +430,12 @@ async function explainWithLlm(deps, payload) {
       data_belum_tersedia: r.uncertainty,
     })),
     data_belum_tersedia: payload.data_status?.missing_data || [],
+    data_eksternal: Object.fromEntries(
+      Object.entries(payload.external || {}).filter(([, v]) => v?.available).map(([k, v]) => [k, v]),
+    ),
+    layer_pilihan_pengguna: payload.user_layers
+      ? payload.user_layers.layers.filter((l) => l.status === "analysed").map((l) => ({ tabel: l.table, kelas: l.classes.map((c) => ({ kelas: c.kelas, persen_wilayah: c.persen_wilayah })) }))
+      : [],
   };
   const sourceJson = JSON.stringify(input);
   const response = await client.responses.create({
@@ -432,8 +457,10 @@ async function explainWithLlm(deps, payload) {
     if (!numbersGrounded(item.narasi, sourceJson)) { dropped++; continue; }
     items[item.recommendation_id] = item.narasi.trim();
   }
-  const summaryOk = parsed.ringkasan && numbersGrounded(parsed.ringkasan, sourceJson);
-  return { summary: summaryOk ? parsed.ringkasan.trim() : null, items, dropped, model };
+  const badSummary = parsed.ringkasan ? ungroundedNumbers(parsed.ringkasan, sourceJson) : [];
+  if (badSummary.length) console.warn("[AI POINT] ringkasan dibuang, angka di luar masukan:", badSummary.join(", "));
+  const summaryOk = parsed.ringkasan && badSummary.length === 0;
+  return { summary: summaryOk ? parsed.ringkasan.trim() : null, items, dropped, model, summary_rejected: Boolean(parsed.ringkasan) && !summaryOk };
 }
 
 function createPointMitigationHandler(pool, deps) {
@@ -542,10 +569,13 @@ function createPointMitigationHandler(pool, deps) {
         });
       }
 
-      const [{ evidence, mapLayers }, allAssets] = await Promise.all([
-        loadSpatialEvidence(pool, hazard, { geometry: bufferGeom }),
+      const [{ evidence, mapLayers }, allAssets, bmkg, firms] = await Promise.all([
+        loadSpatialEvidence(pool, hazard, { geometry: bufferGeom }, { activeLayers: req.body?.active_layers }),
         nearestAssets(lat, lng, hazard),
+        loadBmkgForecast(pool, lat, lng, queryWithTimeout),
+        hazard === "karhutla" ? loadFirmsHotspots(lat, lng, radius) : Promise.resolve(null),
       ]);
+      const external = { bmkg, firms };
       // Sarana > 50 km tidak relevan untuk keputusan di titik ini.
       const assets = allAssets.filter((a) => a.jarak_m <= 50000);
 
@@ -555,6 +585,7 @@ function createPointMitigationHandler(pool, deps) {
         layers: evidence.supporting_layers || {},
         assets,
         events: evidence.event_history?.available ? evidence.event_history.count : null,
+        external,
       };
       const mcda = evidence.mcda;
       const recommendations = applyRules(hazard, ctx, mcda?.score).map((r) => ({
@@ -581,10 +612,12 @@ function createPointMitigationHandler(pool, deps) {
           location, hazard, mcda, recommendations,
           diagnosis: [{ issue: `Risiko ${hazard.replace("_", " ")}`, shares_percent: ctx.risk, events_in_radius: ctx.events }],
           data_status: { missing_data: [] },
+          user_layers: evidence.user_layers || null,
+          external,
         };
         try {
           const ex = await explainWithLlm({ OpenAI: deps.OpenAI, model: process.env.OPENAI_MODEL || deps.DEFAULT_MODEL }, draft);
-          explanation = { ai_used: true, model: ex.model, summary: ex.summary, items: ex.items, dropped_ungrounded: ex.dropped };
+          explanation = { ai_used: true, model: ex.model, summary: ex.summary, items: ex.items, dropped_ungrounded: ex.dropped, summary_rejected: ex.summary_rejected };
         } catch (error) {
           console.warn("[AI POINT] penjelasan LLM gagal:", error?.code || error?.status || error?.message);
           explanation = { ai_used: false, summary: null, items: {}, error: "Penjelasan AI tidak tersedia; aturan dan angka GIS tetap ditampilkan." };
@@ -621,10 +654,16 @@ function createPointMitigationHandler(pool, deps) {
         },
         data_status: {
           internal_layers_used: [evidence.risk_table, ...layersUsed],
-          external_sources_used: [],
-          missing_data: [...missing, "Data eksternal (BMKG, satelit) belum diintegrasikan."],
+          external_sources_used: [bmkg, firms].filter((x) => x?.available).map((x) => x.source),
+          missing_data: [
+            ...missing,
+            ...[bmkg, firms].filter((x) => x && !x.available).map((x) => `${x.source}: ${x.note}`),
+            "Citra satelit (Sentinel/Landsat) dan curah hujan satelit (NASA GPM) belum diintegrasikan.",
+          ],
           data_quality: mcda?.low_coverage ? "REVIEW_REQUIRED" : "ACCEPTABLE",
         },
+        user_layers: evidence.user_layers || null,
+        external_data: external,
         map_layers: mapLayers,
         limitations: [
           "Skor bersifat indikatif (60% skor MCDA wilayah + 40% kekuatan pendorong aturan) dan bukan probabilitas keberhasilan.",
@@ -643,4 +682,4 @@ function createPointMitigationHandler(pool, deps) {
   };
 }
 
-module.exports = { createPointMitigationHandler, _internal: { numbersGrounded, applyRules, riskShares, classShare, nearestOf, RULES } };
+module.exports = { createPointMitigationHandler, _internal: { ungroundedNumbers, numbersGrounded, applyRules, riskShares, classShare, nearestOf, RULES } };

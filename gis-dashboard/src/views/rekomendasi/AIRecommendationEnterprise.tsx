@@ -335,6 +335,28 @@ type PointAnalysis = {
   data_status?: { missing_data: string[]; data_quality: string };
   limitations?: string[];
   model_version?: string;
+  user_layers?: {
+    requested: string[];
+    layers: Array<{ table: string; status: string; classes?: Array<{ kelas: string; persen_wilayah: number | null }> }>;
+  } | null;
+  external_data?: {
+    bmkg?: {
+      available: boolean;
+      desa?: string;
+      kecamatan?: string;
+      hujan_total_mm?: number;
+      hujan_maks_mm_per_3jam?: number | null;
+      slot_hujan_lebat_atau_petir?: number;
+      note?: string;
+    } | null;
+    firms?: {
+      available: boolean;
+      hotspots?: number;
+      hotspots_high_confidence?: number;
+      periode_hari?: number;
+      note?: string;
+    } | null;
+  };
   explanation?: {
     ai_used: boolean;
     model?: string;
@@ -418,6 +440,7 @@ export default function AIRecommendationEnterprise() {
   const [pointResult, setPointResult] = useState<PointAnalysis | null>(null);
   const pointLayerRef = useRef<L.LayerGroup | null>(null);
   const pointRadiusRef = useRef(pointRadius);
+  const activeLayersRef = useRef<string[]>([]);
   const thematicLayerGroupsRef = useRef<Map<string, L.Layer>>(new Map());
   const thematicRequestSeqRef = useRef(0);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1095,6 +1118,7 @@ export default function AIRecommendationEnterprise() {
                 hazard: candidate
                   ? candidate.hazard.toLowerCase()
                   : hazardOverride || "auto",
+                active_layers: Array.from(activeSpatialLayers),
                 incident_id: candidate?.id ?? null,
                 incident_title: candidate?.title ?? null,
                 category_source: candidate?.category ?? null,
@@ -1139,7 +1163,7 @@ export default function AIRecommendationEnterprise() {
         setAiLoading(false);
       }
     },
-    [selectedDas, bnpbFlood, floodEvidence, selectedAreaBoundary],
+    [selectedDas, bnpbFlood, floodEvidence, selectedAreaBoundary, activeSpatialLayers],
   );
 
   useEffect(() => {
@@ -1229,7 +1253,7 @@ export default function AIRecommendationEnterprise() {
               version: "1.1.1",
               srs: "EPSG:4326",
               tiled: false,
-            });
+            } as L.WMSOptions & { srs?: string });
             wmsLayer.on("tileerror", () => {
               if (!cancelled) {
                 setSpatialLayerError(
@@ -1467,7 +1491,13 @@ export default function AIRecommendationEnterprise() {
       const response = await smitiFetch(`${API_URL}/api/ai/point-mitigation`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat, lng, radius_m: radius, hazard: "auto" }),
+        body: JSON.stringify({
+          lat,
+          lng,
+          radius_m: radius,
+          hazard: "auto",
+          active_layers: activeLayersRef.current,
+        }),
       });
       const data = await response.json().catch(() => null);
       if (!response.ok || !data?.success) {
@@ -1489,6 +1519,10 @@ export default function AIRecommendationEnterprise() {
   useEffect(() => {
     pointRadiusRef.current = pointRadius;
   }, [pointRadius]);
+
+  useEffect(() => {
+    activeLayersRef.current = Array.from(activeSpatialLayers);
+  }, [activeSpatialLayers]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -2148,7 +2182,7 @@ export default function AIRecommendationEnterprise() {
 
     if (area?.geom) {
       const boundary = L.geoJSON(
-        { type: "Feature", geometry: area.geom, properties: area },
+        { type: "Feature", geometry: area.geom, properties: area } as any,
         {
           style: {
             color: "#0f766e",
@@ -2749,6 +2783,35 @@ export default function AIRecommendationEnterprise() {
                             <small>PENJELASAN AI</small>
                             <p>{pointResult.explanation.summary}</p>
                           </div>
+                        )}
+                        {(pointResult.external_data?.bmkg?.available ||
+                          pointResult.external_data?.firms?.available) && (
+                          <p className="point-userlayers">
+                            {pointResult.external_data?.bmkg?.available &&
+                              `BMKG (${pointResult.external_data.bmkg.desa}, ${pointResult.external_data.bmkg.kecamatan}): prakiraan hujan ±${pointResult.external_data.bmkg.hujan_total_mm} mm dalam 3 hari${
+                                pointResult.external_data.bmkg.slot_hujan_lebat_atau_petir
+                                  ? `, ${pointResult.external_data.bmkg.slot_hujan_lebat_atau_petir} slot hujan lebat/petir`
+                                  : ""
+                              }. `}
+                            {pointResult.external_data?.firms?.available &&
+                              `NASA FIRMS: ${pointResult.external_data.firms.hotspots} hotspot ${pointResult.external_data.firms.periode_hari} hari terakhir.`}
+                          </p>
+                        )}
+                        {(pointResult.user_layers?.layers?.length ?? 0) > 0 && (
+                          <p className="point-userlayers">
+                            Layer pilihan Anda ikut dibaca AI:{" "}
+                            {pointResult.user_layers!.layers
+                              .map((l) => {
+                                const top = l.classes?.[0];
+                                const name = l.table.replace(/_/g, " ");
+                                return l.status === "analysed" && top
+                                  ? `${name} (${top.kelas}${top.persen_wilayah != null ? ` ${top.persen_wilayah}%` : ""})`
+                                  : l.status === "already_analysed"
+                                    ? `${name} (sudah bawaan)`
+                                    : `${name} (${l.status === "no_overlap" ? "tidak beririsan" : "tidak dapat dioverlay"})`;
+                              })
+                              .join("; ")}
+                          </p>
                         )}
                         {pointResult.explanation?.error && (
                           <p className="point-hint">{pointResult.explanation.error}</p>

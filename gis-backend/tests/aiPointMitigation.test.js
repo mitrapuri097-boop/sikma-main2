@@ -71,3 +71,9 @@ test("numbersGrounded: format ribuan Indonesia dan desimal koma dikenali", () =>
   assert.equal(_internal.numbersGrounded("Jarak 35.000 m.", src), false);
   assert.equal(_internal.numbersGrounded("Skor 90.", src), false);
 });
+
+test("numbersGrounded: format campuran 2.827,43 dan konversi km<->m", () => {
+  const src = JSON.stringify({ luas_ha: 2827.43, radius_m: 1500 });
+  assert.equal(_internal.numbersGrounded("Luas 2.827,43 ha dalam radius 1,5 km.", src), true);
+  assert.equal(_internal.numbersGrounded("Luas 3.000,10 ha.", src), false);
+});
