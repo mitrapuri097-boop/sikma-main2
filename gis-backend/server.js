@@ -13035,6 +13035,7 @@ app.post("/api/layers", verifyToken, shapefileUpload.array("files"), async (req,
   const client = await pool.connect();
   let uploadedFilePaths = [];
   let tableCreated = false;
+  let isReplacingExistingTable = false;
 
   try {
     const { tableName } = req.body;
@@ -13116,10 +13117,21 @@ app.post("/api/layers", verifyToken, shapefileUpload.array("files"), async (req,
     );
 
     if (tableCheck.rows[0].exists) {
-      await client.query("ROLLBACK");
-      return res
-        .status(400)
-        .json({ error: "Table already exists: " + sanitizedTableName });
+      isReplacingExistingTable = true;
+      console.log(
+        `[SHAPEFILE REPLACE] Menghapus tabel lama: public.${sanitizedTableName}`
+      );
+
+      // Hanya hapus tabel target. RESTRICT mencegah
+      // penghapusan objek lain yang masih bergantung padanya.
+      await client.query(
+        `DROP TABLE public."${sanitizedTableName}"`
+      );
+
+
+      console.log(
+        `[SHAPEFILE REPLACE] Tabel lama berhasil dihapus: ${sanitizedTableName}`
+      );
     }
 
     // ============================================================
@@ -13310,7 +13322,7 @@ app.post("/api/layers", verifyToken, shapefileUpload.array("files"), async (req,
           }
 
           // COMMIT every 50000
-          if (inserted % COMMIT_INTERVAL === 0) {
+          if (!isReplacingExistingTable && inserted % COMMIT_INTERVAL === 0) {
             await client.query("COMMIT");
             await client.query("BEGIN");
             console.log(`  ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¾ COMMIT at ${inserted} features`);
@@ -13385,14 +13397,34 @@ app.post("/api/layers", verifyToken, shapefileUpload.array("files"), async (req,
     // STEP 4: Save metadata
     // ============================================================
     console.log("\n--- STEP 4: Saving Metadata ---");
-    const metaResult = await client.query(
+    const metadataValues = [
+      sanitizedTableName,
+      section,
+      files.map((f) => f.originalname),
+    ];
+
+    let metaResult = await client.query(
       `
-      INSERT INTO layer_metadata (table_name, section, original_files, status)
-      VALUES ($1, $2, $3, 'published')
+      UPDATE layer_metadata
+      SET section = $2,
+          original_files = $3,
+          status = 'published'
+      WHERE table_name = $1
       RETURNING id, table_name, section, status, created_at
-    `,
-      [sanitizedTableName, section, files.map((f) => f.originalname)],
+      `,
+      metadataValues,
     );
+
+    if (metaResult.rowCount === 0) {
+      metaResult = await client.query(
+        `
+        INSERT INTO layer_metadata (table_name, section, original_files, status)
+        VALUES ($1, $2, $3, 'published')
+        RETURNING id, table_name, section, status, created_at
+        `,
+        metadataValues,
+      );
+    }
 
     console.log("ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ Metadata saved");
 
@@ -13432,7 +13464,7 @@ app.post("/api/layers", verifyToken, shapefileUpload.array("files"), async (req,
     console.error("ERROR:", error.message);
     console.error("========================================\n");
 
-    if (tableCreated && req.body.tableName) {
+    if (tableCreated && !isReplacingExistingTable && req.body.tableName) {
       try {
         const tbl = req.body.tableName
           .toLowerCase()
