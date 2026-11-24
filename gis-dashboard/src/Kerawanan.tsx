@@ -921,6 +921,21 @@ const Kerawanan = () => {
     { codes: ["500100", "500300"], fungsikws: "500100", deskripsi_domain: "Tubuh Air", color: "#52BE80" },
     { codes: ["100201", "100211", "100221"], fungsikws: "100201", deskripsi_domain: "Cagar Alam (Perairan)", color: "#EC7063" },
   ] as const;
+
+  // Legenda Lahan Gambut berdasarkan klasifikasi ktn_1.
+  // Jumlah kategori berasal dari rekap database public.lahan_gambut (4.603 fitur).
+  const LAHAN_GAMBUT_LEGEND = [
+    { ktn_1: "Organosol Fibrik", color: "#8B5CF6", jumlah: 89 },
+    { ktn_1: "Organosol Hemik", color: "#16A34A", jumlah: 2855 },
+    { ktn_1: "Organosol Saprik", color: "#A16207", jumlah: 1362 },
+    { ktn_1: "Organosol Sulfidik", color: "#DC2626", jumlah: 291 },
+    { ktn_1: "Organosol Sulfik", color: "#F97316", jumlah: 5 },
+    { ktn_1: "Organosol Sulfurik", color: "#0EA5E9", jumlah: 1 },
+  ] as const;
+  const LAHAN_GAMBUT_COLOR_MAP = new Map(
+    LAHAN_GAMBUT_LEGEND.map((item) => [item.ktn_1.toLowerCase(), item.color]),
+  );
+
   const [kawasanHutanData, setKawasanHutanData] = useState<
     Array<{ fungsikws: string; deskripsi_domain: string; color?: string }>
   >([]);
@@ -5014,6 +5029,22 @@ if (
             fillOpacity: 0.5,
           };
         };
+      } else if (tableName === "lahan_gambut") {
+        // Warna polygon mengikuti kategori tanah ktn_1 dan legenda di panel bawah.
+        // Pencocokan dibuat case-insensitive agar variasi kapitalisasi tidak menjadi abu-abu.
+        styleFunction = function (feature: any) {
+          const kategori = String(feature?.properties?.ktn_1 ?? "").trim().toLowerCase();
+          const fillColor = LAHAN_GAMBUT_COLOR_MAP.get(kategori) || "#64748B";
+          return {
+            color: fillColor,
+            fillColor,
+            weight: zoom >= 10 ? 1.5 : 1,
+            opacity: 0.95,
+            fillOpacity: 0.68,
+            lineCap: "round",
+            lineJoin: "round",
+          };
+        };
       } else if (tableName === "kawasan_hutan") {
         styleFunction = function (feature: any) {
           const fungsikws = String(feature?.properties?.fungsikws ?? "").trim();
@@ -5161,10 +5192,16 @@ if (
         tableName === "sekat_kanal" && window.L.canvas
           ? window.L.canvas({ padding: 0.5 })
           : undefined;
+      // Canvas menjaga performa saat merender banyak polygon lahan gambut.
+      const lahanGambutCanvasRenderer =
+        tableName === "lahan_gambut" && window.L.canvas
+          ? window.L.canvas({ padding: 0.5 })
+          : undefined;
 
       const activeGeoJsonRenderer =
         kawasanHutanCanvasRenderer ||
         sekatKanalCanvasRenderer ||
+        lahanGambutCanvasRenderer ||
         nationalCanvasRenderer;
 
       // Satu Canvas renderer bersama untuk semua fitur Point dalam satu layer.
@@ -10949,6 +10986,10 @@ if (
       tabs.push({ id: "pl2024", label: "PL2024", icon: "🌴" });
     }
 
+    if (activeLayers.has("lahan_gambut")) {
+      tabs.push({ id: "lahan_gambut", label: "Lahan Gambut", icon: "🟫" });
+    }
+
     if (activeLayers.has("jenis_tanah")) {
       tabs.push({ id: "jenisTanah", label: "Jenis Tanah", icon: "🌱" });
     }
@@ -11116,6 +11157,28 @@ if (
 
     // Render konten berdasarkan tab yang aktif
     switch (activeBottomTab) {
+      case "lahan_gambut":
+        return (
+          <div className="h-full min-h-0 overflow-auto p-3">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">Legenda Lahan Gambut</h3>
+                <p className="text-[10px] text-slate-500">Klasifikasi berdasarkan atribut ktn_1</p>
+              </div>
+              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">4.603 Polygon</span>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {LAHAN_GAMBUT_LEGEND.map((item) => (
+                <div key={item.ktn_1} className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <span className="h-4 w-4 flex-shrink-0 rounded border border-black/10" style={{ backgroundColor: item.color }} />
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700" title={item.ktn_1}>{item.ktn_1}</span>
+                  <span className="flex-shrink-0 text-[10px] font-semibold tabular-nums text-slate-500">{item.jumlah.toLocaleString("id-ID")}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+
       case "listings":
         if (kejadianListings.length > 0) {
           return (
@@ -18271,6 +18334,7 @@ if (
                     tutupanLahan: "tutupan_lahan",
                     penutupanLahan2024: "penutupan_lahan_2024",
                     pl2024: "pl2024",
+                    lahan_gambut: "lahan_gambut",
                     jenisTanah: "jenis_tanah",
                     geologi: "geologi",
                     lahan_kritis: "lahan_kritis",

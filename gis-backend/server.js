@@ -13064,7 +13064,7 @@ app.post("/api/layers", verifyToken, shapefileUpload.array("files"), async (req,
       return res.status(400).json({
         success: false,
         error: "Modul tujuan tidak valid.",
-        allowedSections: ["kerawanan", "lainnya", "kejadian"],
+        allowedSections: ["kerawanan", "mitigasiAdaptasi", "lainnya", "kejadian"],
       });
     }
 
@@ -15053,7 +15053,8 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
             ST_Area(ST_Transform(${geometrySql}, 6933)) / 10000.0
           )`
         : propertiesSql;
-    const isUnlimitedQuery = isUnlimitedKawasanHutan || isUnlimitedAdminRawanKarhutla;
+    const isUnlimitedLahanGambut = tableName === "lahan_gambut";
+    const isUnlimitedQuery = isUnlimitedKawasanHutan || isUnlimitedAdminRawanKarhutla || isUnlimitedLahanGambut;
     const query = `
       SELECT
         ST_AsGeoJSON(${outputGeometrySql}, 5) AS geometry,
