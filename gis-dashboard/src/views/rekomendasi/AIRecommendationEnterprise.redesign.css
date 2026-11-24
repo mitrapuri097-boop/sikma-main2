@@ -644,3 +644,7 @@
   .simiti-ai-module .ai-module-title { flex: 0 0 auto !important; align-items: flex-start !important; width: 100% !important; }
   .simiti-ai-module .ai-header-actions { width: 100% !important; justify-content: flex-start !important; }
 }
+
+/* Toolbar peta diwarisi pointer-events:none dari CSS dasar -> tombol tidak bisa diklik. */
+.simiti-ai-module .ai-map-toolbar,
+.simiti-ai-module .ai-map-toolbar * { pointer-events: auto !important; }
