@@ -3,9 +3,6 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import {
   Bot,
-  ChevronLeft,
-  ChevronRight,
-  Menu,
   X,
 } from "lucide-react";
 
@@ -92,12 +89,6 @@ export default function EnterpriseLayout() {
   /* ==========================================================
      SIDEBAR ACTIONS
   ========================================================== */
-
-  // Halaman Rekomendasi butuh ruang peta: sidebar diciutkan (ikon saja)
-  // saat halaman dibuka, tetapi tetap bisa dibuka lewat tombol di tepinya.
-  useEffect(() => {
-    if (isRecommendation) setSidebarCollapsed(true);
-  }, [isRecommendation]);
 
   const toggleSidebar = () => {
     setSidebarCollapsed((current) => !current);
@@ -190,405 +181,98 @@ export default function EnterpriseLayout() {
       <div
         className="
           flex
-          min-h-screen
+          h-screen
           w-full
-          flex-col
           overflow-hidden
           bg-[#F4F7FB]
           text-slate-900
         "
       >
-
         {/* ======================================================
-            GLOBAL HEADER
+            SIDEBAR
+            Penuh tinggi layar, di atas header, tidak ikut scroll.
+            Di mobile komponen Sidebar menjadi drawer sendiri.
         ====================================================== */}
 
-        <header
-          className="
-            relative
-            z-[100]
-            shrink-0
-          "
+        <aside
+          className={`
+            max-md:contents
+            md:relative
+            md:z-[95]
+            md:block
+            md:h-full
+            md:shrink-0
+            md:transition-[width]
+            md:duration-300
+            md:ease-out
+            ${sidebarCollapsed ? "md:w-[80px]" : "md:w-[288px]"}
+          `}
         >
-          <Header onMenuClick={toggleMobileSidebar} />
-        </header>
+          <Sidebar
+            collapsed={sidebarCollapsed}
+            mobileOpen={mobileSidebar}
+            onCloseMobile={closeMobileSidebar}
+          />
+        </aside>
 
         {/* ======================================================
-            APPLICATION BODY
+            KOLOM KANAN: HEADER (tetap) + KONTEN (scroll)
         ====================================================== */}
 
-        <div
-          className="
-            relative
-            flex
-            min-h-0
-            flex-1
-            overflow-hidden
-          "
-        >
-
-          {/* ====================================================
-              MOBILE SIDEBAR OVERLAY
-          ==================================================== */}
-
-          {mobileSidebar && (
-            <button
-              type="button"
-              aria-label="Tutup menu navigasi"
-              onClick={closeMobileSidebar}
-              className="
-                fixed
-                inset-0
-                z-[90]
-                bg-slate-950/55
-                backdrop-blur-[2px]
-                md:hidden
-              "
+        <div className="flex h-full min-w-0 flex-1 flex-col">
+          <header className="relative z-[100] shrink-0">
+            <Header
+              onMenuClick={toggleMobileSidebar}
+              onToggleSidebar={toggleSidebar}
+              sidebarCollapsed={sidebarCollapsed}
             />
-          )}
-
-          {/* ====================================================
-              SIDEBAR
-          ==================================================== */}
-
-          <aside className={`
-              relative
-              z-[95]
-              shrink-0
-
-              transition-all
-              duration-300
-              ease-out
-
-              max-md:fixed
-              max-md:left-0
-              max-md:top-0
-              max-md:h-full
-              max-md:w-[290px]
-              max-md:-translate-x-full
-              max-md:shadow-2xl
-
-              md:block
-
-              ${
-                mobileSidebar
-                  ? "max-md:translate-x-0"
-                  : ""
-              }
-
-              ${
-                sidebarCollapsed
-                  ? "md:w-[76px]"
-                  : "md:w-[292px]"
-              }
-            `}
-          >
-            <div className="relative h-full">
-
-              {/* ================================================
-                  MOBILE CLOSE BUTTON
-              ================================================ */}
-
-              <button
-                type="button"
-                onClick={closeMobileSidebar}
-                aria-label="Tutup sidebar"
-                className="
-                  absolute
-                  right-3
-                  top-3
-                  z-[110]
-
-                  flex
-                  h-9
-                  w-9
-                  items-center
-                  justify-center
-
-                  rounded-xl
-                  border
-                  border-white/10
-                  bg-slate-900
-                  text-slate-300
-
-                  shadow-lg
-
-                  transition
-                  hover:bg-slate-800
-                  hover:text-white
-
-                  md:hidden
-                "
-              >
-                <X size={17} />
-              </button>
-
-              {/* ================================================
-                  SIDEBAR COMPONENT
-              ================================================ */}
-
-              <div className="h-full w-full overflow-hidden">
-                <Sidebar
-                  collapsed={sidebarCollapsed}
-                  mobileOpen={mobileSidebar}
-                  onCloseMobile={closeMobileSidebar}
-                  onToggle={toggleSidebar}
-                />
-              </div>
-
-            </div>
-          </aside>
-
-          {/* ====================================================
-              MAIN APPLICATION AREA
-          ==================================================== */}
+          </header>
 
           <main
             className={`
               relative
+              min-h-0
               min-w-0
               flex-1
-
               ${
                 isWebGIS
                   ? "overflow-hidden bg-[#07101D]"
-                  : "overflow-y-auto bg-[#F4F7FB]"
+                  : "overflow-y-auto overflow-x-hidden bg-[#F4F7FB]"
               }
             `}
           >
-
-            {/* ==================================================
-                GIS MODE
-            ================================================== */}
-
             {isWebGIS ? (
-              <div
-                className="
-                  relative
-                  h-full
-                  min-h-0
-                  w-full
-                  overflow-hidden
-                "
-              >
+              <div className="relative h-full min-h-0 w-full overflow-hidden">
                 <Outlet />
               </div>
-            ) : (
-
-              /* =================================================
-                 STANDARD ENTERPRISE PAGE MODE
-              ================================================= */
-
-              <div
-                className="
-                  flex
-                  min-h-full
-                  w-full
-                  flex-col
-                "
-              >
-
-                {/* ==============================================
-                    PAGE WRAPPER
-                ============================================== */}
-
-                <div
-                  className="
-                    flex-1
-
-                    px-3
-                    py-4
-
-                    sm:px-5
-                    sm:py-5
-
-                    lg:px-7
-                    lg:py-6
-
-                    xl:px-8
-                  "
-                >
-
-                  {/* ============================================
-                      BREADCRUMB
-                  ============================================ */}
-
-                  <div
-                    className="
-                      mb-4
-
-                      sm:mb-5
-
-                      lg:mb-6
-                    "
-                  >
+            ) : isRecommendation ? (
+              /* Halaman Rekomendasi mengatur kartu & jarak sendiri. */
+              <div className="flex min-h-full w-full flex-col">
+                <div className="mx-auto w-full max-w-[1680px] flex-1 px-4 pb-6 pt-4 sm:px-6 lg:px-8">
+                  <div className="mb-4">
                     <Breadcrumb />
                   </div>
-
-                  {/* ============================================
-                      PAGE CONTENT
-                  ============================================ */}
-
-                  <section
-                    className="
-                      relative
-
-                      min-h-[calc(100vh-190px)]
-
-                      overflow-hidden
-
-                      rounded-2xl
-                      border
-                      border-slate-200/80
-
-                      bg-white
-
-                      shadow-[0_8px_30px_rgba(15,23,42,0.04)]
-                    "
-                  >
-                    <div
-                      className="
-                        min-h-[calc(100vh-190px)]
-                        w-full
-                      "
-                    >
+                  <Outlet />
+                </div>
+                <Footer />
+              </div>
+            ) : (
+              <div className="flex min-h-full w-full flex-col">
+                <div className="mx-auto w-full max-w-[1680px] flex-1 px-4 pb-6 pt-4 sm:px-6 lg:px-8">
+                  <div className="mb-4">
+                    <Breadcrumb />
+                  </div>
+                  <section className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_30px_rgba(15,23,42,0.04)]">
+                    <div className="min-h-[calc(100vh-230px)] w-full">
                       <Outlet />
                     </div>
                   </section>
-
                 </div>
-
-                {/* ==============================================
-                    FOOTER
-                ============================================== */}
-
                 <Footer />
-
               </div>
             )}
-
           </main>
-
         </div>
-
-        {/* ======================================================
-            ENTERPRISE SIDEBAR COLLAPSE BUTTON
-
-            Hanya desktop.
-            Diposisikan mengikuti sidebar.
-        ====================================================== */}
-
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          title={
-            sidebarCollapsed
-              ? "Buka sidebar"
-              : "Ciutkan sidebar"
-          }
-          aria-label={
-            sidebarCollapsed
-              ? "Buka sidebar"
-              : "Ciutkan sidebar"
-          }
-          className={`
-            fixed
-            top-[84px]
-
-            z-[120]
-
-            hidden
-            h-8
-            w-8
-
-            items-center
-            justify-center
-
-            rounded-full
-
-            border
-            border-slate-200
-
-            bg-white
-
-            text-slate-500
-
-            shadow-md
-
-            transition-all
-            duration-300
-
-            hover:border-emerald-300
-            hover:bg-emerald-50
-            hover:text-emerald-600
-
-            md:flex
-
-            ${
-              sidebarCollapsed
-                ? "left-[60px]"
-                : "left-[276px]"
-            }
-          `}
-        >
-          {sidebarCollapsed ? (
-            <ChevronRight size={15} />
-          ) : (
-            <ChevronLeft size={15} />
-          )}
-        </button>
-
-        {/* ======================================================
-            MOBILE MENU FALLBACK
-
-            Jika Header memiliki tombol menu sendiri,
-            tombol ini tidak wajib terlihat.
-
-            Disediakan sebagai safety UI untuk mobile.
-        ====================================================== */}
-
-        {!mobileSidebar && (
-          <button
-            type="button"
-            onClick={toggleMobileSidebar}
-            aria-label="Buka menu navigasi"
-            title="Menu"
-            className="
-              fixed
-              bottom-4
-              left-4
-              z-[120]
-
-              flex
-              h-11
-              w-11
-
-              items-center
-              justify-center
-
-              rounded-xl
-
-              border
-              border-slate-200
-
-              bg-white
-
-              text-slate-600
-
-              shadow-lg
-
-              transition
-
-              hover:border-emerald-300
-              hover:bg-emerald-50
-              hover:text-emerald-600
-
-              md:hidden
-            "
-          >
-            <Menu size={19} />
-          </button>
-        )}
 
         {/* ======================================================
             GLOBAL AI ASSISTANT

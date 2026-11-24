@@ -460,7 +460,7 @@ export default function AIRecommendationEnterprise() {
   );
   const [query, setQuery] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [showLayers, setShowLayers] = useState(true);
+  const [showLayers, setShowLayers] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [layersCount, setLayersCount] = useState<number | null>(null);
