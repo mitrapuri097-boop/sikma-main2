@@ -14797,7 +14797,8 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
     // hasil sehingga jumlah polygon berubah saat peta digeser/dizoom.
     const useViewportBounds =
       Boolean(bounds) &&
-      !(tableName === "rawan_karhutla" && adminFilterRequested);
+      !(tableName === "rawan_karhutla" && adminFilterRequested) &&
+      !["lahan_gambut", "lahan_gambut_2"].includes(tableName);
 
     if (useViewportBounds) {
       const wkt = makeWktBounds(bounds);
@@ -14807,8 +14808,20 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       params.push(wkt);
     }
 
+    // Semua layer Risiko menggunakan clipping geometri yang sama dengan
+    // layer Bahaya ketika filter administrasi/DAS dipilih.
+    // Daftar ini hanya mengatur presisi geometri; tidak mengubah style/legenda.
+    const exactRiskPolygonTables = new Set([
+      "risiko_banjir",
+      "risiko_banjir_bandang",
+      "risiko_kekeringan",
+      "risiko_abrasi",
+      "risiko_longsor",
+      "risiko_karhutla",
+    ]);
+
     // Geometry output harus dideklarasikan sebelum filter DAS,
-    // karena layer risiko tertentu memakai ST_Intersection dengan boundary DAS.
+    // karena layer risiko memakai ST_Intersection dengan boundary DAS.
     let geometrySql = `l.${geometryColumn}`;
 
     // Filter DAS: gunakan boundary union, tetapi tetap kembalikan geometry asli
@@ -14822,9 +14835,9 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
       params.push(...dasNames);
       conditions.push(`ST_Intersects(l.${geometryColumn}, b_das.geom_valid)`);
 
-      // TRUE DAS GEOMETRY CLIP khusus Risiko Banjir dan Risiko Kekeringan.
-      // Layer lain tetap memakai geometri asli seperti perilaku sebelumnya.
-      if (["risiko_banjir", "risiko_kekeringan"].includes(tableName)) {
+      // TRUE DAS GEOMETRY CLIP untuk seluruh layer Risiko.
+      // Layer non-Risiko tetap memakai geometri asli seperti perilaku sebelumnya.
+      if (exactRiskPolygonTables.has(tableName)) {
         const riskGeomForDasClip = `
           CASE
             WHEN ST_SRID(l.${geometryColumn}) = 0
@@ -15079,9 +15092,17 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
     // kebutuhan filter/analisis lokal yang masih meminta GeoJSON.
     const isUnlimitedKawasanHutan = tableName === "kawasan_hutan";
     const isExactRawanKarhutlaAdmin = isUnlimitedAdminRawanKarhutla;
-    const outputGeometrySql = isExactRawanKarhutlaAdmin
-      ? geometrySql
-      : `ST_SimplifyPreserveTopology(${geometrySql}, ${simplifyTolerance})`;
+
+    // Semua layer Risiko pada wilayah administrasi harus mempertahankan
+    // geometri hasil ST_Intersection tanpa simplifikasi. Simplifikasi viewport
+    // dapat menggeser garis polygon dari boundary administrasi sebenarnya.
+    const isExactAdminRiskPolygon =
+      exactRiskPolygonTables.has(tableName) && adminFilterRequested;
+
+    const outputGeometrySql =
+      isExactRawanKarhutlaAdmin || isExactAdminRiskPolygon
+        ? geometrySql
+        : `ST_SimplifyPreserveTopology(${geometrySql}, ${simplifyTolerance})`;
     const outputPropertiesSql =
       isExactRawanKarhutlaAdmin
         ? `(${propertiesSql})::jsonb || jsonb_build_object(
@@ -15089,11 +15110,14 @@ app.get("/api/layers/:tableName/geojson", async (req, res) => {
             ST_Area(ST_Transform(${geometrySql}, 6933)) / 10000.0
           )`
         : propertiesSql;
-    const isUnlimitedLahanGambut = tableName === "lahan_gambut";
+    const isUnlimitedLahanGambut = ["lahan_gambut", "lahan_gambut_2"].includes(tableName);
     const isUnlimitedQuery = isUnlimitedKawasanHutan || isUnlimitedAdminRawanKarhutla || isUnlimitedLahanGambut;
     const query = `
       SELECT
-        ST_AsGeoJSON(${outputGeometrySql}, 5) AS geometry,
+        ST_AsGeoJSON(
+          ${outputGeometrySql},
+          ${isExactAdminRiskPolygon ? 7 : 5}
+        ) AS geometry,
         ${outputPropertiesSql} AS properties
       ${fromSql}
       WHERE ${conditions.join(" AND ")}
@@ -19154,26 +19178,6 @@ app.post("/api/spatial/detect-location", async (req, res) => {
   }
 });
 
-// MYLOKASI_TEMP_DISABLED
-// Sementara menghentikan analisis GPS yang membebani PostgreSQL.
-// Kode asli kedua endpoint tetap dipertahankan di bawah.
-app.use((req, res, next) => {
-  if (
-    req.method === "GET" &&
-    (
-      req.path === "/api/location-assessment" ||
-      req.path === "/api/location-proximity"
-    )
-  ) {
-    return res.status(503).json({
-      success: false,
-      disabled: true,
-      message: "MyLokasi sementara dinonaktifkan untuk pemeliharaan."
-    });
-  }
-
-  next();
-});
 app.get("/api/location-assessment", async (req, res) => {
   const latitude = Number(req.query.latitude);
   const longitude = Number(req.query.longitude);
@@ -19985,8 +19989,29 @@ app.get("/api/location-proximity", async (req, res) => {
     // - ST_Distance hanya dihitung pada kandidat spatial.
     // ========================================================
 
-    const threatResults = await Promise.all(
-      riskLayers.map(async (definition) => {
+    const runRiskLayersWithLimit = async (items, concurrency, worker) => {
+      const results = new Array(items.length);
+      let nextIndex = 0;
+
+      const runners = Array.from(
+        { length: Math.min(concurrency, items.length) },
+        async () => {
+          while (true) {
+            const index = nextIndex++;
+            if (index >= items.length) return;
+            results[index] = await worker(items[index]);
+          }
+        }
+      );
+
+      await Promise.all(runners);
+      return results;
+    };
+
+    const threatResults = await runRiskLayersWithLimit(
+      riskLayers,
+      2,
+      async (definition) => {
         try {
           if (!definition.table_name) {
             console.warn(
@@ -20218,7 +20243,7 @@ app.get("/api/location-proximity", async (req, res) => {
 
           return [];
         }
-      }),
+      },
     );
 
     const threats = threatResults
@@ -24263,6 +24288,77 @@ app.delete(
 // ============================================================
 
 // 404 handler
+
+// ============================================================
+// SIMITI - CEK LOKASI SAYA DASHBOARD (DUMMY DEVELOPMENT API)
+// Endpoint additive: tidak mengubah /api/location-assessment
+// maupun /api/location-proximity yang saat ini dinonaktifkan.
+// Ganti payload dummy ini dengan hasil PostGIS/BMKG/BNPB saat integrasi data real.
+// ============================================================
+app.get("/api/my-location/dashboard-demo", (req, res) => {
+  const latitude = Number(req.query.latitude ?? -6.48752);
+  const longitude = Number(req.query.longitude ?? 106.83521);
+
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+      !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    return res.status(400).json({
+      success: false,
+      message: "Koordinat latitude/longitude tidak valid."
+    });
+  }
+
+  const data = {
+    demo: true,
+    location: {
+      latitude,
+      longitude,
+      accuracy: 200,
+      das: "Ciliwung",
+      area: "Karadenan • Cibinong • Bogor • Jawa Barat"
+    },
+    risk: {
+      status: "Waspada",
+      score: 11,
+      description: "Terdapat potensi risiko bencana di lokasi Anda.",
+      items: [
+        { key: "longsor", label: "Longsor", status: "Tinggi", value: 46, color: "#f97316" },
+        { key: "banjir", label: "Banjir", status: "Sedang", value: 61, color: "#fbbf24" },
+        { key: "banjir_bandang", label: "Banjir Bandang", status: "Rendah", value: 45, color: "#22c55e" },
+        { key: "kekeringan", label: "Kekeringan", status: "Rendah", value: 45, color: "#84cc16" },
+        { key: "karhutla", label: "Karhutla", status: "Sedang", value: 61, color: "#fbbf24" }
+      ]
+    },
+    weather: { temperature: 29, humidity: 75, windSpeed: 10, condition: "Cerah berawan" },
+    incidents: [
+      {
+        id: 1, title: "Banjir di wilayah permukiman", type: "Banjir",
+        distanceKm: 1.9, image: "https://images.unsplash.com/photo-1547683905-f686c993aae5?w=240&q=75",
+        coordinates: [-6.475, 106.842]
+      },
+      {
+        id: 2, title: "Longsor pada akses jalan", type: "Longsor",
+        distanceKm: 4.2, image: "https://images.unsplash.com/photo-1516937941344-00b4e0337589?w=240&q=75",
+        coordinates: [-6.512, 106.819]
+      }
+    ],
+    mitigation: {
+      name: "Posko Siaga Bencana",
+      address: "Jl. Raya Cibinong No. 123, Bogor",
+      type: "Posko Siaga",
+      distanceKm: 2.8,
+      etaMinutes: 7,
+      coordinates: [-6.469, 106.842]
+    }
+  };
+
+  return res.json({
+    success: true,
+    mode: "dummy",
+    message: "Dashboard Cek Lokasi Saya menggunakan data dummy.",
+    data
+  });
+});
+
 app.use((req, res) => {
   console.warn(`ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¯ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â [404] ${req.method} ${req.originalUrl}`);
   res.status(404).json({

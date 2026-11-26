@@ -1,404 +1,76 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MapPin } from "lucide-react";
-
-import { Circle, MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
-
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Activity, AlertTriangle, BellRing, Building2, CalendarDays, CheckCircle2,
+  ChevronRight, CloudSun, Compass, Crosshair, Droplets, Flame, Globe2,
+  Info, LocateFixed, MapPin, Navigation, ShieldAlert, ShieldCheck,
+  Sun, Thermometer, Wind, Waves, Mountain, LoaderCircle, RefreshCw
+} from "lucide-react";
 import L from "leaflet";
-
+import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, Marker, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import "./lokasisaya.css";
 
-const API_URL = String(import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+type RiskItem = { key: string; label: string; status: string; value: number; color: string };
+type Incident = { id: number; title: string; type: string; distanceKm: number; image: string; coordinates: [number, number] };
+type Mitigation = { name: string; address: string; type: string; distanceKm: number; etaMinutes: number; coordinates: [number, number] };
+type AdminArea = { provinsi?: string | null; kabupaten?: string | null; kecamatan?: string | null; kelurahan?: string | null; desa?: string | null; das?: string | null };
+type NearbyThreat = { key: string; label: string; status: string | null; level: number | null; distanceMeters: number | null; inside: boolean; source?: string };
+type LocationProximity = { success: boolean; threats?: NearbyThreat[]; incidents?: Array<{ id: number | string; title?: string | null; category?: string | null; distanceMeters?: number | null; location?: string | null }>; source?: string };
+type DashboardData = {
+  demo: boolean;
+  location: { latitude: number; longitude: number; accuracy: number; das: string; area: string };
+  risk: { status: string; score: number; description: string; items: RiskItem[] };
+  weather: { temperature: number; humidity: number; windSpeed: number; condition: string };
+  incidents: Incident[];
+  mitigation: Mitigation;
+};
 
-/** Fetch yang tidak boleh menggantung UI terlalu lama. */
-async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 12000) {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(input, { ...init, signal: controller.signal });
-  } finally {
-    window.clearTimeout(timer);
-  }
-}
+const API_BASE = String((import.meta as any).env?.VITE_API_URL || "").replace(/\/$/, "");
+const INITIAL_POSITION: [number, number] = [-6.48752, 106.83521];
 
-const mitigationRouteCache = new Map<string, [number, number][]>();
-
-// ============================================================
-// SIMITI LOCAL RISK TABLES
-// Mengikuti source layer risiko yang dipakai Kerawanan.tsx.
-// Tidak lagi mengambil Analisis Ancaman dari BNPB InaRISK.
-// ============================================================
-const LOCAL_RISK_TABLES = [
-  { key: "longsor", label: "Longsor", table: "risiko_longsor" },
-  { key: "banjir", label: "Banjir", table: "risiko_banjir" },
-  {
-    key: "banjir_bandang",
-    label: "Banjir Bandang",
-    table: "risiko_banjir_bandang",
-  },
-  { key: "kekeringan", label: "Kekeringan", table: "risiko_kekeringan" },
-  { key: "karhutla", label: "Karhutla", table: "risiko_karhutla" },
-] as const;
-
-function getAuthToken() {
-  return (
-    localStorage.getItem("smiti_token") ||
-    sessionStorage.getItem("smiti_token") ||
-    localStorage.getItem("adminToken") ||
-    sessionStorage.getItem("adminToken") ||
-    localStorage.getItem("token") ||
-    localStorage.getItem("access_token") ||
-    localStorage.getItem("authToken") ||
-    ""
-  );
-}
-
-function normalizeRiskLevel(value: unknown) {
-  const normalized = String(value ?? "").trim().toLowerCase();
-  if (normalized.includes("sangat tinggi")) return "Sangat Tinggi";
-  if (normalized.includes("tinggi") || normalized.includes("tinggi sekali")) return "Tinggi";
-  if (normalized.includes("sedang")) return "Sedang";
-  if (normalized.includes("rendah") || normalized.includes("sangat rendah")) return "Rendah";
-  return "";
-}
-
-function riskScoreFromClass(value: unknown) {
-  const normalized = String(value ?? "").trim().toLowerCase();
-  if (normalized.includes("sangat tinggi") || normalized.includes("tinggi")) return 3;
-  if (normalized.includes("sedang")) return 2;
-  if (normalized.includes("rendah")) return 1;
+function MapFocus({ position }: { position: [number, number] }) {
+  const map = useMap();
+  useEffect(() => {
+    map.setView(position, 14, { animate: true });
+  }, [map, position]);
+  useEffect(() => {
+    const handleZoom = (event: Event) => {
+      const step = (event as CustomEvent<number>).detail;
+      if (step > 0) map.zoomIn();
+      else map.zoomOut();
+    };
+    window.addEventListener("simiti-map-zoom", handleZoom);
+    return () => window.removeEventListener("simiti-map-zoom", handleZoom);
+  }, [map]);
   return null;
 }
 
-function pointInRing(longitude: number, latitude: number, ring: unknown): boolean {
-  if (!Array.isArray(ring) || ring.length < 4) return false;
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const a = ring[i];
-    const b = ring[j];
-    if (!Array.isArray(a) || !Array.isArray(b)) continue;
-    const xi = Number(a[0]);
-    const yi = Number(a[1]);
-    const xj = Number(b[0]);
-    const yj = Number(b[1]);
-    if (![xi, yi, xj, yj].every(Number.isFinite)) continue;
-    const crosses = (yi > latitude) !== (yj > latitude) &&
-      longitude < ((xj - xi) * (latitude - yi)) / ((yj - yi) || Number.EPSILON) + xi;
-    if (crosses) inside = !inside;
-  }
-  return inside;
-}
+const fallbackData: DashboardData = {
+  demo: true,
+  location: { latitude: INITIAL_POSITION[0], longitude: INITIAL_POSITION[1], accuracy: 200, das: "Ciliwung", area: "Karadenan â€¢ Cibinong â€¢ Bogor â€¢ Jawa Barat" },
+  risk: {
+    status: "Waspada", score: 11, description: "Terdapat potensi risiko bencana di lokasi Anda.",
+    items: [
+      { key: "longsor", label: "Longsor", status: "Tinggi", value: 46, color: "#f97316" },
+      { key: "banjir", label: "Banjir", status: "Sedang", value: 61, color: "#fbbf24" },
+      { key: "banjir_bandang", label: "Banjir Bandang", status: "Rendah", value: 45, color: "#22c55e" },
+      { key: "kekeringan", label: "Kekeringan", status: "Rendah", value: 45, color: "#84cc16" },
+      { key: "karhutla", label: "Karhutla", status: "Sedang", value: 61, color: "#fbbf24" },
+    ],
+  },
+  weather: { temperature: 29, humidity: 75, windSpeed: 10, condition: "Cerah berawan" },
+  incidents: [
+    { id: 1, title: "Banjir di wilayah permukiman", type: "Banjir", distanceKm: 1.9, image: "https://images.unsplash.com/photo-1547683905-f686c993aae5?w=240&q=75", coordinates: [-6.475, 106.842] },
+    { id: 2, title: "Longsor pada akses jalan", type: "Longsor", distanceKm: 4.2, image: "https://images.unsplash.com/photo-1516937941344-00b4e0337589?w=240&q=75", coordinates: [-6.512, 106.819] },
+  ],
+  mitigation: { name: "Posko Siaga Bencana", address: "Jl. Raya Cibinong No. 123, Bogor", type: "Posko Siaga", distanceKm: 2.8, etaMinutes: 7, coordinates: [-6.469, 106.842] },
+};
 
-function pointInRiskGeometry(longitude: number, latitude: number, geometry: any): boolean {
-  if (!geometry || !Array.isArray(geometry.coordinates)) return false;
-  if (geometry.type === "Polygon") {
-    const rings = geometry.coordinates;
-    if (!Array.isArray(rings) || !rings.length || !pointInRing(longitude, latitude, rings[0])) return false;
-    // A point inside a hole is not inside the polygon.
-    return !rings.slice(1).some((ring: unknown) => pointInRing(longitude, latitude, ring));
-  }
-  if (geometry.type === "MultiPolygon") {
-    return geometry.coordinates.some((polygon: any[]) => {
-      if (!Array.isArray(polygon) || !polygon.length || !pointInRing(longitude, latitude, polygon[0])) return false;
-      return !polygon.slice(1).some((ring: unknown) => pointInRing(longitude, latitude, ring));
-    });
-  }
-  return false;
-}
-
-function getFeatureRiskClass(feature: any): string {
-  const properties = feature?.properties || {};
-  const preferredKeys = ["kelas", "kelas_risiko", "tingkat_risiko", "tingkat", "level_risiko", "risk_level", "kerawanan", "kategori", "class"];
-  for (const key of preferredKeys) {
-    const value = properties[key];
-    if (riskScoreFromClass(value) != null) return normalizeRiskLevel(value);
-  }
-  for (const [key, value] of Object.entries(properties)) {
-    if (/(kelas|tingkat|level|risiko|kerawanan|kategori|class)/i.test(key) && riskScoreFromClass(value) != null) {
-      return normalizeRiskLevel(value);
-    }
-  }
-  return "";
-}
-
-async function fetchLocalRiskFactors(latitude: number, longitude: number) {
-  // Ambil fitur sekitar GPS lalu uji titik terhadap geometri polygon sebenarnya.
-  // Tidak menganggap polygon lain di dalam bbox sebagai risiko pada titik pengguna.
-  const delta = 0.03;
-  const bounds = [latitude - delta, longitude - delta, latitude + delta, longitude + delta].join(",");
-  const token = getAuthToken();
-
-  const results = await Promise.all(
-    LOCAL_RISK_TABLES.map(async ({ key, label, table }) => {
-      try {
-        const url = `${API_URL}/api/layers/${table}/geojson?bounds=${encodeURIComponent(bounds)}&zoom=16`;
-        const response = await fetchWithTimeout(url, {
-          headers: token
-            ? { Authorization: `Bearer ${token}`, Accept: "application/json" }
-            : { Accept: "application/json" },
-        }, 12000);
-        const json = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(json?.message || `HTTP ${response.status}`);
-
-        const collection = Array.isArray(json?.features)
-          ? json
-          : Array.isArray(json?.geojson?.features)
-            ? json.geojson
-            : Array.isArray(json?.data?.features)
-              ? json.data
-              : null;
-        if (!collection) throw new Error("Respons bukan GeoJSON FeatureCollection yang valid");
-
-        const matchingFeatures = collection.features.filter((feature: any) =>
-          pointInRiskGeometry(longitude, latitude, feature?.geometry),
-        );
-        const classified = matchingFeatures
-          .map((feature: any) => ({ feature, className: getFeatureRiskClass(feature) }))
-          .filter((item: any) => item.className);
-        // Bila ada lebih dari satu poligon yang tumpang tindih, ambil kelas tertinggi
-        // agar status tidak menyatakan aman ketika ada risiko yang lebih tinggi.
-        const chosen = classified.sort((a: any, b: any) =>
-          Number(riskScoreFromClass(b.className) || 0) - Number(riskScoreFromClass(a.className) || 0),
-        )[0];
-        const className = chosen?.className || "";
-        const score = riskScoreFromClass(className);
-        const noPolygonAtPoint = matchingFeatures.length === 0;
-
-        return {
-          key,
-          label,
-          level: score,
-          status: className || (noPolygonAtPoint ? "Tidak ada poligon pada titik GPS" : "Kelas risiko tidak tersedia"),
-          class: className || null,
-          source: `SIMITI PostgreSQL/PostGIS • ${table}`,
-          available: Boolean(chosen && score != null),
-          inside: matchingFeatures.length > 0,
-        } as RiskFactor;
-      } catch (error) {
-        console.warn(`Gagal membaca layer risiko lokal ${table}:`, error);
-        return {
-          key,
-          label,
-          level: null,
-          status: "Data belum tersedia",
-          class: null,
-          source: `SIMITI PostgreSQL/PostGIS • ${table}`,
-          available: false,
-          inside: false,
-        } as RiskFactor;
-      }
-    }),
-  );
-
-  const available = results.filter((item) => item.available);
-  const complete = results.every((item) => item.available);
-  const scores = available.map((item) => Number(item.level || 0));
-  const score = complete ? scores.reduce((total, item) => total + item, 0) : null;
-  const highestScore = scores.length ? Math.max(...scores) : null;
-  let status: string | null = null;
-  if (highestScore === 3) status = "Tidak Aman";
-  else if (!complete) status = "Data Belum Tersedia";
-  else if (highestScore === 2) status = "Waspada";
-  else if (complete && highestScore === 1) status = "Aman";
-
-  return {
-    success: true,
-    source: "SIMITI PostgreSQL/PostGIS",
-    analysisType: "local-risk-tables-point-in-polygon",
-    risk: {
-      status,
-      score,
-      index: score,
-      minimum: 5,
-      maximum: 15,
-      complete,
-      factors: results,
-      methodology: "Status dihitung dari kelas risiko pada poligon yang benar-benar memuat koordinat GPS. Risiko Tinggi = Tidak Aman; Sedang = Waspada; Aman hanya jika semua lima layer memiliki kelas Rendah. Layer yang kosong/gagal dibaca tidak dianggap aman.",
-    },
-  } as BnpbLocationAssessment;
+function formatCoordinate(value: number) {
+  return value.toFixed(6);
 }
 
 const LOCATION_STORAGE_KEY = "smiti.my-location.coordinates";
-
-type RiskFactor = {
-  key: string;
-  label: string;
-  status: string;
-  level: number | null;
-  class?: string | null;
-  source?: string;
-  available?: boolean;
-};
-
-type Assessment = {
-  success: boolean;
-  generatedAt?: string;
-  source?: string;
-  analysisType?: string;
-  location?: {
-    latitude: number;
-    longitude: number;
-    administrative?: {
-      provinsi?: string | null;
-      kabupaten?: string | null;
-      kecamatan?: string | null;
-      kelurahan?: string | null;
-      desa?: string | null;
-      das?: string | null;
-      [key: string]: unknown;
-    };
-  };
-  risk?: {
-    status: string;
-    index: number | null;
-    scale?: string;
-    factors?: RiskFactor[];
-    [key: string]: unknown;
-  };
-  recommendations?: Array<{
-    title: string;
-    detail: string;
-    priority: string;
-    [key: string]: unknown;
-  }>;
-  [key: string]: unknown;
-};
-
-type Weather = {
-  success: boolean;
-  source?: string;
-  generatedAt?: string;
-  current?: Record<string, number | null> | null;
-  current_units?: Record<string, string>;
-  [key: string]: unknown;
-};
-
-type NearbyThreat = {
-  key: string;
-  label: string;
-  status: string | null;
-  level: number | null;
-  distanceMeters: number | null;
-  inside: boolean;
-  source?: string;
-};
-
-type NearbyMitigation = {
-  id: number | string;
-  kode?: string | null;
-  nama_kegiatan: string;
-  jenis_kegiatan?: string | null;
-  status?: string | null;
-  instansi_pelaksana?: string | null;
-  provinsi?: string | null;
-  kabupaten_kota?: string | null;
-  kecamatan?: string | null;
-  desa_kelurahan?: string | null;
-  latitude: number;
-  longitude: number;
-  distanceMeters: number | null;
-  source?: string;
-};
-
-type NearbyIncident = {
-  id: number | string;
-  title?: string | null;
-  category?: string | null;
-  date?: string | null;
-  location?: string | null;
-  das?: string | null;
-  latitude?: number | null;
-  longitude?: number | null;
-  distanceMeters?: number | null;
-  description?: string | null;
-};
-
-type LocationProximity = {
-  success: boolean;
-  generatedAt?: string;
-  source?: string;
-  threats?: NearbyThreat[];
-  mitigations?: NearbyMitigation[];
-  incidents?: NearbyIncident[];
-  summary?: {
-    nearestThreatDistanceMeters?: number | null;
-    nearestMitigationDistanceMeters?: number | null;
-  };
-  [key: string]: unknown;
-};
-
-type BnpbDisasterLayer = {
-  key: string;
-  label: string;
-  category: string;
-  inside: boolean;
-  available: boolean;
-  class: string | null;
-  level?: string | null;
-  value?: string | null;
-  score?: number | null;
-  field?: string | null;
-  source?: string;
-  error?: string | null;
-};
-
-type BnpbSafeLocation = {
-  latitude: number;
-  longitude: number;
-  distanceMeters: number | null;
-  bearingDegrees?: number | null;
-  safe: boolean;
-  verified: boolean;
-  layers?: Array<{
-    key: string;
-    label: string;
-    class: string | null;
-    score: number | null;
-    source?: string;
-  }>;
-};
-
-type BnpbLocationAssessment = {
-  success: boolean;
-  generatedAt?: string;
-  source?: string;
-  analysisType?: string;
-  location?: {
-    latitude: number;
-    longitude: number;
-  };
-  risk?: {
-    status: string | null;
-    score: number | null;
-    index: number | null;
-    minimum: number;
-    maximum: number;
-    complete: boolean;
-    factors: RiskFactor[];
-    methodology?: string;
-  };
-  disasters?: Array<{
-    key: string;
-    label: string;
-    category: string;
-    class: string | null;
-    field?: string | null;
-    source?: string;
-  }>;
-  layers?: BnpbDisasterLayer[];
-  safeLocation?: BnpbSafeLocation | null;
-  nearestCandidate?:
-    | (BnpbSafeLocation & {
-        recommendation?: string;
-      })
-    | null;
-  summary?: {
-    disasterCount?: number;
-    layerCount?: number;
-    availableLayerCount?: number;
-    safeCandidateCount?: number;
-    candidateCheckedCount?: number;
-  };
-};
 
 type SavedLocation = {
   latitude: number;
@@ -407,736 +79,130 @@ type SavedLocation = {
   savedAt: string;
 };
 
-const gpsIcon = L.divIcon({
-  className: "smiti-gps-marker",
-  html: `
-    <div style="
-      width:42px;
-      height:42px;
-      border-radius:50%;
-      background:rgba(14,165,233,.16);
-      border:1px solid rgba(56,189,248,.65);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      box-shadow:
-        0 0 0 9px rgba(14,165,233,.06),
-        0 0 24px rgba(34,211,238,.35)
-    ">
-      <div style="
-        width:16px;
-        height:16px;
-        border-radius:50%;
-        background:#22d3ee;
-        border:3px solid #08233e
-      "></div>
-    </div>
-  `,
-  iconSize: [42, 42],
-  iconAnchor: [21, 21],
-});
-
-const mitigationIcon = L.divIcon({
-  className: "smiti-mitigation-marker",
-  html: `
-    <div style="
-      width:38px;
-      height:38px;
-      border-radius:12px;
-      background:linear-gradient(145deg,#10b981,#047857);
-      border:2px solid rgba(255,255,255,.92);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      color:#ecfdf5;
-      font-size:17px;
-      font-weight:900;
-      box-shadow:0 7px 20px rgba(4,120,87,.38),0 0 0 5px rgba(16,185,129,.12);
-    ">⌖</div>
-  `,
-  iconSize: [38, 38],
-  iconAnchor: [19, 19],
-});
-
-const safeLocationIcon = L.divIcon({
-  className: "smiti-safe-location-marker",
-  html: `
-    <div style="
-      width:36px;
-      height:36px;
-      border-radius:50%;
-      background:rgba(16,185,129,.18);
-      border:2px solid rgba(52,211,153,.9);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      color:#6ee7b7;
-      font-weight:900;
-      font-size:18px;
-      box-shadow:0 0 0 7px rgba(16,185,129,.07),0 0 20px rgba(16,185,129,.25);
-    ">✓</div>
-  `,
-  iconSize: [36, 36],
-  iconAnchor: [18, 18],
-});
-
-function statusMeta(status?: string) {
-  const value = String(status || "").toLowerCase();
-
-  /*
-   * API lama masih mungkin mengirim "Bahaya".
-   * UI resmi SIMITI menggunakan "Rawan".
-   */
-  if (value.includes("tidak aman") || value.includes("bahaya") || value.includes("rawan")) {
-    return {
-      color: "text-red-300",
-      bg: "bg-red-500/10",
-      border: "border-red-500/30",
-      dot: "bg-red-400",
-      icon: "!",
-    };
-  }
-
-  if (value.includes("waspada")) {
-    return {
-      color: "text-orange-300",
-      bg: "bg-orange-500/10",
-      border: "border-orange-500/30",
-      dot: "bg-orange-400",
-      icon: "!",
-    };
-  }
-
-  if (value.includes("siaga")) {
-    return {
-      color: "text-amber-300",
-      bg: "bg-amber-500/10",
-      border: "border-amber-500/30",
-      dot: "bg-amber-400",
-      icon: "⚠",
-    };
-  }
-
-  if (value.includes("aman")) {
-    return {
-      color: "text-emerald-300",
-      bg: "bg-emerald-500/10",
-      border: "border-emerald-500/30",
-      dot: "bg-emerald-400",
-      icon: "✓",
-    };
-  }
-
-  // Level faktor individual:
-  // Tinggi = 3, Sedang = 2, Rendah = 1.
-  if (value.includes("tinggi")) {
-    return {
-      color: "text-red-300",
-      bg: "bg-red-500/10",
-      border: "border-red-500/30",
-      dot: "bg-red-400",
-      icon: "!",
-    };
-  }
-
-  if (value.includes("sedang")) {
-    return {
-      color: "text-amber-300",
-      bg: "bg-amber-500/10",
-      border: "border-amber-500/30",
-      dot: "bg-amber-400",
-      icon: "⚠",
-    };
-  }
-
-  if (value.includes("rendah")) {
-    return {
-      color: "text-emerald-300",
-      bg: "bg-emerald-500/10",
-      border: "border-emerald-500/30",
-      dot: "bg-emerald-400",
-      icon: "✓",
-    };
-  }
-
-  return {
-    color: "text-slate-300",
-    bg: "bg-slate-500/10",
-    border: "border-slate-700",
-    dot: "bg-slate-400",
-    icon: "•",
-  };
-}
-
-function MapResize() {
-  const map = useMap();
-
-  useEffect(() => {
-    const timers = [
-      window.setTimeout(() => map.invalidateSize(), 0),
-      window.setTimeout(() => map.invalidateSize(), 150),
-      window.setTimeout(() => map.invalidateSize(), 500),
-    ];
-
-    const handleResize = () => {
-      map.invalidateSize();
-    };
-
-    window.addEventListener("resize", handleResize);
-
-    return () => {
-      timers.forEach((timer) => window.clearTimeout(timer));
-
-      window.removeEventListener("resize", handleResize);
-    };
-  }, [map]);
-
-  return null;
-}
-
-function RecenterMap({
-  position,
-  zoom,
-}: {
-  position: [number, number] | null;
-  zoom: number;
-}) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (!position) return;
-
-    map.setView(position, zoom, {
-      animate: true,
-    });
-  }, [map, position, zoom]);
-
-  return null;
-}
-
-function MitigationRoute({
-  position,
-  destination,
-}: {
-  position: [number, number] | null;
-  destination: [number, number] | null;
-}) {
-  const [route, setRoute] = useState<[number, number][]>([]);
-  const [state, setState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const map = useMap();
-
-  useEffect(() => {
-    let cancelled = false;
-    let idleId: number | null = null;
-    let delayId: number | null = null;
-
-    if (!position || !destination) {
-      setRoute([]);
-      setState("idle");
-      return;
-    }
-
-    const cacheKey = `${position[0].toFixed(5)},${position[1].toFixed(5)}>${destination[0].toFixed(5)},${destination[1].toFixed(5)}`;
-    const cached = mitigationRouteCache.get(cacheKey);
-    if (cached?.length) {
-      setRoute(cached);
-      setState("ready");
-      const bounds = L.latLngBounds(cached);
-      bounds.extend(position);
-      bounds.extend(destination);
-      window.setTimeout(() => {
-        if (!cancelled) map.fitBounds(bounds, { padding: [42, 42], maxZoom: 16 });
-      }, 40);
-      return () => { cancelled = true; };
-    }
-
-    const loadRoute = async () => {
-      setState("loading");
-      try {
-        const coordinates = `${position[1]},${position[0]};${destination[1]},${destination[0]}`;
-        const response = await fetchWithTimeout(
-          `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`,
-          { headers: { Accept: "application/json" } },
-          8000,
-        );
-
-        const json = await response.json().catch(() => null);
-        const coordinatesResult = json?.routes?.[0]?.geometry?.coordinates;
-
-        if (!response.ok || !Array.isArray(coordinatesResult) || !coordinatesResult.length) {
-          throw new Error("Rute jalan tidak tersedia.");
-        }
-
-        const latLngs = coordinatesResult
-          .filter(
-            (point: unknown) =>
-              Array.isArray(point) &&
-              Number.isFinite(Number(point[0])) &&
-              Number.isFinite(Number(point[1])),
-          )
-          .map((point: [number, number]) => [Number(point[1]), Number(point[0])] as [number, number]);
-
-        if (cancelled || !latLngs.length) return;
-
-        mitigationRouteCache.set(cacheKey, latLngs);
-        // Batasi cache agar tidak tumbuh tanpa batas selama sesi panjang.
-        if (mitigationRouteCache.size > 20) {
-          const firstKey = mitigationRouteCache.keys().next().value;
-          if (firstKey) mitigationRouteCache.delete(firstKey);
-        }
-
-        setRoute(latLngs);
-        setState("ready");
-
-        const bounds = L.latLngBounds(latLngs);
-        bounds.extend(position);
-        bounds.extend(destination);
-        window.setTimeout(() => {
-          if (!cancelled) map.fitBounds(bounds, { padding: [42, 42], maxZoom: 16 });
-        }, 80);
-      } catch (error) {
-        if (cancelled) return;
-        console.warn("Gagal mengambil rute mitigasi terdekat:", error);
-        setRoute([]);
-        setState("error");
-      }
-    };
-
-    // Jangan rebut bandwidth saat halaman baru selesai render.
-    // Route adalah enhancement visual, bukan dependency analisis utama.
-    delayId = window.setTimeout(() => {
-      if ("requestIdleCallback" in window) {
-        idleId = window.requestIdleCallback(() => void loadRoute(), { timeout: 1200 });
-      } else {
-        void loadRoute();
-      }
-    }, 180);
-
-    return () => {
-      cancelled = true;
-      if (delayId != null) window.clearTimeout(delayId);
-      if (idleId != null && "cancelIdleCallback" in window) {
-        window.cancelIdleCallback(idleId);
-      }
-    };
-  }, [map, position, destination]);
-
-  return (
-    <>
-      {route.length > 1 && (
-        <>
-          <Polyline
-            positions={route}
-            pathOptions={{
-              color: "#064e3b",
-              weight: 8,
-              opacity: 0.34,
-              lineCap: "round",
-              lineJoin: "round",
-            }}
-          />
-          <Polyline
-            positions={route}
-            pathOptions={{
-              color: "#10b981",
-              weight: 4,
-              opacity: 0.96,
-              lineCap: "round",
-              lineJoin: "round",
-            }}
-          />
-        </>
-      )}
-
-      {position && <Marker position={position} icon={gpsIcon} />}
-      {destination && <Marker position={destination} icon={mitigationIcon} />}
-
-      <div className="pointer-events-none absolute bottom-3 left-3 right-3 z-[500] flex items-end justify-between gap-2">
-        <div className="rounded-xl border border-slate-700/80 bg-[#071426]/92 px-3 py-2 shadow-xl backdrop-blur-md">
-          <div className="flex items-center gap-2 text-[10px] font-semibold text-slate-200">
-            <span className="h-2 w-2 rounded-full bg-cyan-400" />
-            Posisi Anda
-            <span className="mx-0.5 text-slate-600">→</span>
-            <span className="h-2 w-2 rounded-full bg-emerald-400" />
-            Mitigasi
-          </div>
-          <div className="mt-0.5 text-[9px] text-slate-500">
-            {state === "loading"
-              ? "Menghitung rute jalan…"
-              : state === "ready"
-                ? "Rute jalan tersedia"
-                : state === "error"
-                  ? "Rute jalan belum tersedia"
-                  : "Menunggu titik lokasi"}
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function displayKey(key: string) {
-  return String(key)
-    .replace(/[\_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function formatNumber(value: number | null | undefined, decimals = 1) {
-  if (value == null || !Number.isFinite(value)) {
-    return "—";
-  }
-
-  return new Intl.NumberFormat("id-ID", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  }).format(value);
-}
-
-function formatDistance(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return "—";
-  if (value < 1000) return `${Math.round(value)} m`;
-  return `${new Intl.NumberFormat("id-ID", {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 2,
-  }).format(value / 1000)} km`;
-}
-
-function mitigationDistanceMeters(
-  latitude1: number,
-  longitude1: number,
-  latitude2: number,
-  longitude2: number,
-) {
-  const toRad = (value: number) => (value * Math.PI) / 180;
-  const earthRadius = 6371000;
-  const dLat = toRad(latitude2 - latitude1);
-  const dLon = toRad(longitude2 - longitude1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(latitude1)) *
-      Math.cos(toRad(latitude2)) *
-      Math.sin(dLon / 2) ** 2;
-  return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-
-/**
- * Ambil infrastruktur mitigasi dari public.bendungan melalui endpoint
- * GeoJSON layer SIMITI. Pemilihan lokasi dilakukan berdasarkan jarak dari
- * koordinat GPS aktual, bukan nama wilayah yang di-hardcode.
- */
-async function fetchBendunganMitigations(
-  latitude: number,
-  longitude: number,
-): Promise<NearbyMitigation[]> {
-  const delta = 1;
-  const bounds = [
-    latitude - delta,
-    longitude - delta,
-    latitude + delta,
-    longitude + delta,
-  ].join(",");
-  const token = getAuthToken();
-  const headers: HeadersInit = { Accept: "application/geo+json, application/json" };
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  const response = await fetchWithTimeout(
-    `${API_URL}/api/layers/bendungan/geojson?bounds=${encodeURIComponent(bounds)}&zoom=10`,
-    { headers },
-    12000,
-  );
-  if (!response.ok) {
-    throw new Error(`Layer public.bendungan HTTP ${response.status}`);
-  }
-
-  const payload = await response.json();
-  const featureCollection =
-    payload?.type === "FeatureCollection"
-      ? payload
-      : payload?.data?.type === "FeatureCollection"
-        ? payload.data
-        : payload?.geojson?.type === "FeatureCollection"
-          ? payload.geojson
-          : null;
-  const features = Array.isArray(featureCollection?.features)
-    ? featureCollection.features
-    : Array.isArray(payload?.features)
-      ? payload.features
-      : Array.isArray(payload?.data)
-        ? payload.data
-        : Array.isArray(payload?.rows)
-          ? payload.rows
-          : [];
-
-  return features
-    .map((feature: any) => {
-      const row = feature?.properties || feature || {};
-      const geometryCoordinates = feature?.geometry?.type === "Point"
-        ? feature.geometry.coordinates
-        : null;
-      const itemLat = Number(
-        row.latitude ?? row.lat ?? (Array.isArray(geometryCoordinates) ? geometryCoordinates[1] : NaN),
-      );
-      const itemLng = Number(
-        row.longitude ?? row.lon ?? row.lng ?? (Array.isArray(geometryCoordinates) ? geometryCoordinates[0] : NaN),
-      );
-
-      if (
-        !Number.isFinite(itemLat) ||
-        !Number.isFinite(itemLng) ||
-        itemLat < -90 || itemLat > 90 ||
-        itemLng < -180 || itemLng > 180
-      ) return null;
-
-      const distanceMeters = Math.round(
-        mitigationDistanceMeters(latitude, longitude, itemLat, itemLng),
-      );
-      const infraName = String(row.nama_infra || row.nama_kegiatan || row.nama || "Bendungan").trim();
-
-      return {
-        id: row.gid ?? row.id ?? row.objectid ?? row.kode ?? `${itemLat}-${itemLng}`,
-        kode: row.kode ?? row.nomor_regi ?? null,
-        nama_kegiatan: infraName,
-        jenis_kegiatan: row.teknis_typ || row.deskripsi_ || "Infrastruktur bendungan",
-        status: row.status_inf || row.status_pem || row.kondisi_ba || "Status belum tersedia",
-        instansi_pelaksana: row.pengelola || row.kode_balai || null,
-        provinsi: row.provinsi || row.prov_name || null,
-        kabupaten_kota: row.kota_kabup || row.kabkot_nam || null,
-        kecamatan: row.kecamatan || null,
-        desa_kelurahan: row.kelurahan || null,
-        latitude: itemLat,
-        longitude: itemLng,
-        distanceMeters,
-        source: "public.bendungan",
-      } as NearbyMitigation;
-    })
-    .filter((item: NearbyMitigation | null): item is NearbyMitigation => Boolean(item))
-    .sort((a: NearbyMitigation, b: NearbyMitigation) =>
-      Number(a.distanceMeters ?? Infinity) - Number(b.distanceMeters ?? Infinity),
-    )
-    .slice(0, 10);
-}
-
-async function fetchMitigationFallback(
-  latitude: number,
-  longitude: number,
-): Promise<NearbyMitigation[]> {
-  let rows: any[] = [];
-  try {
-    const response = await fetchWithTimeout(`${API_URL}/api/lokasi-kegiatan`, {}, 8000);
-    if (response.ok) {
-      const json = await response.json();
-      rows = Array.isArray(json)
-        ? json
-        : Array.isArray(json?.data)
-          ? json.data
-          : Array.isArray(json?.rows)
-            ? json.rows
-            : [];
-    }
-  } catch (error) {
-    console.warn("Fallback lokasi kegiatan tidak tersedia:", error);
-  }
-
-  const activityMitigations = rows
-    .map((row: any) => {
-      const itemLat = Number(row.latitude);
-      const itemLng = Number(row.longitude);
-      if (!Number.isFinite(itemLat) || !Number.isFinite(itemLng)) return null;
-      return {
-        ...row,
-        id: row.id ?? row.kode ?? `${itemLat}-${itemLng}`,
-        nama_kegiatan: row.nama_kegiatan || "Lokasi mitigasi",
-        latitude: itemLat,
-        longitude: itemLng,
-        distanceMeters: Math.round(
-          mitigationDistanceMeters(latitude, longitude, itemLat, itemLng),
-        ),
-        source: "lokasi_kegiatan",
-      } as NearbyMitigation;
-    })
-    .filter((item: NearbyMitigation | null): item is NearbyMitigation => Boolean(item));
-
-  let bendunganMitigations: NearbyMitigation[] = [];
-  try {
-    bendunganMitigations = await fetchBendunganMitigations(latitude, longitude);
-  } catch (error) {
-    console.warn("Fallback public.bendungan tidak tersedia:", error);
-  }
-
-  const seen = new Set<string>();
-  return [...activityMitigations, ...bendunganMitigations]
-    .filter((item) => {
-      const key = String(item.id ?? `${item.latitude},${item.longitude}`);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .sort(
-      (a: NearbyMitigation, b: NearbyMitigation) =>
-        Number(a.distanceMeters ?? Infinity) - Number(b.distanceMeters ?? Infinity),
-    )
-    .slice(0, 10);
-}
-
-function mitigationAddress(item: NearbyMitigation) {
-  return [
-    item.desa_kelurahan,
-    item.kecamatan,
-    item.kabupaten_kota,
-    item.provinsi,
-  ]
-    .filter(Boolean)
-    .join(" • ");
-}
-
-function statusDescription(status?: string) {
-  const value = String(status || "").toLowerCase();
-
-  if (value.includes("belum tersedia") || value.includes("belum dapat ditentukan")) {
-    return "Data risiko pada koordinat ini belum cukup untuk menyatakan aman atau tidak aman.";
-  }
-
-  if (value.includes("tidak aman") || value.includes("bahaya") || value.includes("rawan")) {
-    return "Kondisi risiko sangat tinggi. Diperlukan kewaspadaan dan tindakan mitigasi segera.";
-  }
-
-  if (value.includes("waspada")) {
-    return "Kondisi menunjukkan tingkat risiko yang perlu dipantau dan diantisipasi.";
-  }
-
-  if (value.includes("siaga")) {
-    return "Kondisi memerlukan kesiapsiagaan terhadap potensi peningkatan risiko.";
-  }
-
-  if (value.includes("aman")) {
-    return "Kondisi risiko relatif aman berdasarkan hasil analisis pada lokasi ini.";
-  }
-
-  return "Status risiko belum tersedia atau belum dapat ditentukan dari data analisis.";
-}
-
-/**
- * Persistence koordinat GPS.
- */
-function saveLocation(
-  latitude: number,
-  longitude: number,
-  accuracy: number | null,
-) {
+function saveLocation(latitude: number, longitude: number, accuracy: number | null) {
   try {
     const payload: SavedLocation = {
-      latitude,
-      longitude,
-      accuracy,
-      savedAt: new Date().toISOString(),
+      latitude, longitude, accuracy, savedAt: new Date().toISOString(),
     };
-
     localStorage.setItem(LOCATION_STORAGE_KEY, JSON.stringify(payload));
   } catch (error) {
-    console.warn("Gagal menyimpan koordinat GPS:", error);
+    console.warn("[LokasiSaya] Gagal menyimpan koordinat GPS:", error);
   }
 }
 
 function loadSavedLocation(): SavedLocation | null {
   try {
     const raw = localStorage.getItem(LOCATION_STORAGE_KEY);
-
     if (!raw) return null;
-
     const parsed = JSON.parse(raw);
-
     const latitude = Number(parsed?.latitude);
-
     const longitude = Number(parsed?.longitude);
-
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-      return null;
-    }
-
+    if (
+      !Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+      latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180
+    ) return null;
     const accuracyValue = Number(parsed?.accuracy);
-
     return {
-      latitude,
-      longitude,
+      latitude, longitude,
       accuracy: Number.isFinite(accuracyValue) ? accuracyValue : null,
       savedAt: typeof parsed?.savedAt === "string" ? parsed.savedAt : "",
     };
   } catch (error) {
-    console.warn("Gagal membaca koordinat GPS tersimpan:", error);
-
+    console.warn("[LokasiSaya] Gagal membaca koordinat GPS tersimpan:", error);
     return null;
   }
 }
 
-export default function LokasiSaya() {
-  const [position, setPosition] = useState<[number, number] | null>(null);
-
-  const [accuracy, setAccuracy] = useState<number | null>(null);
-
-  const [gpsState, setGpsState] = useState<
-    "idle" | "requesting" | "ready" | "error"
-  >("idle");
-
-  const [gpsMessage, setGpsMessage] = useState(
-    "Menunggu izin lokasi perangkat…",
-  );
-
-  const [assessment, setAssessment] = useState<Assessment | null>(null);
-
-  const [weather, setWeather] = useState<Weather | null>(null);
-  const [proximity, setProximity] = useState<LocationProximity | null>(null);
-  const [bnpbLocation, setBnpbLocation] =
-    useState<BnpbLocationAssessment | null>(null);
-
-  const [assessmentState, setAssessmentState] = useState<
-    "idle" | "loading" | "ready" | "error"
-  >("idle");
-
-  const [weatherState, setWeatherState] = useState<
-    "idle" | "loading" | "ready" | "error"
-  >("idle");
-  const [proximityState, setProximityState] = useState<
-    "idle" | "loading" | "ready" | "error"
-  >("idle");
-  const [bnpbState, setBnpbState] = useState<
-    "idle" | "loading" | "ready" | "error"
-  >("idle");
-
-  const [errorMessage, setErrorMessage] = useState("");
-
-  const [mapZoom, setMapZoom] = useState(16);
-
-  /**
-   * Pulihkan koordinat terakhir terlebih dahulu.
-   *
-   * Ini membuat koordinat tidak hilang
-   * ketika halaman di-refresh.
-   */
-  useEffect(() => {
+export default function CekLokasiSaya() {
+  const [data, setData] = useState<DashboardData>(fallbackData);
+  const [position, setPosition] = useState<[number, number]>(() => {
     const saved = loadSavedLocation();
+    return saved ? [saved.latitude, saved.longitude] : INITIAL_POSITION;
+  });
+  const [accuracy, setAccuracy] = useState<number | null>(() => loadSavedLocation()?.accuracy ?? null);
+  const [loading, setLoading] = useState(false);
+  const [gpsState, setGpsState] = useState<"idle" | "requesting" | "ready" | "error">(
+    () => loadSavedLocation() ? "ready" : "idle"
+  );
+  const [gpsMessage, setGpsMessage] = useState(() => {
+    const saved = loadSavedLocation();
+    return saved
+      ? `Koordinat GPS tersimpan${saved.savedAt ? ` • ${new Date(saved.savedAt).toLocaleString("id-ID")}` : ""}`
+      : "Menunggu izin lokasi perangkat...";
+  });
+  const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [adminArea, setAdminArea] = useState<AdminArea | null>(null);
+  const [nearbyThreats, setNearbyThreats] = useState<NearbyThreat[]>([]);
+  const [proximityState, setProximityState] = useState<"idle" | "loading" | "ready" | "error">("idle");
 
-    if (!saved) return;
+  const loadDashboard = useCallback(async (lat: number, lng: number) => {
+    setLoading(true);
+    setProximityState("loading");
+    const query = `latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lng)}`;
+    try {
+      const [assessmentResponse, proximityResponse] = await Promise.all([
+        fetch(`${API_BASE}/api/location-assessment?${query}`),
+        fetch(`${API_BASE}/api/location-proximity?${query}&threatLimit=5&mitigationLimit=5&incidentLimit=5`),
+      ]);
 
-    setPosition([saved.latitude, saved.longitude]);
+      if (assessmentResponse.ok) {
+        const assessment = await assessmentResponse.json();
+        if (assessment?.success) {
+          const admin = assessment.location?.administrative || {};
+          setAdminArea(admin);
+          const risk = assessment.risk || {};
+          setData((current) => ({
+            ...current,
+            location: {
+              ...current.location, latitude: lat, longitude: lng,
+              das: admin.das || current.location.das,
+              area: [admin.kelurahan || admin.desa, admin.kecamatan, admin.kabupaten, admin.provinsi].filter(Boolean).join(" • ") || "Wilayah belum terpetakan",
+            },
+            risk: {
+              ...current.risk,
+              status: risk.status || current.risk.status,
+              score: Number.isFinite(Number(risk.index)) ? Number(risk.index) : current.risk.score,
+              description: assessment.recommendations?.[0]?.detail || current.risk.description,
+            },
+          }));
+        }
+      }
 
-    setAccuracy(saved.accuracy);
-    setMapZoom(16);
-
-    setGpsState("ready");
-
-    setGpsMessage(
-      saved.savedAt
-        ? `Lokasi tersimpan • ${new Date(saved.savedAt).toLocaleString(
-            "id-ID",
-          )}`
-        : "Menggunakan koordinat GPS tersimpan",
-    );
+      if (!proximityResponse.ok) throw new Error(`API ancaman terdekat HTTP ${proximityResponse.status}`);
+      const proximity: LocationProximity = await proximityResponse.json();
+      if (!proximity?.success) throw new Error("Data ancaman terdekat tidak tersedia.");
+      const threats = Array.isArray(proximity.threats) ? proximity.threats : [];
+      setNearbyThreats(threats);
+      setProximityState("ready");
+      setData((current) => ({
+        ...current,
+        location: { ...current.location, latitude: lat, longitude: lng },
+        incidents: (proximity.incidents || []).map((item, index) => ({
+          id: Number(item.id) || index + 1,
+          title: item.title || item.category || "Kejadian bencana",
+          type: item.category || "Bencana",
+          distanceKm: Number(item.distanceMeters || 0) / 1000,
+          image: "",
+          coordinates: [lat, lng],
+        })),
+      }));
+      setLastUpdated(new Date());
+    } catch (error) {
+      setProximityState("error");
+      setNearbyThreats([]);
+      setGpsMessage(`GPS aktif, tetapi data wilayah/ancaman gagal dimuat: ${error instanceof Error ? error.message : "API tidak tersedia"}`);
+      console.error("[LokasiSaya] Gagal memuat analisis koordinat:", error);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const requestGps = useCallback(() => {
+  useEffect(() => {
+    const saved = loadSavedLocation();
+    if (saved) void loadDashboard(saved.latitude, saved.longitude);
+  }, [loadDashboard]);
+
+  const useCurrentLocation = useCallback(() => {
     if (!navigator.geolocation) {
       setGpsState("error");
       setGpsMessage("Browser tidak mendukung Geolocation API.");
@@ -1144,1301 +210,190 @@ export default function LokasiSaya() {
     }
 
     setGpsState("requesting");
-
-    setGpsMessage("Mengambil koordinat GPS dengan akurasi tinggi…");
-
-    setErrorMessage("");
-
+    setLoading(true);
+    setGpsMessage("Mengambil koordinat GPS dengan akurasi tinggi...");
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => {
+        const latitude = Number(coords.latitude);
+        const longitude = Number(coords.longitude);
+        const gpsAccuracy = Number.isFinite(coords.accuracy) ? coords.accuracy : null;
+
         if (
-          !Number.isFinite(coords.latitude) ||
-          !Number.isFinite(coords.longitude)
+          !Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+          latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180
         ) {
           setGpsState("error");
-
           setGpsMessage("Koordinat GPS tidak valid.");
-
+          setLoading(false);
           return;
         }
 
-        const latitude = coords.latitude;
-
-        const longitude = coords.longitude;
-
-        const gpsAccuracy = Number.isFinite(coords.accuracy)
-          ? coords.accuracy
-          : null;
-
-        setPosition([latitude, longitude]);
-
+        const next: [number, number] = [latitude, longitude];
+        setPosition(next);
         setAccuracy(gpsAccuracy);
-
-        setMapZoom(16);
-
-        /**
-         * Persistence koordinat:
-         *
-         * Latitude
-         * Longitude
-         * Accuracy
-         * Timestamp
-         */
+        setData((current) => ({
+          ...current,
+          location: {
+            ...current.location,
+            latitude,
+            longitude,
+            accuracy: gpsAccuracy ?? current.location.accuracy,
+          },
+        }));
         saveLocation(latitude, longitude, gpsAccuracy);
-
         setGpsState("ready");
-
         setGpsMessage(
           gpsAccuracy != null
-            ? `GPS aktif • akurasi ±${Math.round(gpsAccuracy)} m • tersimpan`
-            : "GPS aktif • koordinat tersimpan",
+            ? `GPS aktif • akurasi ±${Math.round(gpsAccuracy)} m • koordinat tersimpan`
+            : "GPS aktif • koordinat tersimpan"
         );
+        void loadDashboard(latitude, longitude);
       },
       (error) => {
         setGpsState("error");
-
+        setLoading(false);
         setGpsMessage(
           error.code === 1
-            ? "Izin lokasi ditolak. Aktifkan Location untuk situs ini."
+            ? "Izin lokasi ditolak. Aktifkan izin lokasi untuk situs ini."
             : error.code === 2
-              ? "Lokasi perangkat tidak tersedia."
-              : "Pengambilan GPS timeout. Coba lagi.",
+              ? "Lokasi perangkat tidak tersedia. Menggunakan koordinat tersimpan/contoh."
+              : "Pengambilan GPS timeout. Silakan tekan Perbarui GPS."
         );
       },
-      {
-        enableHighAccuracy: true,
-        timeout: 20000,
-        maximumAge: 5000,
-      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 }
     );
-  }, []);
+  }, [loadDashboard]);
 
-  const analyzeLocation = useCallback(async (lat: number, lng: number) => {
-    setAssessmentState("loading");
-
-    setWeatherState("loading");
-    setProximityState("loading");
-
-    setErrorMessage("");
-
-    const assessmentUrl =
-      `${API_URL}/api/location-assessment?latitude=${encodeURIComponent(lat)}` +
-      `&longitude=${encodeURIComponent(lng)}`;
-
-    const weatherUrl =
-      `${API_URL}/api/weather/current?latitude=${encodeURIComponent(lat)}` +
-      `&longitude=${encodeURIComponent(lng)}`;
-    const proximityUrl =
-      `${API_URL}/api/location-proximity?latitude=${encodeURIComponent(lat)}` +
-      `&longitude=${encodeURIComponent(lng)}&threatLimit=5&mitigationLimit=5&incidentLimit=5`;
-    setBnpbState("loading");
-
-    const [assessmentResult, weatherResult, proximityResult, bnpbResult] =
-      await Promise.allSettled([
-        fetchWithTimeout(assessmentUrl, {}, 12000),
-        fetchWithTimeout(weatherUrl, {}, 10000),
-        fetchWithTimeout(proximityUrl, {}, 12000),
-        fetchLocalRiskFactors(lat, lng),
-      ]);
-
-    let assessmentFailed = false;
-
-    if (assessmentResult.status === "fulfilled") {
-      try {
-        const response = assessmentResult.value;
-
-        const json = await response.json();
-
-        if (!response.ok || !json?.success) {
-          throw new Error(json?.message || "Analisis lokasi gagal.");
-        }
-
-        setAssessment(json);
-
-        setAssessmentState("ready");
-      } catch (error) {
-        assessmentFailed = true;
-
-        setAssessmentState("error");
-
-        setErrorMessage(
-          error instanceof Error ? error.message : "Analisis lokasi gagal.",
-        );
-      }
-    } else {
-      assessmentFailed = true;
-
-      setAssessmentState("error");
-
-      setErrorMessage("Tidak dapat terhubung ke API analisis lokasi.");
-    }
-
-    if (weatherResult.status === "fulfilled") {
-      try {
-        const response = weatherResult.value;
-
-        if (!response.ok) {
-          throw new Error("API cuaca tidak tersedia.");
-        }
-
-        const json = await response.json();
-
-        if (!json?.success) {
-          throw new Error(json?.message || "Data cuaca tidak tersedia.");
-        }
-
-        setWeather(json);
-
-        setWeatherState("ready");
-      } catch {
-        setWeatherState("error");
-      }
-    } else {
-      setWeatherState("error");
-    }
-
-    if (proximityResult.status === "fulfilled") {
-      try {
-        const response = proximityResult.value;
-        const json = await response.json();
-        if (!response.ok || !json?.success) {
-          throw new Error(
-            json?.message || "Analisis kedekatan tidak tersedia.",
-          );
-        }
-
-        // /api/location-proximity memang mengambil mitigasi dari
-        // public.lokasi_kegiatan dengan syarat geom IS NOT NULL.
-        // Jika data lama hanya memiliki latitude/longitude tetapi geom
-        // belum terisi, gunakan endpoint CRUD lokasi kegiatan sebagai
-        // fallback tanpa mengubah backend/GPS existing.
-        let nextProximity = json as LocationProximity;
-
-        if (!Array.isArray(nextProximity.mitigations) || !nextProximity.mitigations.length) {
-          try {
-            const fallbackMitigations = await fetchMitigationFallback(
-              lat,
-              lng,
-            );
-
-            if (fallbackMitigations.length) {
-              nextProximity = {
-                ...nextProximity,
-                mitigations: fallbackMitigations,
-                summary: {
-                  ...(nextProximity.summary || {}),
-                  mitigationCount: fallbackMitigations.length,
-                  nearestMitigationDistanceMeters:
-                    fallbackMitigations[0]?.distanceMeters ?? null,
-                },
-              };
-              console.info(
-                `LokasiSaya: fallback lokasi kegiatan menemukan ${fallbackMitigations.length} lokasi mitigasi.`,
-              );
-            }
-          } catch (fallbackError) {
-            console.warn(
-              "LokasiSaya: fallback lokasi kegiatan gagal:",
-              fallbackError,
-            );
-          }
-        }
-
-        // Gabungkan data infrastruktur dari public.bendungan setiap kali
-        // GPS dianalisis, termasuk ketika endpoint proximity sudah memiliki
-        // lokasi kegiatan. Dedup berdasarkan ID atau koordinat, lalu urutkan
-        // berdasarkan jarak dari posisi pengguna.
-        try {
-          const bendunganMitigations = await fetchBendunganMitigations(lat, lng);
-          const existingMitigations = Array.isArray(nextProximity.mitigations)
-            ? nextProximity.mitigations
-            : [];
-          const combined = [...existingMitigations, ...bendunganMitigations];
-          const seen = new Set<string>();
-          const unique = combined
-            .filter((item) => {
-              const key = String(item.id ?? `${item.latitude},${item.longitude}`);
-              if (seen.has(key)) return false;
-              seen.add(key);
-              return true;
-            })
-            .sort((a, b) =>
-              Number(a.distanceMeters ?? Infinity) - Number(b.distanceMeters ?? Infinity),
-            )
-            .slice(0, 10);
-
-          nextProximity = {
-            ...nextProximity,
-            source: `${nextProximity.source || "SIMITI"} + public.bendungan`,
-            mitigations: unique,
-            summary: {
-              ...(nextProximity.summary || {}),
-              mitigationCount: unique.length,
-              nearestMitigationDistanceMeters: unique[0]?.distanceMeters ?? null,
-            },
-          };
-        } catch (bendunganError) {
-          // Jangan menggagalkan halaman bila endpoint layer bendungan belum tersedia.
-          console.warn("LokasiSaya: data public.bendungan gagal dimuat:", bendunganError);
-        }
-
-        setProximity(nextProximity);
-        setProximityState("ready");
-      } catch {
-        // Jika endpoint proximity gagal total, tetap coba endpoint
-        // lokasi kegiatan secara langsung.
-        try {
-          const fallbackMitigations = await fetchMitigationFallback(lat, lng);
-          if (fallbackMitigations.length) {
-            setProximity({
-              success: true,
-              source: "SIMITI /api/lokasi-kegiatan fallback",
-              location: { latitude: lat, longitude: lng },
-              threats: [],
-              incidents: [],
-              mitigations: fallbackMitigations,
-              summary: {
-                mitigationCount: fallbackMitigations.length,
-                nearestMitigationDistanceMeters:
-                  fallbackMitigations[0]?.distanceMeters ?? null,
-              },
-            });
-            setProximityState("ready");
-          } else {
-            setProximity(null);
-            setProximityState("error");
-          }
-        } catch {
-          setProximity(null);
-          setProximityState("error");
-        }
-      }
-    } else {
-      try {
-        const fallbackMitigations = await fetchMitigationFallback(lat, lng);
-        if (fallbackMitigations.length) {
-          setProximity({
-            success: true,
-            source: "SIMITI /api/lokasi-kegiatan fallback",
-            location: { latitude: lat, longitude: lng },
-            threats: [],
-            incidents: [],
-            mitigations: fallbackMitigations,
-            summary: {
-              mitigationCount: fallbackMitigations.length,
-              nearestMitigationDistanceMeters:
-                fallbackMitigations[0]?.distanceMeters ?? null,
-            },
-          });
-          setProximityState("ready");
-        } else {
-          setProximity(null);
-          setProximityState("error");
-        }
-      } catch {
-        setProximity(null);
-        setProximityState("error");
-      }
-    }
-
-    if (bnpbResult.status === "fulfilled") {
-      try {
-        // Data ancaman sekarang berasal dari tabel risiko lokal SIMITI,
-        // dengan endpoint layer yang sama seperti Kerawanan.tsx.
-        const json = bnpbResult.value;
-
-        if (!json?.success) {
-          throw new Error("Data risiko lokal SIMITI tidak tersedia.");
-        }
-
-        setBnpbLocation(json);
-        setBnpbState("ready");
-      } catch (error) {
-        setBnpbLocation(null);
-        setBnpbState("error");
-        setErrorMessage(
-          error instanceof Error
-            ? error.message
-            : "Pembacaan tabel risiko lokal gagal.",
-        );
-      }
-    } else {
-      setBnpbLocation(null);
-      setBnpbState("error");
-    }
-
-    void assessmentFailed;
-  }, []);
-
-  /**
-   * Tetap otomatis meminta GPS terbaru.
-   *
-   * Koordinat tersimpan sudah dipulihkan
-   * lebih dahulu sehingga halaman tetap
-   * memiliki titik ketika request GPS
-   * sedang berjalan.
-   */
+  // Pulihkan koordinat tersimpan melalui state awal, lalu minta GPS terbaru.
   useEffect(() => {
-    requestGps();
-  }, [requestGps]);
+    useCurrentLocation();
+  }, [useCurrentLocation]);
 
-  useEffect(() => {
-    if (!position) return;
-
-    analyzeLocation(position[0], position[1]);
-  }, [position, analyzeLocation]);
-
-  // MY LOKASI wajib menggunakan hasil BNPB InaRISK sebagai sumber utama.
-  // API assessment lama hanya menjadi data tambahan, bukan sumber scoring.
-  const factors = bnpbLocation?.risk?.factors || [];
-
-  const recommendations = assessment?.recommendations || [];
-  const nearbyThreats = proximity?.threats || [];
-  const nearbyMitigations = proximity?.mitigations || [];
-  const nearbyIncidents = proximity?.incidents || [];
-  const nearestMitigation = nearbyMitigations[0] || null;
-  const nearestSafeLocation = bnpbLocation?.safeLocation || null;
-
-  /**
-   * Analisis MY Lokasi:
-   *
-   * Seluruh input berasal dari faktor
-   * risiko aktual yang dikembalikan API.
-   *
-   * Jika salah satu parameter belum tersedia,
-   * skor/status rumus tidak dibuat-buat.
-   */
-  const apiRiskStatus = bnpbLocation?.risk?.status || "";
-  const apiRiskIndex = bnpbLocation?.risk?.index ?? null;
-
-  /**
-   * MY LOKASI — SCORING RESMI
-   *
-   * Tepat 5 parameter:
-   * 1. Longsor
-   * 2. Banjir
-   * 3. Banjir Bandang
-   * 4. Kekeringan
-   * 5. Karhutla
-   *
-   * Bobot: Tinggi = 3, Sedang = 2, Rendah = 1.
-   * Total minimum = 5, maksimum = 15.
-   * Status: 5–7 Aman, 8–10 Siaga, 11–13 Waspada, 14–15 Bahaya.
-   *
-   * Scoring dilakukan dari faktor tabel risiko lokal SIMITI yang sudah diterima.
-   * Fungsi GPS, API, peta, weather, proximity, dan endpoint lain tetap.
-   */
-  const myLokasiRisk = useMemo(() => {
-    const parameterDefinitions = [
-      { key: "longsor", label: "Longsor" },
-      { key: "banjir", label: "Banjir" },
-      { key: "banjir_bandang", label: "Banjir Bandang" },
-      { key: "kekeringan", label: "Kekeringan" },
-      { key: "karhutla", label: "Karhutla" },
-    ] as const;
-
-    const normalizeKey = (value: unknown) =>
-      String(value || "")
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "_")
-        .replace(/^_|_$/g, "");
-
-    const scoreFromLevel = (value: unknown) => {
-      const normalized = String(value || "")
-        .toLowerCase()
-        .trim();
-      if (normalized.includes("tinggi")) return 3;
-      if (normalized.includes("sedang")) return 2;
-      if (normalized.includes("rendah")) return 1;
-      return null;
-    };
-
-    const factorByKey = new Map<string, RiskFactor>();
-
-    for (const factor of factors) {
-      const key = normalizeKey(factor.key);
-      const labelKey = normalizeKey(factor.label);
-
-      if (key === "longsor" || labelKey === "longsor")
-        factorByKey.set("longsor", factor);
-      else if (key === "banjir" || labelKey === "banjir")
-        factorByKey.set("banjir", factor);
-      else if (
-        key === "banjir_bandang" ||
-        labelKey === "banjir_bandang" ||
-        labelKey.includes("banjir_bandang")
-      ) {
-        factorByKey.set("banjir_bandang", factor);
-      } else if (key === "kekeringan" || labelKey === "kekeringan") {
-        factorByKey.set("kekeringan", factor);
-      } else if (key === "karhutla" || labelKey === "karhutla") {
-        factorByKey.set("karhutla", factor);
-      }
-    }
-
-    const items = parameterDefinitions.map(({ key, label }) => {
-      const factor = factorByKey.get(key) || null;
-      const level = factor?.status || factor?.class || null;
-      const score = scoreFromLevel(level);
-
-      return {
-        parameter: label,
-        factor,
-        level,
-        value: factor?.level ?? null,
-        score,
-        available: Boolean(
-          factor && factor.available !== false && score != null,
-        ),
-      };
-    });
-
-    const complete = items.every((item) => item.available);
-    const analyzedParameters = items.filter(
-      (item) => item.available,
-    ).length;
-
-    const partialScore =
-      analyzedParameters > 0
-        ? items.reduce(
-            (total, item) =>
-              total + (item.available ? Number(item.score) : 0),
-            0,
-          )
-        : null;
-
-    const score = complete ? partialScore : null;
-
-    const availableScores = items.filter((item) => item.available).map((item) => Number(item.score));
-    const highestScore = availableScores.length ? Math.max(...availableScores) : null;
-    let status: string | null = null;
-    if (highestScore === 3) status = "Tidak Aman";
-    else if (!complete) status = "Data Belum Tersedia";
-    else if (highestScore === 2) status = "Waspada";
-    else if (complete && highestScore === 1) status = "Aman";
-
-    return {
-      complete,
-      score,
-      partialScore,
-      analyzedParameters,
-      totalParameters: items.length,
-      minimum: 5,
-      maximum: 15,
-      status,
-      items,
-      missing: items
-        .filter((item) => !item.available)
-        .map((item) => item.parameter),
-    };
-  }, [factors]);
-
-  /**
-   * Status utama:
-   *
-   * 1. Prioritas hasil rumus MY Lokasi
-   *    jika 5 parameter lengkap.
-   *
-   * 2. Fallback ke status API.
-   *
-   * 3. Bahaya dari API dinormalisasi
-   *    menjadi Rawan.
-   */
-  // Status akhir hanya ditentukan jika seluruh 5 parameter risiko tersedia.
-  // API Risk Index tetap menjadi metrik terpisah dan tidak menentukan status ini.
-  const overall = myLokasiRisk.status || "Data Belum Tersedia";
-
-  const meta = statusMeta(overall);
-
-  const index = apiRiskIndex;
-
-  const admin = assessment?.location?.administrative || {};
-
-  const address = useMemo(
-    () =>
-      [
-        admin.kelurahan || admin.desa,
-        admin.kecamatan,
-        admin.kabupaten,
-        admin.provinsi,
-      ]
-        .filter(Boolean)
-        .join(" • ") || "Administrasi belum terpetakan",
-    [admin],
-  );
-
-  const weatherItems = useMemo(() => {
-    const current = weather?.current || {};
-
-    return Object.keys(current)
-      .filter((key) => current[key] !== null && current[key] !== undefined)
-      .map((key) => ({
-        key,
-        label: displayKey(key),
-        value: current[key],
-        unit: weather?.current_units?.[key] || "",
-      }));
-  }, [weather]);
-
-  const myLokasiScore = myLokasiRisk.score;
-  const myLokasiMaximum = 15;
-  const myLokasiPercent =
-    myLokasiScore == null
-      ? 0
-      : Math.min(100, Math.max(0, ((myLokasiScore - 5) / 10) * 100));
-
-  const dynamicRiskDetails = useMemo(() => {
-    if (!assessment?.risk) return [];
-
-    return Object.entries(assessment.risk)
-      .filter(([key]) => !["status", "index", "scale", "factors"].includes(key))
-      .filter(([, value]) =>
-        ["string", "number", "boolean"].includes(typeof value),
-      )
-      .map(([key, value]) => ({
-        key,
-        label: displayKey(key),
-        value: String(value),
-      }));
-  }, [assessment]);
+  const statusClass = data.risk.status.toLowerCase();
+  const poskoIcon = useMemo(() => L.divIcon({
+    className: "simiti-posko-marker",
+    html: '<div class="simiti-posko-pin"><span>+</span></div>',
+    iconSize: [34, 42],
+    iconAnchor: [17, 38],
+  }), []);
 
   return (
-    <div className="lokasi-saya-enterprise min-h-screen bg-[#06111f] text-slate-100">
-      <style>{`
-        .lokasi-saya-enterprise { width:100%; min-width:0; overflow-x:clip; }
-        .lokasi-saya-enterprise *, .lokasi-saya-enterprise *::before, .lokasi-saya-enterprise *::after { box-sizing:border-box; }
-        .lokasi-saya-enterprise main { width:100%; min-width:0; }
-        .lokasi-saya-enterprise main > section,
-        .lokasi-saya-enterprise main > section > *,
-        .lokasi-saya-enterprise [class*="grid-cols-"] > * { min-width:0; }
-        .lokasi-saya-enterprise .smiti-location-map { height:clamp(380px, 58vh, 700px); min-height:380px; }
-        .lokasi-saya-enterprise .leaflet-container { width:100%; height:100%; background:#e2e8f0; z-index:0; }
-        .lokasi-saya-enterprise button { touch-action:manipulation; }
-        .lokasi-saya-enterprise h1, .lokasi-saya-enterprise h2,
-        .lokasi-saya-enterprise h3, .lokasi-saya-enterprise p { overflow-wrap:anywhere; }
-        @media (max-width: 1279px) {
-          .lokasi-saya-enterprise main { padding:16px; }
-          .lokasi-saya-enterprise .smiti-location-map { height:clamp(390px, 55vh, 600px); }
-        }
-        @media (max-width: 767px) {
-          .lokasi-saya-enterprise header { padding:12px 14px; }
-          .lokasi-saya-enterprise header > div { align-items:center; }
-          .lokasi-saya-enterprise main { padding:12px; gap:12px; }
-          .lokasi-saya-enterprise main > section { gap:12px; }
-          .lokasi-saya-enterprise .smiti-location-map { height: min(62vh, 520px); min-height:360px; }
-          .lokasi-saya-enterprise .smiti-map-coordinates { left:10px !important; top:10px !important; max-width:calc(100% - 20px); }
-          .lokasi-saya-enterprise .smiti-map-coordinates > div:last-child { overflow-wrap:anywhere; }
-          .lokasi-saya-enterprise .smiti-map-threats { top:86px !important; right:10px !important; width:min(48%, 230px) !important; max-height:48%; overflow:auto; }
-          .lokasi-saya-enterprise .smiti-map-threats > div { padding:8px 9px; }
-          .lokasi-saya-enterprise .smiti-map-legend { left:10px !important; bottom:10px !important; max-width:calc(100% - 20px); }
-          .lokasi-saya-enterprise [class*="rounded-2xl"] { border-radius:14px; }
-          .lokasi-saya-enterprise .leaflet-control-zoom { margin-top:86px !important; }
-        }
-        @media (max-width: 420px) {
-          .lokasi-saya-enterprise main { padding:9px; }
-          .lokasi-saya-enterprise .smiti-location-map { min-height:340px; height:55vh; }
-          .lokasi-saya-enterprise .smiti-map-threats { top:94px !important; width:46% !important; }
-          .lokasi-saya-enterprise .smiti-map-threats > div { padding:7px; }
-          .lokasi-saya-enterprise .smiti-map-threats .text-xs { font-size:10px; }
-        }
-      `}</style>
-      <header className="sticky top-0 z-[1000] border-b border-slate-800/80 bg-[#071426]/95 px-4 py-3 backdrop-blur-xl md:px-6">
-        <div className="mx-auto flex max-w-[1800px] items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10 text-xl">
-              ◎
-            </div>
-
-            <div className="min-w-0">
-              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-300">
-                SIMITI • Spatial Decision Support
-              </div>
-
-              <h1 className="truncate text-lg font-semibold tracking-tight">
-                Cek Lokasi Saya
-              </h1>
-            </div>
-          </div>
+    <main className="simiti-location-page">
+      <header className="simiti-location-topbar">
+        <div className="simiti-brand">
+          <div className="simiti-brand-globe"><Globe2 size={38} strokeWidth={1.6} /></div>
+          <div><strong>SIMITI</strong><span>SPATIAL DECISION SUPPORT</span></div>
+        </div>
+        <div className="simiti-page-heading"><MapPin size={31} fill="currentColor" /><h1>Cek Lokasi Saya</h1></div>
+        <div className="simiti-topbar-meta">
+          <span className="simiti-online"><i /> Sistem Online</span>
+          <span className="simiti-topbar-date"><CalendarDays size={18} /> {lastUpdated.toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })} WIB</span>
+          <span className="simiti-user-avatar"><span>â—</span></span>
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1800px] space-y-4 p-3 sm:p-4 md:p-5">
-        {errorMessage && (
-          <div className="flex items-start justify-between gap-3 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-xs text-red-200">
-            <span>⚠ {errorMessage}</span>
-
-            {position && (
-              <button
-                onClick={() => analyzeLocation(position[0], position[1])}
-                className="rounded-md border border-red-400/20 px-2 py-1 font-semibold hover:bg-red-400/10"
-              >
-                Coba lagi
-              </button>
-            )}
+      <section className="simiti-location-grid">
+        <article className="simiti-map-panel">
+          <MapContainer center={position} zoom={14} zoomControl={false} scrollWheelZoom className="simiti-main-map">
+            <TileLayer
+              attribution='&copy; Esri'
+              url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+            />
+            <MapFocus position={position} />
+            <Circle center={position} radius={200} pathOptions={{ color: "#31d9ff", fillColor: "#0ea5e9", fillOpacity: 0.22, weight: 2 }} />
+            <CircleMarker center={position} radius={8} pathOptions={{ color: "#fff", weight: 3, fillColor: "#00d9ff", fillOpacity: 1 }} />
+            <Marker position={data.mitigation.coordinates} icon={poskoIcon} />
+            <Polyline positions={[position, data.mitigation.coordinates]} pathOptions={{ color: "#56ef36", weight: 5, opacity: .95 }} />
+            {data.incidents.map((item) => <CircleMarker key={item.id} center={item.coordinates} radius={5} pathOptions={{ color: "#ff5b58", fillColor: "#ef4444", fillOpacity: .9 }} />)}
+          </MapContainer>
+          <div className="simiti-map-location-chip">
+            <Crosshair size={24} /><div><b>{gpsState === "ready" ? "Lokasi GPS Anda" : "Koordinat Lokasi"}</b><span>{[adminArea?.kelurahan || adminArea?.desa, adminArea?.kecamatan, adminArea?.kabupaten, adminArea?.provinsi].filter(Boolean).join(" • ") || "Nama wilayah sedang dicari"}</span><span>{formatCoordinate(position[0])}, {formatCoordinate(position[1])} · EPSG:4326</span></div>
           </div>
-        )}
-
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
-          <div className="overflow-hidden rounded-2xl border border-slate-800 bg-[#08172a] shadow-2xl">
-            <div className="smiti-location-map relative">
-              <MapContainer
-                center={position || [0, 0]}
-                zoom={position ? mapZoom : 2}
-                minZoom={2}
-                scrollWheelZoom
-                className="h-full w-full"
-              >
-                <TileLayer
-                  attribution="&copy; OpenStreetMap contributors"
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
-
-                <MapResize />
-
-                <RecenterMap position={position} zoom={mapZoom} />
-
-                {position && accuracy != null && (
-                  <Circle
-                    center={position}
-                    radius={accuracy}
-                    pathOptions={{
-                      color: "#22d3ee",
-                      fillColor: "#0ea5e9",
-                      fillOpacity: 0.08,
-                      weight: 1,
-                    }}
-                  />
-                )}
-
-                {position && <Marker position={position} icon={gpsIcon} />}
-                {nearestSafeLocation && (
-                  <Marker
-                    position={[
-                      nearestSafeLocation.latitude,
-                      nearestSafeLocation.longitude,
-                    ]}
-                    icon={safeLocationIcon}
-                  />
-                )}
-              </MapContainer>
-
-              <div className="smiti-map-coordinates pointer-events-none absolute left-4 top-4 z-[500] max-w-[calc(100%-2rem)] rounded-xl border border-slate-700 bg-[#071426]/90 px-3 py-2 shadow-xl backdrop-blur-md">
-                <div className="text-xs font-semibold">Lokasi GPS Anda</div>
-
-                <div className="mt-0.5 text-[10px] text-slate-400">
-                  {position
-                    ? `${position[0].toFixed(6)}, ${position[1].toFixed(
-                        6,
-                      )} • EPSG:4326`
-                    : "Menunggu koordinat…"}
-                </div>
+          <div className="simiti-map-alerts">
+            {nearbyThreats.length ? nearbyThreats.slice(0, 3).map((threat) => (
+              <div className="simiti-map-alert danger" key={threat.key}>
+                <AlertTriangle size={25} /><div><small>Ancaman terdekat · {threat.status || "Status belum tersedia"}</small><b>{threat.label} <em>{threat.inside ? "Titik berada di area ancaman" : threat.distanceMeters == null ? "Jarak tidak tersedia" : `${(threat.distanceMeters / 1000).toFixed(2).replace(".", ",")} km`}</em></b></div><ChevronRight />
               </div>
-
-              {position && (
-                <div className="smiti-map-legend pointer-events-none absolute bottom-4 left-4 z-[500] rounded-xl border border-slate-700 bg-[#071426]/90 px-3 py-2 text-[10px] text-slate-300 backdrop-blur-md">
-                  ● Titik GPS
-                  {accuracy != null && (
-                    <span className="ml-4">
-                      ○ Radius ±{Math.round(accuracy)} m
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {position && (nearbyThreats.length > 0 || nearestMitigation) && (
-                <div className="smiti-map-threats pointer-events-none absolute right-4 top-4 z-[500] w-[min(280px,40%)] space-y-2">
-                  {nearbyThreats.slice(0, 2).map((threat) => {
-                    const tm = statusMeta(threat.status || "");
-                    return (
-                      <div
-                        key={threat.key}
-                        className={`rounded-xl border ${tm.border} ${tm.bg} px-3 py-2 shadow-xl backdrop-blur-md`}
-                      >
-                        <div className="text-[9px] uppercase tracking-wider text-slate-500">
-                          Ancaman terdekat
-                        </div>
-                        <div className={`mt-1 text-xs font-bold ${tm.color}`}>
-                          {threat.label}
-                        </div>
-                        <div className="mt-0.5 text-[10px] text-slate-300">
-                          {threat.inside
-                            ? "Posisi berada pada area ancaman"
-                            : formatDistance(threat.distanceMeters)}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {nearestMitigation && (
-                    <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 shadow-xl backdrop-blur-md">
-                      <div className="text-[9px] uppercase tracking-wider text-slate-500">
-                        Mitigasi terdekat
-                      </div>
-                      <div className="mt-1 text-xs font-bold text-emerald-200">
-                        {nearestMitigation.nama_kegiatan}
-                      </div>
-                      <div className="mt-0.5 text-[10px] text-slate-300">
-                        {formatDistance(nearestMitigation.distanceMeters)}
-                      </div>
-                    </div>
-                  )}
-                  {nearestSafeLocation && (
-                    <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 shadow-xl backdrop-blur-md">
-                      <div className="text-[9px] uppercase tracking-wider text-emerald-300">
-                        Lokasi aman terdekat
-                      </div>
-                      <div className="mt-1 text-xs font-bold text-emerald-100">
-                        {nearestSafeLocation.nama_kegiatan}
-                      </div>
-                      <div className="mt-0.5 text-[10px] text-slate-300">
-                        {formatDistance(nearestSafeLocation.distanceMeters)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {!position && (
-                <div className="absolute inset-0 z-[600] flex items-center justify-center bg-[#06111f]/70 backdrop-blur-[2px]">
-                  <div className="max-w-sm rounded-2xl border border-slate-700 bg-[#08172a]/95 p-6 text-center shadow-2xl">
-                    <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-400/10 text-2xl text-cyan-300">
-                      ⌖
-                    </div>
-
-                    <h2 className="font-semibold">
-                      Lokasi perangkat diperlukan
-                    </h2>
-
-                    <p className="mt-2 text-xs leading-5 text-slate-400">
-                      Titik GPS menjadi input analisis spasial.
-                    </p>
-
-                    <button
-                      onClick={requestGps}
-                      className="mt-4 rounded-lg bg-cyan-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-cyan-400"
-                    >
-                      Izinkan & Ambil Lokasi
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            )) : <div className="simiti-map-alert safe"><Info size={24} /><div><small>Ancaman terdekat</small><b>{proximityState === "loading" ? "Sedang menganalisis koordinat GPS..." : proximityState === "error" ? "Data ancaman belum dapat dimuat" : "Tidak ada ancaman terdekat yang dikembalikan API"}</b></div></div>}
           </div>
+          <div className="simiti-map-zoom"><button onClick={() => window.dispatchEvent(new CustomEvent("simiti-map-zoom", { detail: 1 }))}>+</button><button onClick={() => window.dispatchEvent(new CustomEvent("simiti-map-zoom", { detail: -1 }))}>âˆ’</button><button title="Gunakan lokasi GPS" onClick={useCurrentLocation}><LocateFixed size={20} /></button></div>
+          <div className="simiti-map-legend"><span><i className="gps-dot" /> Titik GPS</span><span><i className="radius-dot" /> Radius Â±200 m</span></div>
+          <button className="simiti-gps-refresh" onClick={useCurrentLocation} disabled={loading}><LocateFixed size={16} /> {gpsState === "requesting" || loading ? "Mengambil GPS..." : "Perbarui GPS"}</button>
+        </article>
 
-          <aside className="space-y-4">
-            <div className="rounded-2xl border border-slate-800 bg-[#08172a] p-4 shadow-xl">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="text-sm font-semibold">Status Risiko</div>
-
-                <span className="rounded-full border border-slate-700 px-2 py-1 text-[10px] text-slate-400">
-                  {"SIMITI PostGIS"}
+        <article className="simiti-risk-panel">
+          <div className="simiti-risk-summary">
+            <div className="simiti-risk-emblem"><ShieldAlert size={68} /></div>
+            <div className="simiti-risk-content"><h2>Status Risiko</h2><span>Sumber: SIMITI PostGIS</span><strong className={`simiti-risk-status ${statusClass}`}>{data.risk.status}</strong><p>{data.risk.description}</p></div>
+          </div>
+          <div className="simiti-risk-breakdown">
+            <h3>Status per Jenis Risiko</h3>
+            {data.risk.items.map((risk) => (
+              <div className="simiti-risk-row" key={risk.key}>
+                <span className={`simiti-risk-icon ${risk.key}`}>
+                  {risk.key.includes("banjir") ? <Waves size={25} /> : risk.key === "longsor" ? <Mountain size={25} /> : risk.key === "karhutla" ? <Flame size={25} /> : <Sun size={25} />}
                 </span>
-              </div>
-
-              <div
-                className={`rounded-xl border ${meta.border} ${meta.bg} p-4`}
-              >
-                <div className="flex items-center gap-4">
-                  <div
-                    className={`flex h-14 w-14 items-center justify-center rounded-2xl border ${meta.border} text-2xl ${meta.color}`}
-                  >
-                    {bnpbState === "loading" || assessmentState === "loading"
-                      ? "…"
-                      : meta.icon}
-                  </div>
-
-                  <div>
-                    <div className={`text-2xl font-black ${meta.color}`}>
-                      {overall || "—"}
-                    </div>
-
-                    <div className="mt-1 text-[11px] leading-4 text-slate-400">
-                      {statusDescription(overall)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-800 bg-[#08172a] p-4 shadow-xl">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="text-sm font-semibold">Status per Jenis Risiko</div>
-                <span className="rounded-full border border-slate-700 px-2 py-1 text-[9px] text-slate-400">SIMITI PostGIS</span>
-              </div>
-              <div className="space-y-1.5">
-                {myLokasiRisk.items.map((item) => {
-                  const itemStatus = item.available ? String(item.level || "") : "Data Belum Tersedia";
-                  const itemMeta = statusMeta(itemStatus);
-                  const displayLevel = item.available ? String(item.level || "") : "Belum tersedia";
-                  return (
-                    <div key={item.parameter} className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/20 px-3 py-2">
-                      <div className="min-w-0">
-                        <div className="text-[11px] font-medium text-slate-200">{item.parameter}</div>
-                        <div className="mt-0.5 truncate text-[9px] text-slate-500">{item.factor?.source || "SIMITI PostgreSQL/PostGIS"}</div>
-                      </div>
-                      <span className={`shrink-0 rounded-md border px-2 py-1 text-[10px] font-bold ${itemMeta.border} ${itemMeta.bg} ${itemMeta.color}`}>
-                        {displayLevel}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="mt-3 text-[10px] leading-4 text-slate-500">
-                Status dihitung dari poligon yang mencakup titik GPS. Jika layer atau kelas risiko tidak tersedia, sistem tidak akan menganggap lokasi aman.
-              </div>
-            </div>
-          </aside>
-        </section>
-        <section className="grid grid-cols-1 gap-4">
-            <div className="rounded-2xl border border-slate-800 bg-[#08172a] p-4 shadow-xl">
-                <div className="mb-3 flex items-center justify-between">
-                  <div className="text-sm font-semibold">Cuaca Saat Ini</div>
-
-                  <span className="text-[10px] text-slate-500">
-                    {weather?.source || "API"}
-                  </span>
-                </div>
-
-                {weatherItems.length ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                    {weatherItems.map((item) => (
-                      <div
-                        key={item.key}
-                        className="rounded-xl bg-slate-950/30 p-3"
-                      >
-                        <div className="truncate text-[10px] text-slate-500">
-                          {item.label}
-                        </div>
-
-                        <div className="mt-1 text-lg font-bold">
-                          {formatNumber(item.value, 1)}
-
-                          <span className="ml-1 text-[10px] font-normal text-slate-500">
-                            {item.unit}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-dashed border-slate-700 p-4 text-center text-xs text-slate-500">
-                    {weatherState === "loading"
-                      ? "Mengambil data cuaca…"
-                      : "Data cuaca tidak tersedia."}
-                  </div>
-                )}
-              </div>
-        </section>
-
-        <section className="grid grid-cols-1 gap-4 lg:grid-cols-[1.05fr_.95fr]">
-          <div className="rounded-2xl border border-slate-800 bg-[#08172a] p-4 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-[.16em] text-cyan-300">
-                  Spatial context
-                </div>
-
-                <div className="mt-1 text-sm font-semibold">
-                  Koordinat & Administrasi
-                </div>
-              </div>
-
-              <span className="rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] text-emerald-300">
-                {gpsState === "ready" ? "GPS ACTIVE" : gpsState.toUpperCase()}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              {[
-                ["Latitude", position?.[0]?.toFixed(7) || "—"],
-                ["Longitude", position?.[1]?.toFixed(7) || "—"],
-                [
-                  "Akurasi GPS",
-                  accuracy != null ? `±${Math.round(accuracy)} meter` : "—",
-                ],
-                ["DAS", admin.das || "Belum terpetakan"],
-              ].map(([label, value]) => (
-                <div
-                  key={label}
-                  className="rounded-xl border border-slate-800 bg-slate-950/20 p-3"
-                >
-                  <div className="text-[10px] text-slate-500">{label}</div>
-
-                  <div className="mt-1 text-xs font-semibold">{value}</div>
-                </div>
-              ))}
-
-              <div className="rounded-xl border border-slate-800 bg-slate-950/20 p-3 md:col-span-2">
-                <div className="text-[10px] text-slate-500">
-                  Wilayah Administratif
-                </div>
-
-                <div className="mt-1 text-xs leading-5 text-slate-200">
-                  {address}
-                </div>
-              </div>
-            </div>
-          </div>
-
-        </section>
-
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_.8fr]">
-          
-
-          <div className="rounded-2xl border border-cyan-500/20 bg-[#08172a] p-4 shadow-xl">
-            <div className="text-[10px] font-bold uppercase tracking-[.16em] text-cyan-300">
-              SIMITI · Data Kejadian
-            </div>
-            <div className="mt-1 text-sm font-semibold">
-              Kejadian Terdekat
-            </div>
-            <div className="mt-1 text-[10px] text-slate-400">
-              Diurutkan berdasarkan jarak dari koordinat lokasi terpilih
-            </div>
-
-            {nearbyIncidents.length > 0 ? (
-              <div className="mt-4 space-y-3">
-                {nearbyIncidents.map((incident, index) => (
-                  <div
-                    key={`${incident.id}-${index}`}
-                    className="rounded-xl border border-slate-700/70 bg-slate-950/40 p-3"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-400/10 text-cyan-300">
-                        <MapPin size={17} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs font-bold text-slate-100">
-                          {incident.title || incident.category || `Kejadian #${incident.id}`}
-                        </div>
-                        {incident.category && incident.title && (
-                          <div className="mt-1 text-[10px] text-cyan-200">
-                            {incident.category}
-                          </div>
-                        )}
-                        {(incident.date || incident.location || incident.das) && (
-                          <div className="mt-2 space-y-1 text-[10px] text-slate-400">
-                            {incident.date && (
-                              <div>
-                                Tanggal: {String(incident.date).slice(0, 10)}
-                              </div>
-                            )}
-                            {incident.location && (
-                              <div>Lokasi: {incident.location}</div>
-                            )}
-                            {incident.das && (
-                              <div>DAS: {incident.das}</div>
-                            )}
-                          </div>
-                        )}
-                        <div className="mt-2 text-xs font-bold text-cyan-200">
-                          {incident.distanceMeters != null
-                            ? formatDistance(incident.distanceMeters)
-                            : "Jarak tidak tersedia"}
-                        </div>
-                        {typeof incident.latitude === "number" &&
-                          typeof incident.longitude === "number" && (
-                            <div className="mt-1 break-all text-[9px] text-slate-500">
-                              {incident.latitude.toFixed(6)}, {incident.longitude.toFixed(6)}
-                            </div>
-                          )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="mt-4 rounded-xl border border-dashed border-slate-700 p-5 text-center text-xs text-slate-400">
-                {proximityState === "loading"
-                  ? "Memuat kejadian dari database SIMITI..."
-                  : proximityState === "error"
-                    ? "Data kejadian belum dapat dimuat. Periksa koneksi API SIMITI."
-                    : "Belum ada data kejadian berkoordinat yang dikembalikan untuk lokasi ini."}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="grid grid-cols-1 gap-4">
-          <div className="overflow-hidden rounded-2xl border border-emerald-500/20 bg-[#08172a] shadow-xl shadow-emerald-950/10">
-            <div className="border-b border-slate-800/80 px-4 py-3.5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-[10px] font-bold uppercase tracking-[.16em] text-emerald-300">
-                    Mitigation proximity
-                  </div>
-                  <div className="mt-1 text-sm font-semibold text-slate-100">
-                    Mitigasi Terdekat
-                  </div>
-                  <div className="mt-1 text-[10px] leading-4 text-slate-500">
-                    Jalur dari posisi GPS Anda menuju lokasi mitigasi terdekat.
-                  </div>
-                </div>
-                <span className="shrink-0 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[9px] font-bold text-emerald-300">
-                  {nearbyMitigations.length} lokasi
-                </span>
-              </div>
-            </div>
-
-            {nearestMitigation && position ? (
-              <>
-                <div className="relative h-[310px] overflow-hidden border-b border-slate-800/80 bg-slate-950">
-                  <MapContainer
-                    center={[
-                      nearestMitigation.latitude,
-                      nearestMitigation.longitude,
-                    ]}
-                    zoom={15}
-                    minZoom={11}
-                    scrollWheelZoom={false}
-                    dragging
-                    className="h-full w-full"
-                  >
-                    <TileLayer
-                      attribution="&copy; OpenStreetMap contributors"
-                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    />
-                    <MapResize />
-                    <MitigationRoute
-                      position={position}
-                      destination={[
-                        nearestMitigation.latitude,
-                        nearestMitigation.longitude,
-                      ]}
-                    />
-                  </MapContainer>
-
-                  <div className="pointer-events-none absolute left-3 top-3 z-[500] rounded-xl border border-slate-700/80 bg-[#071426]/94 px-3 py-2 shadow-xl backdrop-blur-md">
-                    <div className="text-[9px] font-bold uppercase tracking-[.14em] text-slate-500">
-                      Rute mitigasi
-                    </div>
-                    <div className="mt-0.5 text-[11px] font-semibold text-slate-100">
-                      GPS Anda → Tujuan
-                    </div>
-                  </div>
-
-                  <div className="pointer-events-none absolute right-3 top-3 z-[500] rounded-xl border border-emerald-500/20 bg-emerald-950/80 px-3 py-2 text-right shadow-xl backdrop-blur-md">
-                    <div className="text-[9px] uppercase tracking-wider text-emerald-300/80">
-                      Jarak
-                    </div>
-                    <div className="mt-0.5 text-sm font-black text-emerald-200">
-                      {formatDistance(nearestMitigation.distanceMeters)}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-[9px] font-bold uppercase tracking-[.14em] text-slate-500">
-                        Tujuan mitigasi
-                      </div>
-                      <div className="mt-1 text-sm font-bold leading-5 text-slate-100">
-                        {nearestMitigation.nama_kegiatan}
-                      </div>
-                    </div>
-                    <div className="shrink-0 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-center">
-                      <div className="text-[9px] uppercase tracking-wider text-emerald-300/70">
-                        Status
-                      </div>
-                      <div className="mt-0.5 text-[10px] font-bold text-emerald-200">
-                        {nearestMitigation.status || "Tersedia"}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/25 p-3">
-                      <div className="text-[9px] uppercase tracking-wider text-slate-500">
-                        Jenis kegiatan
-                      </div>
-                      <div className="mt-1 text-[11px] font-semibold text-slate-200">
-                        {nearestMitigation.jenis_kegiatan || "Kegiatan mitigasi"}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/25 p-3">
-                      <div className="text-[9px] uppercase tracking-wider text-slate-500">
-                        Jarak dari GPS
-                      </div>
-                      <div className="mt-1 text-[11px] font-semibold text-emerald-300">
-                        {formatDistance(nearestMitigation.distanceMeters)}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-2 rounded-xl border border-slate-800 bg-slate-950/25 p-3">
-                    <div className="text-[9px] uppercase tracking-wider text-slate-500">
-                      Area
-                    </div>
-                    <div className="mt-1 text-[10px] leading-4 text-slate-300">
-                      {mitigationAddress(nearestMitigation) ||
-                        "Lokasi administratif belum tersedia"}
-                    </div>
-                  </div>
-
-                  {nearbyMitigations.length > 1 && (
-                    <div className="mt-4 border-t border-slate-800/80 pt-3">
-                      <div className="mb-2 flex items-center justify-between">
-                        <span className="text-[9px] font-bold uppercase tracking-[.14em] text-slate-500">
-                          Lokasi lainnya
-                        </span>
-                        <span className="text-[9px] text-slate-600">
-                          {nearbyMitigations.length - 1} lokasi
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-1 gap-2">
-                        {nearbyMitigations.slice(1, 4).map((item) => (
-                          <div
-                            key={String(item.id)}
-                            className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/20 px-3 py-2.5"
-                          >
-                            <div className="min-w-0">
-                              <div className="truncate text-[10px] font-semibold text-slate-300">
-                                {item.nama_kegiatan}
-                              </div>
-                              <div className="mt-0.5 truncate text-[9px] text-slate-600">
-                                {item.jenis_kegiatan || "Kegiatan mitigasi"}
-                              </div>
-                            </div>
-                            <div className="shrink-0 text-[10px] font-bold text-emerald-300">
-                              {formatDistance(item.distanceMeters)}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="p-4">
-                <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/20 p-6 text-center">
-                  <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/10 text-lg text-emerald-300">
-                    ⌖
-                  </div>
-                  <div className="mt-3 text-xs font-semibold text-slate-300">
-                    {proximityState === "loading"
-                      ? "Mencari lokasi mitigasi terdekat…"
-                      : "Belum ada lokasi mitigasi terdekat."}
-                  </div>
-                  <div className="mt-1 text-[10px] leading-4 text-slate-600">
-                    Peta dan jalur akan tampil otomatis setelah koordinat GPS
-                    serta data mitigasi tersedia.
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
-
-        {nearestSafeLocation && (
-          <section className="rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-4 shadow-xl">
-            <div className="text-[10px] font-bold uppercase tracking-[.16em] text-emerald-300">
-              Rekomendasi keselamatan
-            </div>
-            <div className="mt-2 text-sm font-semibold text-slate-100">
-              Dari titik GPS Anda, lokasi aman terdekat adalah{" "}
-              <span className="text-emerald-200">
-                {nearestSafeLocation.nama_kegiatan}
-              </span>{" "}
-              ({formatDistance(nearestSafeLocation.distanceMeters)}).
-            </div>
-            <div className="mt-1 text-xs text-slate-400">
-              Titik rekomendasi sudah diverifikasi terhadap layer BNPB yang
-              digunakan.
-            </div>
-          </section>
-        )}
-
-        {nearestMitigation && (
-          <section className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 shadow-xl">
-            <div className="text-[10px] font-bold uppercase tracking-[.16em] text-emerald-300">
-              Nearest mitigation recommendation
-            </div>
-            <div className="mt-2 text-sm font-semibold text-slate-100">
-              {nearestMitigation.nama_kegiatan} berada{" "}
-              {formatDistance(nearestMitigation.distanceMeters)} dari posisi
-              Anda.
-            </div>
-            <div className="mt-1 text-xs text-slate-400">
-              {mitigationAddress(nearestMitigation) ||
-                "Lokasi administratif belum tersedia"}
-            </div>
-          </section>
-        )}
-
-        <section className="rounded-2xl border border-slate-800 bg-[#08172a] p-4 shadow-xl">
-          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[.16em] text-cyan-300">
-                Enterprise decision support
-              </div>
-              <div className="mt-1 text-sm font-semibold text-slate-100">
-                Rekomendasi Mitigasi
-              </div>
-              <p className="mt-1 max-w-3xl text-[11px] leading-5 text-slate-400">
-                Rekomendasi berdasarkan lokasi dan hasil analisis yang tersedia dari sistem.
-              </p>
-            </div>
-            <span className="w-fit rounded-full border border-slate-700 px-2.5 py-1 text-[10px] text-slate-400">
-              {position ? "Lokasi terdeteksi" : "Menunggu GPS"}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {recommendations.map((item, idx) => (
-              <div
-                key={`${item.title}-${idx}`}
-                className="min-w-0 rounded-xl border border-slate-800 bg-slate-950/20 p-4"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-400/10 text-emerald-300">
-                    ✓
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="text-sm font-semibold text-slate-100">
-                        {item.title}
-                      </div>
-                      <span className="rounded-md bg-amber-400/10 px-2 py-1 text-[9px] font-bold text-amber-300">
-                        {item.priority || "—"}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs leading-5 text-slate-400">
-                      {item.detail}
-                    </p>
-                  </div>
-                </div>
+                <span className="simiti-risk-label">{risk.label}</span>
+                <span className="simiti-risk-track"><i style={{ width: `${risk.value}%`, background: risk.color }} /></span>
+                <b className={`simiti-risk-pill ${risk.status.toLowerCase()}`}>{risk.status}</b>
               </div>
             ))}
-
-            {!recommendations.length && (
-              <div className="rounded-xl border border-dashed border-slate-700 p-6 text-center text-xs text-slate-500 md:col-span-2">
-                Belum ada rekomendasi untuk lokasi ini. Pastikan GPS aktif dan layanan analisis tersedia.
-              </div>
-            )}
+            <div className="simiti-risk-note"><Info size={18} /> Status berdasarkan data dummy yang mencakup titik GPS.</div>
           </div>
-        </section>
+        </article>
+      </section>
 
-        <footer className="flex flex-col gap-1 border-t border-slate-800/80 pt-3 text-[10px] text-slate-500 md:flex-row md:items-center md:justify-between">
-          <span>
-            {position
-              ? `GPS ${position[0].toFixed(6)}, ${position[1].toFixed(6)}`
-              : "GPS belum tersedia"}
+      <section className="simiti-info-grid">
+        <article className="simiti-info-card weather-card">
+          <h3><CloudSun size={28} /> Cuaca Saat Ini</h3>
+          <div className="simiti-weather-metrics">
+            <div><Thermometer className="temperature" size={30} /><span>Suhu</span><b>{data.weather.temperature} Â°C</b></div>
+            <div><Droplets size={30} /><span>Kelembapan</span><b>{data.weather.humidity} %</b></div>
+            <div><Wind size={30} /><span>Kecepatan Angin</span><b>{data.weather.windSpeed} km/jam</b></div>
+          </div>
+        </article>
+        <article className="simiti-info-card coordinate-card">
+          <h3><MapPin size={27} fill="currentColor" /> Koordinat & Administrasi</h3>
+          <dl>
+            <div><dt>Latitude</dt><dd>: {formatCoordinate(position[0])}</dd></div>
+            <div><dt>Longitude</dt><dd>: {formatCoordinate(position[1])}</dd></div>
+            <div><dt>Akurasi GPS</dt><dd>: Â±{data.location.accuracy} meter</dd></div>
+            <div><dt>Kelurahan/Desa</dt><dd>: {adminArea?.kelurahan || adminArea?.desa || "Belum tersedia"}</dd></div>
+            <div><dt>Kecamatan</dt><dd>: {adminArea?.kecamatan || "Belum tersedia"}</dd></div>
+            <div><dt>Kabupaten/Kota</dt><dd>: {adminArea?.kabupaten || "Belum tersedia"}</dd></div>
+            <div><dt>Provinsi</dt><dd>: {adminArea?.provinsi || "Belum tersedia"}</dd></div>
+            <div><dt>DAS</dt><dd>: {adminArea?.das || "Belum tersedia"}</dd></div>
+          </dl>
+          <small className="simiti-gps-message">{gpsMessage}</small>
+        </article>
+        <article className="simiti-info-card incident-card">
+          <h3><BellRing size={27} /> Kejadian Terdekat</h3>
+          <div className="simiti-incident-list">
+            {data.incidents.map((item) => (
+              <div className="simiti-incident-item" key={item.id}>
+                {item.image ? <img src={item.image} alt="" /> : <span className="simiti-incident-placeholder"><AlertTriangle size={18} /></span>}<span>{item.title}</span><b>{item.distanceKm.toFixed(1).replace(".", ",")} km</b><ChevronRight size={20} />
+              </div>
+            ))}
+          </div>
+        </article>
+      </section>
 
-            {" • "}
-
-            {assessment?.source || "SIMITI API"}
-          </span>
-
-          <span>
-            {assessment?.generatedAt
-              ? `Risk diperbarui ${new Date(
-                  assessment.generatedAt,
-                ).toLocaleString("id-ID")}`
-              : "Menunggu data analisis"}
-          </span>
-        </footer>
-      </main>
-    </div>
+      <section className="simiti-mitigation-panel">
+        <div className="simiti-mitigation-heading"><ShieldCheck size={31} /><h3>Mitigasi Terdekat</h3><span>REKOMENDASI</span></div>
+        <div className="simiti-mitigation-body">
+          <div className="simiti-mitigation-map">
+            <div className="simiti-route-label"><Navigation size={20} /> Jarak: {data.mitigation.distanceKm.toFixed(1).replace(".", ",")} km <i /> Waktu: Â± {data.mitigation.etaMinutes} menit</div>
+            <div className="simiti-route-mini"><span className="route-start" /><span className="route-line" /><span className="route-end"><MapPin size={27} fill="currentColor" /></span></div>
+          </div>
+          <div className="simiti-mitigation-detail">
+            <Building2 size={48} />
+            <div className="simiti-mitigation-text"><h4>{data.mitigation.name}</h4><p>Alamat <b>: {data.mitigation.address}</b></p><p>Koordinat <b>: {data.mitigation.coordinates.map(formatCoordinate).join(", ")}</b></p><p>Jenis <b>: {data.mitigation.type}</b></p></div>
+            <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${data.mitigation.coordinates.join(",")}`, "_blank", "noopener,noreferrer")}><Navigation size={20} fill="currentColor" /> Lihat Rute</button>
+          </div>
+        </div>
+      </section>
+      <footer className="simiti-location-footer"><span><i /> GPS AKTIF Â· DATA API SIMITI</span><span>Terakhir diperbarui {lastUpdated.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })} WIB</span></footer>
+    </main>
   );
 }
+
