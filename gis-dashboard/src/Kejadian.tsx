@@ -140,43 +140,6 @@ const TYPE_TO_CATEGORY: Record<string, string> = {
   abrasi: "Abrasi",
 };
 
-const PROVINCES = [
-  "All Lokasi",
-  "Aceh",
-  "Sumatera Utara",
-  "Sumatera Barat",
-  "Riau",
-  "Jambi",
-  "Sumatera Selatan",
-  "Bengkulu",
-  "Lampung",
-  "Kepulauan Bangka Belitung",
-  "Kepulauan Riau",
-  "DKI Jakarta",
-  "Jawa Barat",
-  "Jawa Tengah",
-  "DI Yogyakarta",
-  "Jawa Timur",
-  "Banten",
-  "Bali",
-  "Nusa Tenggara Barat",
-  "Nusa Tenggara Timur",
-  "Kalimantan Barat",
-  "Kalimantan Tengah",
-  "Kalimantan Selatan",
-  "Kalimantan Timur",
-  "Kalimantan Utara",
-  "Sulawesi Utara",
-  "Sulawesi Tengah",
-  "Sulawesi Selatan",
-  "Sulawesi Tenggara",
-  "Gorontalo",
-  "Sulawesi Barat",
-  "Maluku",
-  "Maluku Utara",
-  "Papua",
-  "Papua Barat",
-];
 
 /* =========================================================
    HELPERS
@@ -299,6 +262,28 @@ const normalize = (raw: any, index: number): Incident => {
 
     image,
   };
+};
+
+/* =========================================================
+   INCIDENT IMAGE RESOLVER
+========================================================= */
+
+const resolveIncidentImage = (incident: Incident): string => {
+  const candidate =
+    incident.image ||
+    incident.thumbnail_path ||
+    incident.thumbnail ||
+    (Array.isArray(incident.images_paths) ? incident.images_paths[0] : "") ||
+    "";
+
+  if (!candidate) return "";
+
+  const value = String(candidate);
+  if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("//") || value.startsWith("data:")) {
+    return value;
+  }
+
+  return `${API_URL}${value.startsWith("/") ? "" : "/"}${value}`;
 };
 
 /* =========================================================
@@ -507,7 +492,24 @@ const Kebencanaan: React.FC = () => {
 
   const [search, setSearch] = useState("");
 
-  const [location, setLocation] = useState("All Lokasi");
+
+  const [activeTab, setActiveTab] = useState<"administrasi" | "das">("administrasi");
+  const [adminLevel, setAdminLevel] = useState<"provinsi" | "kabupaten" | "kecamatan" | "kelurahan">("provinsi");
+  const [selectedAreas, setSelectedAreas] = useState<any[]>([]);
+  const [areaSearchQuery, setAreaSearchQuery] = useState("");
+  const [areaSearchResults, setAreaSearchResults] = useState<any[]>([]);
+  const [showAreaSearchDropdown, setShowAreaSearchDropdown] = useState(false);
+  const [areaSearchLoading, setAreaSearchLoading] = useState(false);
+  const [selectedDas, setSelectedDas] = useState<any | null>(null);
+  const [dasSearchQuery, setDasSearchQuery] = useState("");
+  const [dasSearchResults, setDasSearchResults] = useState<any[]>([]);
+  const [showDasSearchDropdown, setShowDasSearchDropdown] = useState(false);
+  const [dasSearchLoading, setDasSearchLoading] = useState(false);
+  const areaSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dasSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const areaSearchRequestRef = useRef(0);
+  const dasSearchRequestRef = useRef(0);
+  const boundaryLayerRef = useRef<any>(null);
 
   const [category, setCategory] = useState("Semua");
 
@@ -592,9 +594,16 @@ const Kebencanaan: React.FC = () => {
           .toLowerCase()
           .includes(q);
 
-      const hitLocation =
-        location === "All Lokasi" ||
-        x.location.toLowerCase().includes(location.toLowerCase());
+      const selectedArea = selectedAreas.length ? selectedAreas[selectedAreas.length - 1] : null;
+      const fields = [x.kel_desa, x.kelurahan, x.desa, x.kecamatan, x.kab_kota,
+        x.kabupaten, x.kota, x.provinsi, x.province, x.location, x.lokasi, x.address]
+        .filter(Boolean).map((v: any) => String(v).toLowerCase());
+      const areaName = selectedArea ? String(selectedArea.label || selectedArea.kel_desa ||
+        selectedArea.kecamatan || selectedArea.kab_kota || selectedArea.provinsi || "").toLowerCase() : "";
+      const hitAdmin = !selectedArea || fields.some((v: string) => v.includes(areaName));
+      const dasName = String(selectedDas?.nama_das || selectedDas?.label || "").toLowerCase();
+      const hitDas = !selectedDas || String(x.das || "").toLowerCase().includes(dasName);
+      const hitLocation = hitAdmin && hitDas;
 
       const hitCategory =
         category === "Semua" ||
@@ -621,7 +630,202 @@ const Kebencanaan: React.FC = () => {
 
       return new Date(b.date).getTime() - new Date(a.date).getTime();
     });
-  }, [incidents, search, location, category, types, sort]);
+  }, [incidents, search, selectedAreas, selectedDas, category, types, sort]);
+
+
+  // Wilayah analisis: API administrasi dan DAS sama seperti Kerawanan.tsx.
+  const clearBoundary = () => {
+    if (mapRefInstance.current && boundaryLayerRef.current) {
+      try { mapRefInstance.current.removeLayer(boundaryLayerRef.current); } catch {}
+    }
+    boundaryLayerRef.current = null;
+  };
+  const showBoundary = (geom: any, label: string, isDas: boolean) => {
+    const map = mapRefInstance.current;
+    if (!map || !window.L || !geom) return;
+
+    // API dapat mengirim GeoJSON sebagai object, Feature, FeatureCollection,
+    // atau string JSON. Normalisasi tanpa mengubah data/filter yang sudah ada.
+    let geojson = geom;
+    try {
+      if (typeof geojson === "string") geojson = JSON.parse(geojson);
+      if (geojson?.geometry && !geojson?.type) geojson = geojson.geometry;
+      if (typeof geojson === "string") geojson = JSON.parse(geojson);
+    } catch (error) {
+      console.error("Geometri wilayah tidak dapat dibaca:", error);
+      return;
+    }
+    if (!geojson || typeof geojson !== "object") return;
+
+    clearBoundary();
+    let layer: any;
+    try {
+      const data = geojson.type === "Feature" || geojson.type === "FeatureCollection"
+        ? geojson
+        : { type: "Feature", geometry: geojson, properties: { label } };
+      layer = window.L.geoJSON(data, {
+        style: isDas
+          ? { color: "#2563eb", weight: 3, fillColor: "#93c5fd", fillOpacity: .10 }
+          : { color: "#059669", weight: 2.5, fillColor: "#34d399", fillOpacity: .06, dashArray: "7 4" }
+      }).addTo(map);
+    } catch (error) {
+      console.error("Gagal menampilkan batas wilayah:", error);
+      return;
+    }
+
+    boundaryLayerRef.current = layer;
+    const bounds = layer.getBounds?.();
+    if (bounds?.isValid?.()) {
+      // Pastikan ukuran container Leaflet sudah terukur sebelum zoom.
+      map.invalidateSize?.({ pan: false });
+      const maxZoom = isDas ? 12 : 14;
+      window.requestAnimationFrame(() => {
+        if (mapRefInstance.current !== map || !bounds.isValid()) return;
+        map.fitBounds(bounds, {
+          paddingTopLeft: [36, 36],
+          paddingBottomRight: [36, 36],
+          maxZoom,
+          animate: true,
+          duration: 0.7,
+        });
+      });
+    } else {
+      console.warn(`Batas geometri ${label} tidak memiliki bounds yang valid.`);
+    }
+  };
+  const searchAreas = async (query: string) => {
+    const q = query.trim(), request = ++areaSearchRequestRef.current;
+    if (q.length < 2) { setAreaSearchResults([]); setShowAreaSearchDropdown(false); return; }
+    const params = new URLSearchParams({ query: q, level: adminLevel });
+    const latest = (level: string) => [...selectedAreas].reverse().find(a => a.level === level);
+    if (adminLevel === "kabupaten") { const p=latest("provinsi"); if(p?.provinsi) params.set("provinsi",p.provinsi); }
+    if (adminLevel === "kecamatan") { const p=latest("kabupaten"); if(p?.provinsi) params.set("provinsi",p.provinsi); if(p?.kab_kota) params.set("kab_kota",p.kab_kota); }
+    if (adminLevel === "kelurahan") { const p=latest("kecamatan"); if(p?.provinsi) params.set("provinsi",p.provinsi); if(p?.kab_kota) params.set("kab_kota",p.kab_kota); if(p?.kecamatan) params.set("kecamatan",p.kecamatan); }
+    setAreaSearchLoading(true);
+    try {
+      const res=await fetch(`${API_URL}/api/areas/search?${params}`,{headers:{Accept:"application/json"}});
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data=await res.json(); if(request!==areaSearchRequestRef.current) return;
+      const rows=Array.isArray(data)?data:[]; setAreaSearchResults(rows); setShowAreaSearchDropdown(rows.length>0);
+    } catch(e) { if(request===areaSearchRequestRef.current){console.error("Pencarian administrasi gagal:",e);setAreaSearchResults([]);setShowAreaSearchDropdown(false);} }
+    finally { if(request===areaSearchRequestRef.current) setAreaSearchLoading(false); }
+  };
+  const handleAreaSearchChange = (value: string) => {
+    setAreaSearchQuery(value); if(areaSearchTimerRef.current) clearTimeout(areaSearchTimerRef.current);
+    if(value.trim().length<2){areaSearchRequestRef.current++;setAreaSearchResults([]);setShowAreaSearchDropdown(false);return;}
+    areaSearchTimerRef.current=setTimeout(()=>void searchAreas(value),280);
+  };
+  // Gunakan endpoint bounds PostGIS, bukan mengandalkan geom dari hasil search.
+  // Endpoint mengembalikan [[minLat,minLng],[maxLat,maxLng]].
+  const fitMapToApiBounds = (rawBounds: any, isDas: boolean) => {
+    const map = mapRefInstance.current;
+    if (!map || !window.L || !Array.isArray(rawBounds) || rawBounds.length !== 2) return false;
+    try {
+      const bounds = window.L.latLngBounds(rawBounds);
+      if (!bounds.isValid()) return false;
+      map.invalidateSize?.({ pan: false });
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          if (mapRefInstance.current !== map || !bounds.isValid()) return;
+          map.fitBounds(bounds, {
+            padding: [36, 36],
+            maxZoom: isDas ? 11 : 14,
+            animate: true,
+            duration: 0.8,
+          });
+        });
+      });
+      return true;
+    } catch (error) {
+      console.error("Gagal zoom ke batas wilayah:", error);
+      return false;
+    }
+  };
+
+  const handleAreaSelect = async (area: any) => {
+    const order=["provinsi","kabupaten","kecamatan","kelurahan"], level=area.level||adminLevel, idx=order.indexOf(level);
+    const nextSelectedAreas = [...selectedAreas.filter(a=>order.indexOf(a.level)<idx),area];
+    setSelectedAreas(nextSelectedAreas);
+    setSelectedDas(null);setActiveTab("administrasi");
+    setAdminLevel(level==="provinsi"?"kabupaten":level==="kabupaten"?"kecamatan":"kelurahan");
+    setAreaSearchQuery("");setAreaSearchResults([]);setShowAreaSearchDropdown(false);
+    setDasSearchQuery("");setDasSearchResults([]);setShowDasSearchDropdown(false);
+
+    // Tetap tampilkan outline jika hasil search memang menyertakan GeoJSON.
+    if (area.geom) showBoundary(area.geom,area.label||area.nama||area.name||"Wilayah",false);
+
+    try {
+      const response = await fetch(`${API_URL}/api/areas/bounds`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ selectedAreas: nextSelectedAreas }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error || `HTTP ${response.status}`);
+      if (!fitMapToApiBounds(result?.bounds, false)) {
+        console.warn("Bounds administrasi dari API tidak valid:", result);
+        if (area.geom) showBoundary(area.geom,area.label||area.nama||area.name||"Wilayah",false);
+      }
+    } catch (error) {
+      console.error("Gagal mengambil bounds administrasi:", error);
+      // Fallback ke GeoJSON jika endpoint bounds tidak tersedia.
+      if (area.geom) showBoundary(area.geom,area.label||area.nama||area.name||"Wilayah",false);
+    }
+  };
+  const searchDas = async (query: string) => {
+    const q=query.trim(), request=++dasSearchRequestRef.current;
+    if(q.length<2){setDasSearchResults([]);setShowDasSearchDropdown(false);return;}
+    setDasSearchLoading(true);
+    try{
+      const res=await fetch(`${API_URL}/api/das/search?query=${encodeURIComponent(q)}`,{headers:{Accept:"application/json"}});
+      if(!res.ok)throw new Error(`HTTP ${res.status}`);
+      const data=await res.json();if(request!==dasSearchRequestRef.current)return;
+      const rows=Array.isArray(data)?data:[];setDasSearchResults(rows);setShowDasSearchDropdown(rows.length>0);
+    }catch(e){if(request===dasSearchRequestRef.current){console.error("Pencarian DAS gagal:",e);setDasSearchResults([]);setShowDasSearchDropdown(false);}}
+    finally{if(request===dasSearchRequestRef.current)setDasSearchLoading(false);}
+  };
+  const handleDasSearchChange=(value:string)=>{
+    setDasSearchQuery(value);if(dasSearchTimerRef.current)clearTimeout(dasSearchTimerRef.current);
+    if(value.trim().length<2){dasSearchRequestRef.current++;setDasSearchResults([]);setShowDasSearchDropdown(false);return;}
+    dasSearchTimerRef.current=setTimeout(()=>void searchDas(value),280);
+  };
+  const handleDasSelect=async (das:any)=>{
+    setSelectedDas(das);setSelectedAreas([]);setActiveTab("das");
+    setDasSearchQuery("");setDasSearchResults([]);setShowDasSearchDropdown(false);
+    setAreaSearchQuery("");setAreaSearchResults([]);setShowAreaSearchDropdown(false);
+
+    const dasName = das.nama_das || das.label || das.nama || das.name;
+    if (das.geom) showBoundary(das.geom,dasName||"DAS",true);
+    try {
+      const response = await fetch(`${API_URL}/api/das/bounds`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ selectedDas: [dasName] }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error || `HTTP ${response.status}`);
+      if (!fitMapToApiBounds(result?.bounds, true)) {
+        console.warn("Bounds DAS dari API tidak valid:", result);
+        if (das.geom) showBoundary(das.geom,dasName||"DAS",true);
+      }
+    } catch (error) {
+      console.error("Gagal mengambil bounds DAS:", error);
+      // Fallback ke GeoJSON jika endpoint bounds tidak tersedia.
+      if (das.geom) showBoundary(das.geom,dasName||"DAS",true);
+    }
+  };
+  const handleMainTabChange=(tab:"administrasi"|"das")=>{
+    setActiveTab(tab);clearBoundary();
+    if(tab==="administrasi"){setSelectedDas(null);setDasSearchQuery("");setDasSearchResults([]);setShowDasSearchDropdown(false);}
+    else{setSelectedAreas([]);setAreaSearchQuery("");setAreaSearchResults([]);setShowAreaSearchDropdown(false);}
+  };
+  const resetAreaFilter=()=>{
+    setSelectedAreas([]);setSelectedDas(null);setAreaSearchQuery("");setDasSearchQuery("");
+    setAreaSearchResults([]);setDasSearchResults([]);setShowAreaSearchDropdown(false);setShowDasSearchDropdown(false);
+    setAdminLevel("provinsi");clearBoundary();
+    const map=mapRefInstance.current;if(map&&window.L)map.fitBounds(window.L.latLngBounds([-11.5,93],[6.5,142.5]),{padding:[24,24],maxZoom:5});
+  };
+  useEffect(()=>()=>{if(areaSearchTimerRef.current)clearTimeout(areaSearchTimerRef.current);if(dasSearchTimerRef.current)clearTimeout(dasSearchTimerRef.current);areaSearchRequestRef.current++;dasSearchRequestRef.current++;},[]);
 
   /* =======================================================
      STATISTICS
@@ -703,7 +907,21 @@ const Kebencanaan: React.FC = () => {
          */
         const container = mapRef.current;
 
-        if ((container as any)._leaflet_id) {
+        /*
+         * Recovery untuk container yang masih menyimpan
+         * _leaflet_id dari hot-reload / mount sebelumnya.
+         * Jika instance React tidak memilikinya, ID lama
+         * tidak boleh membuat proses inisialisasi berhenti.
+         */
+        if ((container as any)._leaflet_id && !mapRefInstance.current) {
+          try {
+            delete (container as any)._leaflet_id;
+          } catch {
+            (container as any)._leaflet_id = undefined;
+          }
+        }
+
+        if (mapRefInstance.current) {
           return;
         }
 
@@ -713,7 +931,12 @@ const Kebencanaan: React.FC = () => {
         localMap = window.L.map(container, {
           zoomControl: false,
           preferCanvas: true,
+          zoomAnimation: true,
         });
+
+        // Simpan instance segera agar cleanup tetap dapat menemukannya
+        // jika proses penambahan tile / cluster mengalami kegagalan.
+        mapRefInstance.current = localMap;
 
         /*
          * Kalau component di-unmount
@@ -787,8 +1010,6 @@ const Kebencanaan: React.FC = () => {
         /*
          * SIMPAN INSTANCE
          */
-        mapRefInstance.current = localMap;
-
         clusterRef.current = cluster;
 
         /*
@@ -834,8 +1055,34 @@ const Kebencanaan: React.FC = () => {
           } catch (error) {
             console.warn("Leaflet invalidateSize dilewati:", error);
           }
-        }, 250);
+        }, 350);
+
+        // Recalculate map dimensions when responsive columns / focus mode change.
+        if (typeof ResizeObserver !== "undefined") {
+          const resizeObserver = new ResizeObserver(() => {
+            const currentMap = mapRefInstance.current;
+            if (!cancelled && currentMap && currentMap._loaded) {
+              try {
+                currentMap.invalidateSize({ animate: false, pan: false });
+              } catch (resizeError) {
+                console.warn("Leaflet resize dilewati:", resizeError);
+              }
+            }
+          });
+          resizeObserver.observe(container);
+          (container as any).__smitiMapResizeObserver = resizeObserver;
+        }
       } catch (error) {
+        // Jangan tinggalkan container dalam kondisi terkunci oleh _leaflet_id.
+        if (localMap) {
+          try {
+            localMap.off();
+            localMap.remove();
+          } catch {}
+        }
+        if (mapRefInstance.current === localMap) {
+          mapRefInstance.current = null;
+        }
         if (!cancelled) {
           console.error("Gagal menginisialisasi Leaflet:", error);
         }
@@ -877,6 +1124,13 @@ const Kebencanaan: React.FC = () => {
       /*
        * Bersihkan map.
        */
+      const currentContainer = mapRef.current;
+      const resizeObserver = currentContainer && (currentContainer as any).__smitiMapResizeObserver;
+      if (resizeObserver) {
+        try { resizeObserver.disconnect(); } catch {}
+        delete (currentContainer as any).__smitiMapResizeObserver;
+      }
+
       const currentMap = mapRefInstance.current;
 
       if (currentMap) {
@@ -1562,7 +1816,7 @@ const Kebencanaan: React.FC = () => {
         }
       `}</style>
 
-      <main className="mx-auto max-w-[1900px] px-3 py-4 sm:px-5 lg:px-7">
+      <main className="mx-auto w-full max-w-[2000px] px-3 py-3 sm:px-4 lg:px-5 2xl:px-6">
         {/* =================================================
             HEADER
         ================================================= */}
@@ -1643,32 +1897,66 @@ const Kebencanaan: React.FC = () => {
         </section>
 
         {/* =================================================
+            FILTER WORKSPACE
+        ================================================= */}
+        <div className="mt-3 min-w-0 space-y-3">
+        {/* =================================================
             FILTER
         ================================================= */}
 
-        <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="flex flex-col gap-2 xl:flex-row">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cari judul, lokasi, kategori, atau DAS..."
-              className="smiti-field flex-1"
-            />
-
-            <select
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              className="smiti-field xl:w-44"
-            >
-              {PROVINCES.map((x) => (
-                <option key={x}>{x}</option>
-              ))}
-            </select>
-
+        {!mapOnly && (
+        <section className="min-w-0 overflow-visible rounded-2xl border border-slate-200/90 bg-white p-3 shadow-[0_6px_20px_rgba(15,23,42,0.05)] sm:p-4">
+          <div className="w-full">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-400">Filter Wilayah</div>
+                <p className="mt-0.5 text-xs text-slate-500">Tentukan cakupan wilayah untuk melihat sebaran kejadian</p>
+              </div>
+              {(selectedAreas.length > 0 || selectedDas) && (
+                <button type="button" onClick={resetAreaFilter} className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-[10px] font-bold text-slate-500 transition hover:border-slate-300 hover:bg-slate-50">
+                  Reset wilayah
+                </button>
+              )}
+            </div>
+            <div>
+              <div className="mb-2 grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
+                <label className={`flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-lg px-2.5 transition-all duration-150 ${activeTab==="administrasi"?"border border-slate-200 bg-white text-slate-800 shadow-sm":"text-slate-500 hover:bg-white/70"}`}>
+                  <input type="radio" name="kejadianWilayahTab" checked={activeTab==="administrasi"} onChange={()=>handleMainTabChange("administrasi")} className="accent-emerald-600"/> <b className="text-xs">Administrasi</b>
+                </label>
+                <label className={`flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-lg px-2.5 transition-all duration-150 ${activeTab==="das"?"border border-slate-200 bg-white text-slate-800 shadow-sm":"text-slate-500 hover:bg-white/70"}`}>
+                  <input type="radio" name="kejadianWilayahTab" checked={activeTab==="das"} onChange={()=>handleMainTabChange("das")} className="accent-blue-600"/> <b className="text-xs">DAS</b>
+                </label>
+              </div>
+              <div className="overflow-visible rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+                  <div><div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Wilayah Analisis</div><div className="text-xs font-semibold text-slate-700">{activeTab==="administrasi"?"Administrasi":"Daerah Aliran Sungai"}</div></div>
+                  <span className={`rounded-full px-3 py-1 text-[9px] font-bold ${activeTab==="administrasi"?"bg-emerald-50 text-emerald-700":"bg-blue-50 text-blue-700"}`}>{activeTab==="administrasi"?"ADMIN":"DAS"}</span>
+                </div>
+                <div className="p-2.5 sm:p-3">
+                {activeTab==="administrasi"?<div className="grid grid-cols-[minmax(110px,.8fr)_minmax(0,1.5fr)] gap-2">
+                  <select value={adminLevel} onChange={e=>{setAdminLevel(e.target.value as typeof adminLevel);if(areaSearchTimerRef.current)clearTimeout(areaSearchTimerRef.current);areaSearchRequestRef.current++;setAreaSearchQuery("");setAreaSearchResults([]);setShowAreaSearchDropdown(false);}} className="h-10 min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs">
+                    <option value="provinsi">Provinsi</option><option value="kabupaten">Kabupaten/Kota</option><option value="kecamatan">Kecamatan</option><option value="kelurahan">Kelurahan/Desa</option>
+                  </select>
+                  <div className="relative"><input value={areaSearchQuery} onChange={e=>handleAreaSearchChange(e.target.value)} onFocus={()=>{if(areaSearchResults.length)setShowAreaSearchDropdown(true);}} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();if(areaSearchTimerRef.current)clearTimeout(areaSearchTimerRef.current);void searchAreas(areaSearchQuery);}if(e.key==="Escape")setShowAreaSearchDropdown(false);}} autoComplete="off" className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs" placeholder={`Cari ${adminLevel==="kabupaten"?"kabupaten/kota":adminLevel==="kelurahan"?"kelurahan/desa":adminLevel}...`}/>
+                    {showAreaSearchDropdown&&<div className="absolute z-[2400] top-[calc(100%+4px)] left-0 right-0 max-h-56 overflow-y-auto rounded-xl border bg-white shadow-xl">{areaSearchResults.map((a:any,i:number)=><button key={a.id||a.kode||i} type="button" onClick={()=>handleAreaSelect(a)} className="block w-full border-b px-3 py-2 text-left hover:bg-emerald-50"><b className="block text-xs">{a.label||a.nama||a.name||"Wilayah"}</b><small className="text-slate-400">{a.level||adminLevel}{a.provinsi?` • ${a.provinsi}`:""}</small></button>)}</div>}
+                    {areaSearchLoading&&<small className="absolute right-2 top-3 text-slate-400">Mencari...</small>}
+                  </div>
+                </div>:<div className="relative"><input value={dasSearchQuery} onChange={e=>handleDasSearchChange(e.target.value)} onFocus={()=>{if(dasSearchResults.length)setShowDasSearchDropdown(true);}} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();if(dasSearchTimerRef.current)clearTimeout(dasSearchTimerRef.current);void searchDas(dasSearchQuery);}if(e.key==="Escape")setShowDasSearchDropdown(false);}} autoComplete="off" className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs" placeholder="Cari nama DAS..."/>
+                  {showDasSearchDropdown&&<div className="absolute z-[2400] top-[calc(100%+4px)] left-0 right-0 max-h-56 overflow-y-auto rounded-xl border bg-white shadow-xl">{dasSearchResults.map((d:any,i:number)=><button key={d.id||d.kode||i} type="button" onClick={()=>handleDasSelect(d)} className="block w-full border-b px-3 py-2 text-left hover:bg-blue-50"><b className="block text-xs">{d.nama_das||d.label||d.nama||d.name||"DAS"}</b><small className="text-slate-400">Daerah Aliran Sungai</small></button>)}</div>}
+                  {dasSearchLoading&&<small className="absolute right-2 top-3 text-slate-400">Mencari...</small>}
+                </div>}
+                {(selectedAreas.length>0||selectedDas)&&<div className="mt-2 flex flex-wrap items-center gap-1"><span className={`rounded-full px-2 py-1 text-[10px] ${selectedDas?"bg-blue-50 text-blue-700":"bg-emerald-50 text-emerald-700"}`}>{selectedDas?(selectedDas.nama_das||selectedDas.label):selectedAreas.map(a=>a.label||a.nama||a.name).join(" › ")}</span><button onClick={resetAreaFilter} className="ml-auto text-[10px] text-slate-500">Hapus wilayah ×</button></div>}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-2 border-t border-slate-100 pt-3 sm:grid-cols-3">
+            <div className="min-w-0 flex-1">
+              <label className="mb-1 block text-[9px] font-bold uppercase tracking-wider text-slate-400">Kategori Kejadian</label>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="smiti-field xl:w-52"
+              className="smiti-field w-full"
             >
               <option>Semua</option>
 
@@ -1678,11 +1966,14 @@ const Kebencanaan: React.FC = () => {
               <option>Kekeringan</option>
               <option>Abrasi</option>
             </select>
+            </div>
 
+            <div className="w-full">
+              <label className="mb-1 block text-[9px] font-bold uppercase tracking-wider text-slate-400">Urutkan</label>
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value)}
-              className="smiti-field xl:w-36"
+              className="smiti-field w-full"
             >
               <option value="newest">Terbaru</option>
 
@@ -1692,22 +1983,22 @@ const Kebencanaan: React.FC = () => {
 
               <option value="alpha">Alfabet</option>
             </select>
+            </div>
 
             <button
               onClick={() => {
-                setSearch("");
-                setLocation("All Lokasi");
+                resetAreaFilter();
                 setCategory("Semua");
                 setTypes([]);
                 setSort("newest");
               }}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-[10px] font-black text-slate-500"
+              className="h-10 w-full rounded-xl border border-slate-200 px-4 text-[10px] font-bold text-slate-500 transition hover:border-slate-300 hover:bg-slate-50"
             >
-              Reset
+              Reset Filter
             </button>
           </div>
 
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-1.5 border-t border-slate-100 pt-3">
             {(
               [
                 "banjir",
@@ -1729,7 +2020,7 @@ const Kebencanaan: React.FC = () => {
                       active ? p.filter((x) => x !== t) : [...p, t],
                     )
                   }
-                  className={`rounded-full border px-3 py-1.5 text-[9px] font-black ${
+                  className={`rounded-full border px-2.5 py-1 text-[9px] font-black ${
                     active
                       ? "border-slate-900 bg-slate-900 text-white"
                       : "border-slate-200 text-slate-500"
@@ -1744,60 +2035,69 @@ const Kebencanaan: React.FC = () => {
               {filtered.length} kejadian
             </span>
 
-            <button
-              onClick={fitMap}
-              className="rounded-full bg-slate-100 px-3 py-1.5 text-[9px] font-black"
-            >
-              ⌖ Fit Map
-            </button>
-
-            <button
-              onClick={() => setMapOnly(!mapOnly)}
-              className={`rounded-full px-3 py-1.5 text-[9px] font-black ${
-                mapOnly ? "bg-emerald-500 text-white" : "bg-slate-100"
-              }`}
-            >
-              {mapOnly ? "Map Focus ON" : "Map Focus"}
-            </button>
           </div>
         </section>
+        )}
+
+        </div>
 
         {/* =================================================
-            MAP + SIDEBAR
+            MAP + EVENT STREAM — mengikuti layout Kejadian.tsx
         ================================================= */}
-
-        <section
-          className={`mt-4 ${
-            mapOnly
-              ? ""
-              : "grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(340px,.65fr)]"
-          }`}
-        >
-          {/* MAP */}
-
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-              <div>
-                <div className="text-[8px] font-black uppercase tracking-[.16em] text-emerald-600">
+        <section className={`mt-3 min-w-0 ${
+          mapOnly
+            ? "grid grid-cols-1"
+            : "grid grid-cols-1 items-start gap-3 md:grid-cols-[minmax(0,1fr)_minmax(280px,340px)] 2xl:grid-cols-[minmax(0,1fr)_380px]"
+        }`}>
+        <div className="min-w-0">
+          <div className="h-full min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.055)]">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-3 py-3 sm:px-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-[8px] font-black uppercase tracking-[.16em] text-emerald-600">
+                  <span className={`h-2 w-2 rounded-full ${mapReady ? "bg-emerald-500" : "animate-pulse bg-amber-400"}`} />
                   Spatial Command Center
                 </div>
-
-                <div className="text-sm font-black">Peta Sebaran Kejadian</div>
+                <div className="mt-1 text-base font-extrabold tracking-tight text-slate-900">
+                  Peta Sebaran Kejadian
+                </div>
+                <p className="mt-0.5 text-[10px] text-slate-500">
+                  Visualisasi lokasi kejadian berdasarkan filter aktif
+                </p>
               </div>
 
-              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[8px] font-black text-emerald-700">
-                {mapReady ? "LIVE DATA" : "LOADING MAP"}
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1.5 text-[8px] font-black text-emerald-700">
+                  {mapReady ? "GIS READY" : "MEMUAT PETA"}
+                </span>
+                <button
+                  type="button"
+                  onClick={fitMap}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[9px] font-bold text-slate-600 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+                >
+                  ⌖ Fit Peta
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMapOnly((value) => !value)}
+                  className={`rounded-lg px-3 py-2 text-[9px] font-black shadow-sm transition ${
+                    mapOnly
+                      ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                      : "bg-slate-900 text-white hover:bg-slate-700"
+                  }`}
+                >
+                  {mapOnly ? "Tutup Fokus Peta" : "Fokus Peta"}
+                </button>
+              </div>
             </div>
 
             <div
               ref={mapRef}
-              className={`smiti-map w-full ${
-                mapOnly ? "h-[calc(100vh-240px)] min-h-[650px]" : "h-[560px]"
+              className={`smiti-map w-full bg-slate-100 ${
+                mapOnly ? "h-[calc(100vh-190px)] min-h-[560px]" : "h-[560px] min-h-[480px]"
               }`}
             />
 
-            <div className="grid grid-cols-2 divide-x divide-y border-t border-slate-100 md:grid-cols-5 md:divide-y-0">
+            <div className="grid grid-cols-2 divide-x divide-y border-t border-slate-100 bg-slate-50/90 md:grid-cols-5 md:divide-y-0">
               {(
                 [
                   "banjir",
@@ -1807,7 +2107,7 @@ const Kebencanaan: React.FC = () => {
                   "abrasi",
                 ] as const
               ).map((t) => (
-                <div key={t} className="p-3 text-center">
+                <div key={t} className="px-2 py-2.5 text-center transition hover:bg-white">
                   <div>{TYPE_META[t].icon}</div>
 
                   <div className="text-sm font-black">
@@ -1821,230 +2121,188 @@ const Kebencanaan: React.FC = () => {
               ))}
             </div>
           </div>
+        </div>
 
-          {/* SIDEBAR */}
-
-          {!mapOnly && (
-            <aside className="space-y-4">
-              {/* EVENT STREAM */}
-
-              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <div className="border-b border-slate-100 px-4 py-3">
-                  <div className="text-[8px] font-black uppercase tracking-[.16em] text-slate-400">
+        {!mapOnly && (
+          <aside className="min-w-0 space-y-3 lg:sticky lg:top-4">
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_26px_rgba(15,23,42,0.06)]">
+              <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-3.5 py-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-[8px] font-black uppercase tracking-[.17em] text-emerald-700">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                     Event Stream
                   </div>
-
-                  <div className="text-sm font-black">Kejadian Terbaru</div>
+                  <div className="mt-1 text-sm font-black tracking-tight text-slate-900">Kejadian Terbaru</div>
+                  <p className="mt-0.5 text-[9px] text-slate-500">Pilih item untuk melihat lokasinya di peta</p>
                 </div>
-
-                <div className="max-h-[510px] overflow-y-auto p-2">
-                  {filtered.slice(0, 8).map((x) => (
+                <span className="shrink-0 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[9px] font-extrabold tabular-nums text-slate-600">
+                  {filtered.length} DATA
+                </span>
+              </div>
+              <div className="max-h-[560px] overflow-y-auto p-2">
+                {filtered.slice(0, 10).map((x) => {
+                  const meta = TYPE_META[x.type] || TYPE_META.lainnya;
+                  return (
                     <button
-                      key={x.id}
+                      key={`event-stream-${x.id}`}
+                      type="button"
                       onClick={() => focus(x)}
-                      className="flex w-full gap-3 rounded-xl p-2.5 text-left hover:bg-slate-50"
+                      className="group flex w-full items-center gap-2.5 rounded-xl border border-transparent p-2.5 text-left transition hover:border-slate-200 hover:bg-slate-50 hover:shadow-sm"
                     >
                       <span
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-base"
-                        style={{
-                          background: TYPE_META[x.type].color,
-                        }}
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-base shadow-sm ring-1 ring-black/5"
+                        style={{ backgroundColor: `${meta.color}18`, color: meta.color }}
                       >
-                        {TYPE_META[x.type].icon}
+                        {meta.icon}
                       </span>
-
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[10px] font-black">
-                          {x.title}
-                        </span>
-
-                        <span className="mt-1 block truncate text-[8px] text-slate-400">
-                          {x.location}
-                        </span>
-
-                        <span className="mt-1 block text-[8px] text-slate-400">
-                          {fmtDate(x.date)}
-                        </span>
+                        <span className="block truncate text-[10px] font-extrabold leading-4 text-slate-800 group-hover:text-emerald-800">{x.title}</span>
+                        <span className="mt-0.5 block truncate text-[9px] leading-4 text-slate-500">{x.location}</span>
+                        <span className="mt-1 inline-flex rounded-md bg-slate-100 px-1.5 py-0.5 text-[8px] font-bold text-slate-500">{fmtDate(x.date)}</span>
                       </span>
-
-                      <span className="text-slate-300">→</span>
+                      <span className="shrink-0 text-xs font-bold text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-emerald-600">→</span>
                     </button>
-                  ))}
-
-                  {!filtered.length && !loading && (
-                    <div className="p-8 text-center text-[10px] font-bold text-slate-400">
-                      Tidak ada kejadian.
-                    </div>
-                  )}
-                </div>
+                  );
+                })}
+                {!filtered.length && !loading && (
+                  <div className="p-8 text-center text-[10px] font-bold text-slate-400">Tidak ada kejadian.</div>
+                )}
+                {loading && (
+                  <div className="space-y-3 p-3">
+                    {[1, 2, 3].map((n) => <div key={n} className="h-14 animate-pulse rounded-xl bg-slate-100" />)}
+                  </div>
+                )}
               </div>
+            </div>
 
-              {/* DATA GOVERNANCE */}
-
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="text-[8px] font-black uppercase tracking-[.16em] text-slate-400">
-                  Data Governance
-                </div>
-
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  {[
-                    ["Registry", "LIVE"],
-
-                    ["Spatial", "GIS READY"],
-
-                    ["Cluster", "ENABLED"],
-
-                    ["Filter", "ACTIVE"],
-                  ].map((x) => (
-                    <div key={x[0]} className="rounded-xl bg-slate-50 p-3">
-                      <div className="text-[8px] font-black text-slate-500">
-                        {x[0]}
-                      </div>
-
-                      <div className="mt-1 text-xs font-black">{x[1]}</div>
-                    </div>
-                  ))}
-                </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-[0_6px_20px_rgba(15,23,42,0.045)]">
+              <div className="flex items-center justify-between">
+                <div className="text-[8px] font-black uppercase tracking-[.16em] text-slate-400">Data Governance</div>
+                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[8px] font-black text-emerald-700">SYSTEM STATUS</span>
               </div>
-            </aside>
-          )}
+              <div className="mt-2.5 grid grid-cols-2 gap-2">
+                {[
+                  ["Registry", "LIVE"],
+                  ["Spatial", mapReady ? "GIS READY" : "LOADING"],
+                  ["Cluster", "ENABLED"],
+                  ["Filter", "ACTIVE"],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-lg bg-slate-50 p-2.5">
+                    <div className="text-[8px] font-black text-slate-500">{label}</div>
+                    <div className="mt-1 text-xs font-black text-slate-800">{value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </aside>
+        )}
         </section>
 
         {/* =================================================
-            INCIDENT TABLE
+            INCIDENT VISUAL STORY / ENTERPRISE CARDS
         ================================================= */}
 
         {!mapOnly && (
-          <section className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-4 py-4">
-              <div className="text-[8px] font-black uppercase tracking-[.16em] text-slate-400">
-                Incident Registry
+          <section className="mt-4 rounded-[26px] border border-slate-200/90 bg-slate-50/60 p-3 shadow-[0_6px_24px_rgba(15,23,42,0.035)] sm:p-5">
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-600">
+                  Incident Intelligence
+                </div>
+                <h2 className="mt-1 text-xl font-extrabold tracking-tight text-slate-900 md:text-2xl">
+                  Dokumentasi & Informasi Kejadian
+                </h2>
+                <p className="mt-1 max-w-2xl text-xs text-slate-500">
+                  Ringkasan kejadian, dokumentasi visual, lokasi, dan waktu kejadian dalam satu tampilan.
+                </p>
               </div>
-
-              <div className="text-sm font-black">Daftar Kejadian Bencana</div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-bold text-slate-500 shadow-sm">
+                Menampilkan {Math.min(filtered.length, 12)} dari {filtered.length} kejadian
+              </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px]">
-                <thead>
-                  <tr className="bg-slate-50">
-                    {[
-                      "KEJADIAN",
-                      "JENIS",
-                      "LOKASI",
-                      "TANGGAL",
-                      "DAS",
-                      "KOORDINAT",
-                      "STATUS",
-                      "AKSI",
-                    ].map((h) => (
-                      <th
-                        key={h}
-                        className="px-4 py-3 text-left text-[8px] font-black tracking-wider text-slate-400"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {loading ? (
-                    <tr>
-                      <td
-                        colSpan={8}
-                        className="py-16 text-center text-xs font-bold text-slate-400"
-                      >
-                        Memuat data...
-                      </td>
-                    </tr>
-                  ) : filtered.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={8}
-                        className="py-16 text-center text-xs font-bold text-slate-400"
-                      >
-                        Tidak ada data kejadian.
-                      </td>
-                    </tr>
-                  ) : (
-                    filtered.slice(0, 50).map((x) => (
-                      <tr
-                        key={x.id}
-                        className="border-t border-slate-100 hover:bg-slate-50"
-                      >
-                        <td className="px-4 py-3">
+            {loading ? (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {[1, 2, 3].map((n) => (
+                  <div key={n} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <div className="h-48 animate-pulse bg-slate-100" />
+                    <div className="space-y-2 p-4">
+                      <div className="h-3 w-2/3 animate-pulse rounded bg-slate-100" />
+                      <div className="h-3 w-full animate-pulse rounded bg-slate-100" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-white py-14 text-center">
+                <div className="text-3xl">📷</div>
+                <div className="mt-2 text-sm font-black text-slate-700">Belum ada dokumentasi kejadian</div>
+                <p className="mt-1 text-xs text-slate-400">Coba ubah filter pencarian atau kategori.</p>
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
+                {filtered.slice(0, 12).map((x) => {
+                  const meta = TYPE_META[x.type] || TYPE_META.lainnya;
+                  const photo = resolveIncidentImage(x);
+                  return (
+                    <article
+                      key={`visual-${x.id}`}
+                      className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-xl"
+                    >
+                      <button onClick={() => focus(x)} className="relative block h-52 w-full overflow-hidden bg-slate-100 text-left">
+                        {photo ? (
+                          <img
+                            src={photo}
+                            alt={x.title}
+                            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                            onError={(e) => {
+                              e.currentTarget.style.display = "none";
+                            }}
+                          />
+                        ) : (
+                          <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-slate-100 via-slate-200 to-slate-300">
+                            <span className="text-5xl">{meta.icon}</span>
+                            <span className="mt-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Dokumentasi belum tersedia</span>
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/10 to-transparent" />
+                        <div className="absolute left-3 top-3 flex gap-2">
+                          <span className="rounded-full px-2.5 py-1 text-[9px] font-black text-white shadow" style={{ backgroundColor: meta.color }}>
+                            {meta.icon} {meta.label}
+                          </span>
+                          {x.featured && <span className="rounded-full bg-amber-400 px-2.5 py-1 text-[9px] font-black text-amber-950">★ PRIORITAS</span>}
+                        </div>
+                        <div className="absolute bottom-3 left-4 right-4 text-white">
+                          <div className="text-[9px] font-bold text-white/75">{fmtDate(x.date)}</div>
+                          <h3 className="mt-1 line-clamp-2 text-base font-black leading-snug">{x.title}</h3>
+                        </div>
+                      </button>
+                      <div className="p-4">
+                        <div className="flex items-start gap-2 text-xs text-slate-600">
+                          <span className="mt-0.5 shrink-0">📍</span>
+                          <span className="line-clamp-2 font-semibold">{x.location}</span>
+                        </div>
+                        <p className="mt-3 line-clamp-3 min-h-[54px] text-xs leading-relaxed text-slate-500">
+                          {x.description?.trim() || "Informasi deskripsi kejadian belum tersedia. Buka detail untuk melihat informasi lokasi dan data pendukung."}
+                        </p>
+                        <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
+                          <span className="truncate text-[10px] font-bold text-slate-400">DAS: {x.das || "Tidak tercatat"}</span>
                           <button
                             onClick={() => focus(x)}
-                            className="flex max-w-[260px] items-center gap-3 text-left"
+                            className="rounded-lg bg-slate-900 px-3 py-2 text-[10px] font-black text-white transition hover:bg-emerald-600"
                           >
-                            <span
-                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm"
-                              style={{
-                                background: TYPE_META[x.type].color,
-                              }}
-                            >
-                              {TYPE_META[x.type].icon}
-                            </span>
-
-                            <span className="truncate text-[10px] font-black">
-                              {x.title}
-                            </span>
+                            Lihat Detail <span aria-hidden="true">↗</span>
                           </button>
-                        </td>
-
-                        <td className="px-4 py-3 text-[9px] font-black">
-                          {TYPE_META[x.type].label}
-                        </td>
-
-                        <td className="max-w-[180px] truncate px-4 py-3 text-[9px] font-semibold text-slate-500">
-                          {x.location}
-                        </td>
-
-                        <td className="px-4 py-3 text-[9px]">
-                          {fmtDate(x.date)}
-                        </td>
-
-                        <td className="max-w-[150px] truncate px-4 py-3 text-[9px] text-slate-500">
-                          {x.das || "—"}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          <code className="rounded bg-slate-900 px-2 py-1 text-[8px] text-emerald-300">
-                            {x.coordinates[0].toFixed(5)},{" "}
-                            {x.coordinates[1].toFixed(5)}
-                          </code>
-                        </td>
-
-                        <td className="px-4 py-3 text-[8px] font-black">
-                          {x.featured ? "★ FEATURED" : "STANDARD"}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          <div className="flex gap-1">
-                            <button
-                              onClick={() => focus(x)}
-                              className="rounded bg-slate-100 px-2 py-1.5 text-[8px] font-black"
-                            >
-                              Detail
-                            </button>
-
-                            <button
-                              onClick={() => openEdit(x)}
-                              className="rounded bg-emerald-50 px-2 py-1.5 text-[8px] font-black text-emerald-700"
-                            >
-                              Edit
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
           </section>
         )}
+
       </main>
 
       {/* ===================================================
@@ -2061,9 +2319,9 @@ const Kebencanaan: React.FC = () => {
             className="absolute right-0 top-0 h-full w-full max-w-[560px] overflow-y-auto bg-white shadow-2xl"
           >
             <div className="relative h-56 bg-slate-900">
-              {selected.image && (
+              {resolveIncidentImage(selected) && (
                 <img
-                  src={selected.image}
+                  src={resolveIncidentImage(selected)}
                   className="h-full w-full object-cover opacity-75"
                   onError={(e) => {
                     e.currentTarget.style.display = "none";
@@ -2102,7 +2360,7 @@ const Kebencanaan: React.FC = () => {
 
             <div className="p-5">
               <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-xl bg-slate-50 p-3">
+                <div className="rounded-lg bg-slate-50 p-2.5">
                   <div className="text-[8px] text-slate-400">Tanggal</div>
 
                   <div className="mt-1 text-[10px] font-black">
@@ -2110,7 +2368,7 @@ const Kebencanaan: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="rounded-xl bg-slate-50 p-3">
+                <div className="rounded-lg bg-slate-50 p-2.5">
                   <div className="text-[8px] text-slate-400">DAS</div>
 
                   <div className="mt-1 text-[10px] font-black">
@@ -2263,7 +2521,7 @@ const Kebencanaan: React.FC = () => {
                 </label>
 
                 {form.images.length > 0 && (
-                  <div className="rounded-xl bg-slate-50 p-3">
+                  <div className="rounded-lg bg-slate-50 p-2.5">
                     <div className="text-[8px] font-black text-slate-500">
                       FOTO TERPILIH
                     </div>

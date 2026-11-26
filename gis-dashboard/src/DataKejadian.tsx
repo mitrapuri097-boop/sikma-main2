@@ -1,4 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import * as L from "leaflet";
+import "leaflet/dist/leaflet.css";
 
 import {
   BarChart3,
@@ -8,6 +10,9 @@ import {
   Filter,
   MapPin,
   RefreshCw,
+  Search,
+  MapPinned,
+  Waves,
   ShieldAlert,
   Sprout,
   TrendingUp,
@@ -47,6 +52,8 @@ type EventRow = {
   longitude: number | null;
   rainfall: number | null;
   landCover: string;
+  adminNames: string[];
+  das: string;
 };
 
 type AnalyticsPayload = {
@@ -139,6 +146,28 @@ const pct = (value: number, total: number) => {
   return (value / total) * 100;
 };
 
+const escapeHtml = (value: unknown) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const INDONESIA_BOUNDS: L.LatLngBoundsExpression = [
+  [-11.5, 94],
+  [6.5, 142],
+];
+
+const getEventColor = (type: string) => {
+  const value = String(type || "Tidak diketahui");
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) | 0;
+  }
+  return COLORS[Math.abs(hash) % COLORS.length];
+};
+
 const extractArray = (payload: any, keys: string[]) => {
   if (Array.isArray(payload)) {
     return payload;
@@ -208,6 +237,12 @@ function normalizeEvent(row: any, index: number): EventRow {
         "Belum tersedia",
       ),
     ),
+    adminNames: [
+      row.provinsi, row.province, row.kabupaten, row.kab_kota, row.kota,
+      row.district, row.kecamatan, row.subdistrict, row.kelurahan,
+      row.kel_desa, row.desa,
+    ].filter((value) => value != null && String(value).trim() !== "").map(String),
+    das: String(first(row.nama_das, row.das, row.das_name, row.namaDAS, "")),
   };
 }
 
@@ -310,11 +345,29 @@ export default function DataKejadianEnterprise() {
 
   const [error, setError] = useState("");
 
-  const [search, setSearch] = useState("");
-  const [location, setLocation] = useState("ALL");
+  const [analysisMode, setAnalysisMode] = useState<"administrasi" | "das">("administrasi");
+  const [adminLevel, setAdminLevel] = useState<"provinsi" | "kabupaten" | "kecamatan" | "kelurahan">("provinsi");
+  const [areaQuery, setAreaQuery] = useState("");
+  const [areaResults, setAreaResults] = useState<any[]>([]);
+  const [selectedArea, setSelectedArea] = useState<any | null>(null);
+  const [showAreaResults, setShowAreaResults] = useState(false);
+  const [areaSearching, setAreaSearching] = useState(false);
+  const [dasQuery, setDasQuery] = useState("");
+  const [dasResults, setDasResults] = useState<any[]>([]);
+  const [selectedDas, setSelectedDas] = useState<any | null>(null);
+  const [showDasResults, setShowDasResults] = useState(false);
+  const [dasSearching, setDasSearching] = useState(false);
+  const areaRequestRef = useRef(0);
+  const dasRequestRef = useRef(0);
+  const areaDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dasDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [type, setType] = useState("ALL");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const markerLayerRef = useRef<L.LayerGroup | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -383,16 +436,6 @@ export default function DataKejadianEnterprise() {
     loadAnalytics();
   }, []);
 
-  const locations = useMemo(
-    () => [
-      "ALL",
-      ...Array.from(
-        new Set(events.map((e) => e.location).filter(Boolean)),
-      ).sort(),
-    ],
-    [events],
-  );
-
   const types = useMemo(
     () => [
       "ALL",
@@ -401,16 +444,118 @@ export default function DataKejadianEnterprise() {
     [events],
   );
 
+
+  // Pencarian administrasi berdasarkan level yang dipilih pengguna.
+  // Setiap level dicari langsung; tidak memaksa pengguna memilih wilayah induk.
+  const searchAdministrativeAreas = async (query: string, levelOverride?: typeof adminLevel) => {
+    const q = query.trim();
+    const requestId = ++areaRequestRef.current;
+    if (q.length < 2) {
+      setAreaResults([]);
+      setShowAreaResults(false);
+      setAreaSearching(false);
+      return;
+    }
+    const level = levelOverride || adminLevel;
+    setAreaSearching(true);
+    try {
+      const params = new URLSearchParams({ query: q, level });
+      const response = await fetch(
+        `${API_URL}/api/areas/search?${params.toString()}`,
+        { headers: { Accept: "application/json" } },
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      if (requestId !== areaRequestRef.current) return;
+      setAreaResults(Array.isArray(data) ? data.slice(0, 18) : []);
+      setShowAreaResults(true);
+    } catch (error) {
+      if (requestId === areaRequestRef.current) {
+        console.error("Pencarian wilayah analitik gagal:", error);
+        setAreaResults([]);
+        setShowAreaResults(true);
+      }
+    } finally {
+      if (requestId === areaRequestRef.current) setAreaSearching(false);
+    }
+  };
+
+  const searchDasAreas = async (query: string) => {
+    const q = query.trim();
+    const requestId = ++dasRequestRef.current;
+    if (q.length < 2) {
+      setDasResults([]);
+      setShowDasResults(false);
+      setDasSearching(false);
+      return;
+    }
+    setDasSearching(true);
+    try {
+      const response = await fetch(
+        `${API_URL}/api/das/search?query=${encodeURIComponent(q)}`,
+        { headers: { Accept: "application/json" } },
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      if (requestId !== dasRequestRef.current) return;
+      setDasResults(Array.isArray(data) ? data.slice(0, 18) : []);
+      setShowDasResults(true);
+    } catch (error) {
+      if (requestId === dasRequestRef.current) {
+        console.error("Pencarian DAS analitik gagal:", error);
+        setDasResults([]);
+        setShowDasResults(false);
+      }
+    } finally {
+      if (requestId === dasRequestRef.current) setDasSearching(false);
+    }
+  };
+
+  const handleAdminLevelChange = (value: typeof adminLevel) => {
+    setAdminLevel(value);
+    setSelectedArea(null);
+    setAreaResults([]);
+    setShowAreaResults(false);
+    areaRequestRef.current += 1;
+    if (areaDebounceRef.current) clearTimeout(areaDebounceRef.current);
+    if (areaQuery.trim().length >= 2) {
+      areaDebounceRef.current = setTimeout(() => void searchAdministrativeAreas(areaQuery, value), 180);
+    }
+  };
+
+  const handleAreaQueryChange = (value: string) => {
+    setAreaQuery(value);
+    if (areaDebounceRef.current) clearTimeout(areaDebounceRef.current);
+    setSelectedArea(null);
+    areaDebounceRef.current = setTimeout(() => void searchAdministrativeAreas(value, adminLevel), 280);
+  };
+
+  const handleDasQueryChange = (value: string) => {
+    setDasQuery(value);
+    if (dasDebounceRef.current) clearTimeout(dasDebounceRef.current);
+    dasDebounceRef.current = setTimeout(() => void searchDasAreas(value), 280);
+  };
+
+  useEffect(() => () => {
+    if (areaDebounceRef.current) clearTimeout(areaDebounceRef.current);
+    if (dasDebounceRef.current) clearTimeout(dasDebounceRef.current);
+    areaRequestRef.current += 1;
+    dasRequestRef.current += 1;
+  }, []);
+
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-
     return events.filter((e) => {
-      const matchSearch =
-        !q ||
-        e.location.toLowerCase().includes(q) ||
-        e.type.toLowerCase().includes(q);
-
-      const matchLocation = location === "ALL" || e.location === location;
+      const selectedAreaName = selectedArea
+        ? String(selectedArea.label || selectedArea.nama || selectedArea.name || selectedArea.kel_desa || selectedArea.kecamatan || selectedArea.kab_kota || selectedArea.provinsi || "").toLowerCase()
+        : "";
+      const matchArea = !selectedAreaName ||
+        e.location.toLowerCase().includes(selectedAreaName) ||
+        e.adminNames.some((name) => name.toLowerCase() === selectedAreaName);
+      const selectedDasName = selectedDas
+        ? String(selectedDas.nama_das || selectedDas.label || selectedDas.nama || selectedDas.name || "").toLowerCase()
+        : "";
+      const matchDas = !selectedDasName || e.das.toLowerCase() === selectedDasName ||
+        e.location.toLowerCase().includes(selectedDasName);
 
       const matchType = type === "ALL" || e.type === type;
 
@@ -419,10 +564,10 @@ export default function DataKejadianEnterprise() {
       const matchEnd = !endDate || e.date <= endDate;
 
       return (
-        matchSearch && matchLocation && matchType && matchStart && matchEnd
+        matchArea && matchDas && matchType && matchStart && matchEnd
       );
     });
-  }, [events, search, location, type, startDate, endDate]);
+  }, [events, selectedArea, selectedDas, type, startDate, endDate]);
 
   /*
    * TEMPORAL / DATE DISTRIBUTION
@@ -595,25 +740,125 @@ export default function DataKejadianEnterprise() {
     ).size;
   }, [filtered]);
 
+  const mappedEvents = useMemo(
+    () =>
+      filtered.filter(
+        (event) =>
+          event.latitude !== null &&
+          event.longitude !== null &&
+          event.latitude >= -11.5 &&
+          event.latitude <= 6.5 &&
+          event.longitude >= 94 &&
+          event.longitude <= 142,
+      ),
+    [filtered],
+  );
+
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    if (!container || mapRef.current) return;
+
+    const map = L.map(container, {
+      zoomControl: true,
+      scrollWheelZoom: true,
+      minZoom: 3,
+      maxZoom: 13,
+    });
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+    }).addTo(map);
+
+    map.fitBounds(INDONESIA_BOUNDS, { padding: [18, 18] });
+
+    const markerLayer = L.layerGroup().addTo(map);
+    mapRef.current = map;
+    markerLayerRef.current = markerLayer;
+
+    const resizeObserver = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+      map.remove();
+      mapRef.current = null;
+      markerLayerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const markerLayer = markerLayerRef.current;
+    if (!markerLayer) return;
+
+    markerLayer.clearLayers();
+
+    mappedEvents.forEach((event) => {
+      const latitude = Number(event.latitude);
+      const longitude = Number(event.longitude);
+      const color = getEventColor(event.type);
+
+      const popup = `
+        <div style="min-width:190px;font-family:Arial,sans-serif">
+          <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#059669;margin-bottom:6px">
+            ${escapeHtml(event.type)}
+          </div>
+          <div style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:5px">
+            ${escapeHtml(event.location)}
+          </div>
+          <div style="font-size:11px;color:#64748b">
+            ${escapeHtml(event.date ? formatDate(event.date) : "Tanggal tidak tersedia")}
+          </div>
+          <div style="font-size:10px;color:#94a3b8;margin-top:6px">
+            ${latitude.toFixed(5)}, ${longitude.toFixed(5)}
+          </div>
+        </div>
+      `;
+
+      L.circleMarker([latitude, longitude], {
+        radius: 7,
+        color: "#ffffff",
+        weight: 2,
+        fillColor: color,
+        fillOpacity: 0.9,
+      })
+        .bindPopup(popup)
+        .bindTooltip(escapeHtml(event.location), {
+          direction: "top",
+          offset: [0, -7],
+        })
+        .addTo(markerLayer);
+    });
+  }, [mappedEvents]);
+
   const reset = () => {
-    setSearch("");
-    setLocation("ALL");
+    setAdminLevel("provinsi");
+    setAreaQuery("");
+    setAreaResults([]);
+    setSelectedArea(null);
+    setShowAreaResults(false);
+    setDasQuery("");
+    setDasResults([]);
+    setSelectedDas(null);
+    setShowDasResults(false);
     setType("ALL");
     setStartDate("");
     setEndDate("");
   };
 
   return (
-    <div className="min-h-screen bg-[#f4f7fa] p-3 text-slate-800 sm:p-4 lg:p-6">
-      <div className="mx-auto max-w-[1800px] space-y-5 lg:space-y-6">
+    <div className="min-h-screen bg-[#f3f6f9] px-3 py-4 text-slate-800 sm:px-5 sm:py-5 lg:px-7 lg:py-6">
+      <div className="mx-auto max-w-[1680px] space-y-5 lg:space-y-6">
         {/* HEADER */}
-        <header className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-[#fbfdfc] to-[#eef7f3] p-4 shadow-[0_10px_30px_rgba(15,23,42,0.07)] sm:p-5 lg:p-6">
+        <header className="relative overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-br from-white via-white to-[#edf7f2] p-5 shadow-[0_8px_28px_rgba(15,23,42,0.055)] sm:p-6 lg:p-7">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <div className="flex items-center gap-2 text-emerald-700">
                 <ShieldAlert size={18} />
 
-                <span className="text-[10px] font-bold uppercase tracking-[0.25em]">
+                <span className="text-[10px] font-extrabold uppercase tracking-[0.22em]">
                   SIMITI • Enterprise Analytics
                 </span>
               </div>
@@ -623,8 +868,7 @@ export default function DataKejadianEnterprise() {
               </h1>
 
               <p className="mt-2 max-w-3xl text-sm text-slate-500">
-                Dashboard analitik kejadian bencana berdasarkan lokasi, periode,
-                jenis bencana, curah hujan, dan tutupan lahan.
+                Pusat analitik spasial untuk memantau sebaran kejadian, tren waktu, jenis bencana, curah hujan, dan tutupan lahan.
               </p>
             </div>
 
@@ -633,7 +877,7 @@ export default function DataKejadianEnterprise() {
                 load();
                 loadAnalytics();
               }}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-100"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 py-2.5 text-sm font-bold text-emerald-800 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50"
             >
               <RefreshCw
                 size={16}
@@ -644,101 +888,147 @@ export default function DataKejadianEnterprise() {
           </div>
         </header>
 
-        {/* FILTER */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.06)]">
-          <div className="mb-3 flex items-center gap-2">
-            <Filter size={16} className="text-emerald-700" />
-
-            <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
-              Filter Analitik
-            </span>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            <div className="xl:col-span-2">
-              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                Pencarian
-              </label>
-
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Lokasi atau jenis bencana..."
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm outline-none focus:border-emerald-500"
-              />
+        {/* FILTER ANALITIK — pencarian bebas Administrasi / DAS */}
+        <div className="relative z-20 overflow-visible rounded-2xl border border-slate-200/90 bg-white p-4 shadow-[0_8px_26px_rgba(15,23,42,0.05)] sm:p-5 lg:p-6">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <div className="rounded-xl bg-emerald-50 p-2 text-emerald-700">
+                <Filter size={17} />
+              </div>
+              <div>
+                <h2 className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-slate-500">Filter Analitik</h2>
+                <p className="mt-0.5 text-base font-bold text-slate-800">{analysisMode === "administrasi" ? "Wilayah Administrasi" : "Daerah Aliran Sungai (DAS)"}</p>
+              </div>
             </div>
-
-            <div>
-              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                Lokasi
-              </label>
-
-              <select
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm"
-              >
-                {locations.map((v) => (
-                  <option key={v} value={v}>
-                    {v === "ALL" ? "Semua lokasi" : v}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                Jenis Bencana
-              </label>
-
-              <select
-                value={type}
-                onChange={(e) => setType(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm"
-              >
-                {types.map((v) => (
-                  <option key={v} value={v}>
-                    {v === "ALL" ? "Semua jenis" : v}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                Dari tanggal
-              </label>
-
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                Sampai tanggal
-              </label>
-
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm"
-              />
+            <div className={`rounded-full px-3 py-1.5 text-[11px] font-extrabold ${analysisMode === "administrasi" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>
+              {analysisMode === "administrasi" ? "ADMIN" : "DAS"}
             </div>
           </div>
 
-          <div className="mt-3 flex justify-end">
+          <div className="mb-3 grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2">
             <button
-              onClick={reset}
-              className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+              type="button"
+              onClick={() => { setAnalysisMode("administrasi"); setDasQuery(""); setDasResults([]); setSelectedDas(null); setShowDasResults(false); }}
+              className={`flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-bold transition-all ${analysisMode === "administrasi" ? "border border-slate-200 bg-white text-emerald-700 shadow-sm" : "text-slate-500 hover:bg-white/70"}`}
             >
-              <X size={14} />
-              Reset Filter
+              <MapPinned size={16} /> Administrasi
             </button>
+            <button
+              type="button"
+              onClick={() => { setAnalysisMode("das"); setAreaQuery(""); setAreaResults([]); setSelectedArea(null); setShowAreaResults(false); }}
+              className={`flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-bold transition-all ${analysisMode === "das" ? "border border-slate-200 bg-white text-blue-700 shadow-sm" : "text-slate-500 hover:bg-white/70"}`}
+            >
+              <Waves size={16} /> DAS
+            </button>
+          </div>
+
+          {analysisMode === "administrasi" ? (
+            <div className="relative">
+              <div className="grid gap-2 sm:grid-cols-[minmax(150px,0.38fr)_minmax(0,1fr)]">
+              <select
+                aria-label="Tingkat administrasi"
+                value={adminLevel}
+                onChange={(e) => handleAdminLevelChange(e.target.value as typeof adminLevel)}
+                className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
+              >
+                <option value="provinsi">Provinsi</option>
+                <option value="kabupaten">Kabupaten/Kota</option>
+                <option value="kecamatan">Kecamatan</option>
+                <option value="kelurahan">Kelurahan/Desa</option>
+              </select>
+              <div className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 transition focus-within:border-emerald-400 focus-within:bg-white focus-within:ring-4 focus-within:ring-emerald-500/10">
+                <Search size={17} className="shrink-0 text-slate-400" />
+                <input
+                  value={areaQuery}
+                  onChange={(e) => handleAreaQueryChange(e.target.value)}
+                  onFocus={() => { if (areaResults.length) setShowAreaResults(true); }}
+                  onKeyDown={(e) => { if (e.key === "Escape") setShowAreaResults(false); if (e.key === "Enter" && areaQuery.trim().length >= 2) { e.preventDefault(); if (areaDebounceRef.current) clearTimeout(areaDebounceRef.current); void searchAdministrativeAreas(areaQuery, adminLevel); } }}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={`Cari ${adminLevel === "kelurahan" ? "kelurahan/desa" : adminLevel === "kabupaten" ? "kabupaten/kota" : adminLevel}...`}
+                  className="h-12 min-w-0 flex-1 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
+                />
+                {areaSearching && <RefreshCw size={15} className="animate-spin text-emerald-600" />}
+                {areaQuery && <button type="button" onClick={() => { setAreaQuery(""); setAreaResults([]); setShowAreaResults(false); setSelectedArea(null); areaRequestRef.current += 1; }} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700" aria-label="Hapus pencarian"><X size={15} /></button>}
+              </div>
+              </div>
+              {showAreaResults && (
+                <div className="absolute left-0 right-0 top-full z-[100] mt-2 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl">
+                  {areaResults.length ? areaResults.map((area: any, index: number) => {
+                    const label = area.label || area.nama || area.name || area.kel_desa || area.kecamatan || area.kab_kota || area.provinsi || "Wilayah";
+                    const detail = [area.level, area.kecamatan, area.kab_kota, area.provinsi].filter(Boolean).join(" • ");
+                    return <button key={`${area.level || "wilayah"}-${label}-${index}`} type="button" onClick={() => { setSelectedArea(area); setAreaQuery(label); setShowAreaResults(false); setAreaResults([]); }} className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-emerald-50">
+                      <span className="mt-0.5 rounded-lg bg-emerald-50 p-2 text-emerald-700"><MapPinned size={15} /></span>
+                      <span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold text-slate-800">{label}</span><span className="mt-0.5 block truncate text-[11px] capitalize text-slate-500">{detail || (adminLevel === "kelurahan" ? "Kelurahan/Desa" : adminLevel === "kabupaten" ? "Kabupaten/Kota" : adminLevel)}</span></span>
+                      <span className="text-[10px] font-bold text-emerald-700">Pilih</span>
+                    </button>;
+                  }) : <div className="px-4 py-5 text-center text-xs text-slate-500">Tidak ditemukan. Coba kata kunci lain.</div>}
+                </div>
+              )}
+              {selectedArea && <div className="mt-2 flex flex-wrap items-center gap-2"><span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800">{selectedArea.label || selectedArea.nama || selectedArea.name || areaQuery}</span><button type="button" onClick={() => { setSelectedArea(null); setAreaQuery(""); }} className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-100"><X size={13} /> Hapus wilayah</button></div>}
+            </div>
+          ) : (
+            <div className="relative">
+              <label className="mb-1.5 block text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-500">Wilayah analisis DAS</label>
+              <div className="grid gap-2 sm:grid-cols-[minmax(150px,0.38fr)_minmax(0,1fr)]">
+              <select
+                aria-label="Jenis pencarian DAS"
+                value="das"
+                disabled
+                className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700 outline-none"
+              >
+                <option value="das">DAS</option>
+              </select>
+              <div className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 transition focus-within:border-blue-400 focus-within:bg-white focus-within:ring-4 focus-within:ring-blue-500/10">
+                <Waves size={17} className="shrink-0 text-blue-500" />
+                <input
+                  value={dasQuery}
+                  onChange={(e) => handleDasQueryChange(e.target.value)}
+                  onFocus={() => { if (dasResults.length) setShowDasResults(true); }}
+                  onKeyDown={(e) => { if (e.key === "Escape") setShowDasResults(false); if (e.key === "Enter" && dasQuery.trim().length >= 2) { e.preventDefault(); if (dasDebounceRef.current) clearTimeout(dasDebounceRef.current); void searchDasAreas(dasQuery); } }}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Cari nama DAS..."
+                  className="h-12 min-w-0 flex-1 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
+                />
+                {dasSearching && <RefreshCw size={15} className="animate-spin text-blue-600" />}
+                {dasQuery && <button type="button" onClick={() => { setDasQuery(""); setDasResults([]); setShowDasResults(false); setSelectedDas(null); dasRequestRef.current += 1; }} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700" aria-label="Hapus pencarian"><X size={15} /></button>}
+              </div>
+              </div>
+              {showDasResults && (
+                <div className="absolute left-0 right-0 top-full z-[100] mt-2 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl">
+                  {dasResults.length ? dasResults.map((das: any, index: number) => {
+                    const label = das.nama_das || das.label || das.nama || das.name || "DAS";
+                    return <button key={`${das.id || label}-${index}`} type="button" onClick={() => { setSelectedDas(das); setDasQuery(label); setShowDasResults(false); setDasResults([]); }} className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-blue-50">
+                      <span className="mt-0.5 rounded-lg bg-blue-50 p-2 text-blue-700"><Waves size={15} /></span>
+                      <span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold text-slate-800">{label}</span><span className="mt-0.5 block text-[11px] text-slate-500">Daerah Aliran Sungai</span></span>
+                      <span className="text-[10px] font-bold text-blue-700">Pilih</span>
+                    </button>;
+                  }) : <div className="px-4 py-5 text-center text-xs text-slate-500">Tidak ditemukan. Coba kata kunci lain.</div>}
+                </div>
+              )}
+              {selectedDas && <div className="mt-2 flex flex-wrap items-center gap-2"><span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-800">{selectedDas.nama_das || selectedDas.label || selectedDas.nama || selectedDas.name || dasQuery}</span><button type="button" onClick={() => { setSelectedDas(null); setDasQuery(""); }} className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-100"><X size={13} /> Hapus DAS</button></div>}
+            </div>
+          )}
+
+          <div className="mt-4 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <label className="mb-1.5 block text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-500">Jenis bencana</label>
+              <select value={type} onChange={(e) => setType(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800">
+                {types.map((v) => <option key={v} value={v}>{v === "ALL" ? "Semua jenis" : v}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-500">Dari tanggal</label>
+              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800" />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-500">Sampai tanggal</label>
+              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800" />
+            </div>
+          </div>
+          <div className="mt-3 flex justify-end">
+            <button onClick={reset} className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-800"><X size={14} /> Reset Filter</button>
           </div>
         </div>
 
@@ -749,47 +1039,83 @@ export default function DataKejadianEnterprise() {
           </div>
         )}
 
-        {/* KPI */}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Card
-            title="Total Kejadian"
-            value={fmt(filtered.length, 0)}
-            subtitle="Sesuai filter aktif"
-            icon={ShieldAlert}
-          />
+        {/* MAP — national event distribution */}
+        <Section
+          eyebrow="01 • Spatial Intelligence"
+          title="Peta Sebaran Kejadian Indonesia"
+          description="Pemetaan lokasi kejadian berdasarkan koordinat geografis dan seluruh filter analitik yang sedang aktif."
+          icon={MapPin}
+        >
+          {/* INDONESIA EVENT MAP */}
+          <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <div className="flex flex-col gap-3 border-b border-slate-200 bg-gradient-to-r from-white to-emerald-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-2.5 text-emerald-700">
+                  <MapPin size={18} />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-800">
+                    Ringkasan Sebaran pada Peta
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Sebaran titik kejadian berdasarkan koordinat pada data dan filter aktif.
+                  </p>
+                </div>
+              </div>
 
-          <Card
-            title="Jenis Bencana"
-            value={fmt(typeChart.length, 0)}
-            subtitle="Jenis teridentifikasi"
-            icon={BarChart3}
-          />
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="rounded-lg border border-slate-200 bg-white px-3 py-2 font-semibold text-slate-600">
+                  {fmt(mappedEvents.length, 0)} titik pada peta
+                </span>
+                <span className="rounded-lg border border-slate-200 bg-white px-3 py-2 font-semibold text-slate-600">
+                  {fmt(filtered.length, 0)} total kejadian
+                </span>
+              </div>
+            </div>
 
-          <Card
-            title="Curah Hujan Rata-rata"
-            value={
-              rainfallStats.avg == null ? "—" : `${fmt(rainfallStats.avg)} mm`
-            }
-            subtitle="Dari nilai tersedia"
-            icon={CloudRain}
-          />
+            <div className="relative bg-slate-100 p-2 sm:p-3">
+              <div
+                ref={mapContainerRef}
+                className="z-0 h-[420px] w-full overflow-hidden rounded-xl border border-slate-200 bg-[#e8f1f5] sm:h-[540px] lg:h-[600px]"
+                aria-label="Peta Indonesia dengan titik sebaran kejadian"
+              />
 
-          <Card
-            title="Lokasi Terpetakan"
-            value={fmt(mappedLocations, 0)}
-            subtitle="Koordinat valid"
-            icon={MapPin}
-          />
-        </div>
+              {mappedEvents.length === 0 && (
+                <div className="pointer-events-none absolute inset-2 flex items-center justify-center sm:inset-3">
+                  <div className="rounded-xl border border-slate-200 bg-white/95 px-5 py-4 text-center shadow-lg">
+                    <MapPin size={22} className="mx-auto mb-2 text-slate-400" />
+                    <p className="text-sm font-semibold text-slate-700">
+                      Belum ada koordinat kejadian untuk ditampilkan
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Periksa data latitude dan longitude atau sesuaikan filter.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-4 py-3">
+              <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                Titik menunjukkan lokasi kejadian; klik titik untuk melihat detail.
+              </div>
+              <span className="text-[10px] font-medium text-slate-400">
+                Peta dasar © OpenStreetMap
+              </span>
+            </div>
+          </div>
+
+        </Section>
 
         {/* TEMPORAL */}
         <Section
-          eyebrow="01 • Temporal Intelligence"
-          title="Distribusi kejadian berdasarkan tanggal"
+          eyebrow="02 • Temporal Intelligence"
+          title="Distribusi Kejadian Berdasarkan Tanggal"
           description="Grafik kronologis menunjukkan jumlah kejadian pada setiap tanggal. Titik data dapat di-hover untuk melihat tanggal dan jumlah kejadian."
           icon={TrendingUp}
         >
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_270px]">
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
             <div className="min-w-0">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -916,7 +1242,7 @@ export default function DataKejadianEnterprise() {
             </div>
 
             {/* TREND INSIGHT */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-1">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                   Puncak kejadian
@@ -964,143 +1290,14 @@ export default function DataKejadianEnterprise() {
               </div>
             </div>
           </div>
+
         </Section>
 
         {/* TYPE + RAINFALL */}
         <div className="grid gap-4 lg:grid-cols-2">
-          {/* TYPE */}
-          <Section
-            eyebrow="02 • Disaster Profile"
-            title="Komposisi jenis bencana"
-            description="Distribusi jumlah kejadian dan kontribusi persentase setiap jenis bencana berdasarkan data API dan filter aktif."
-            icon={BarChart3}
-          >
-            <div className="mb-4 grid grid-cols-2 gap-3">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  Total
-                </p>
-
-                <p className="mt-1 text-xl font-black text-slate-800">
-                  {fmt(filtered.length, 0)}
-                </p>
-
-                <p className="text-[10px] text-slate-400">kejadian</p>
-              </div>
-
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  Kategori
-                </p>
-
-                <p className="mt-1 text-xl font-black text-slate-800">
-                  {fmt(typeChart.length, 0)}
-                </p>
-
-                <p className="text-[10px] text-slate-400">jenis bencana</p>
-              </div>
-            </div>
-
-            <div className="h-[350px]">
-              {typeChart.length ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={typeChart}
-                    layout="vertical"
-                    margin={{
-                      left: 10,
-                      right: 45,
-                      top: 5,
-                      bottom: 5,
-                    }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-
-                    <XAxis
-                      type="number"
-                      allowDecimals={false}
-                      stroke="#64748b"
-                    />
-
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      width={115}
-                      stroke="#64748b"
-                      tick={{
-                        fontSize: 10,
-                      }}
-                    />
-
-                    <Tooltip
-                      content={({ active, payload }) => {
-                        if (!active || !payload || !payload.length) {
-                          return null;
-                        }
-
-                        const item = payload[0]?.payload;
-
-                        if (!item) {
-                          return null;
-                        }
-
-                        return (
-                          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
-                            <p className="text-xs font-bold text-slate-800">
-                              {item.name}
-                            </p>
-
-                            <div className="mt-2 flex gap-5">
-                              <div>
-                                <p className="text-[10px] text-slate-400">
-                                  Kejadian
-                                </p>
-
-                                <p className="text-sm font-bold text-emerald-700">
-                                  {item.value}
-                                </p>
-                              </div>
-
-                              <div>
-                                <p className="text-[10px] text-slate-400">
-                                  Persentase
-                                </p>
-
-                                <p className="text-sm font-bold text-slate-800">
-                                  {fmt(item.percentage, 1)}%
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      }}
-                    />
-
-                    <Bar
-                      dataKey="value"
-                      name="Kejadian"
-                      radius={[0, 6, 6, 0]}
-                      fill="#10b981"
-                    >
-                      <LabelList
-                        dataKey="percentage"
-                        position="right"
-                        formatter={(value: any) => `${fmt(Number(value), 1)}%`}
-                        fill="#64748b"
-                        fontSize={10}
-                      />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <EmptyChart message="Belum ada data jenis bencana" />
-              )}
-            </div>
-          </Section>
-
           {/* RAINFALL */}
           <Section
-            eyebrow="03 • Rainfall Intelligence"
+            eyebrow="04 • Rainfall Intelligence"
             title="Tren curah hujan"
             description="Visualisasi nilai curah hujan yang tersedia dari endpoint analytics atau atribut kejadian."
             icon={CloudRain}
@@ -1228,131 +1425,6 @@ export default function DataKejadianEnterprise() {
             </div>
           </Section>
         </div>
-
-        {/* LAND COVER */}
-        <Section
-          eyebrow="04 • Land Cover Intelligence"
-          title="Komposisi tutupan lahan"
-          description="Distribusi jenis tutupan lahan yang terkait dengan kejadian. Persentase menggunakan data analytics jika endpoint tersedia."
-          icon={Sprout}
-        >
-          <div className="grid gap-6 lg:grid-cols-[minmax(300px,460px)_minmax(0,1fr)]">
-            <div className="h-[380px]">
-              {landCoverChart.length ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={landCoverChart}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={135}
-                      innerRadius={70}
-                      paddingAngle={2}
-                    >
-                      {landCoverChart.map((_, i) => (
-                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                      ))}
-                    </Pie>
-
-                    <Tooltip
-                      content={({ active, payload }) => {
-                        if (!active || !payload || !payload.length) {
-                          return null;
-                        }
-
-                        const item = payload[0]?.payload;
-
-                        if (!item) {
-                          return null;
-                        }
-
-                        return (
-                          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
-                            <p className="text-xs font-bold text-slate-800">
-                              {item.name}
-                            </p>
-
-                            <p className="mt-1 text-sm font-bold text-emerald-700">
-                              {fmt(item.value, 2)}
-                            </p>
-
-                            <p className="text-xs text-slate-500">
-                              {fmt(item.percentage, 1)}% dari total
-                            </p>
-                          </div>
-                        );
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <EmptyChart message="Data tutupan lahan belum tersedia" />
-              )}
-            </div>
-
-            <div>
-              <div className="mb-3 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-bold text-slate-800">
-                    Detail distribusi
-                  </p>
-
-                  <p className="text-xs text-slate-500">
-                    Berdasarkan data yang tersedia
-                  </p>
-                </div>
-
-                <Sprout size={18} className="text-emerald-600" />
-              </div>
-
-              <div className="space-y-2">
-                {landCoverChart.map((item, i) => (
-                  <div
-                    key={item.name}
-                    className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{
-                            background: COLORS[i % COLORS.length],
-                          }}
-                        />
-
-                        <span className="truncate text-sm font-medium text-slate-700">
-                          {item.name}
-                        </span>
-                      </div>
-
-                      <div className="text-right">
-                        <p className="text-sm font-bold text-slate-800">
-                          {fmt(item.value, 2)}
-                        </p>
-
-                        <p className="text-[10px] text-slate-400">
-                          {fmt(item.percentage, 1)}%
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${Math.min(100, item.percentage)}%`,
-                          background: COLORS[i % COLORS.length],
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </Section>
 
         {/* FOOTER */}
         <footer className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-4 text-xs text-slate-500 md:flex-row md:items-center md:justify-between">
