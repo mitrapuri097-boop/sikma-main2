@@ -8,7 +8,7 @@ import {
 import L from "leaflet";
 import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, Marker, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import "./lokasisaya.css";
+import "./LokasiSaya.css";
 
 type RiskItem = { key: string; label: string; status: string; value: number; color: string };
 type Incident = { id: number; title: string; type: string; distanceKm: number; image: string; coordinates: [number, number] };
