@@ -9982,9 +9982,16 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 // Konfigurasi Multer untuk upload file
+// Simpan file kejadian pada folder yang sama dengan folder yang disajikan
+// oleh endpoint /uploads, terlepas dari working directory proses Node.
+const kejadianUploadDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(kejadianUploadDir)) {
+  fs.mkdirSync(kejadianUploadDir, { recursive: true });
+}
+
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, "uploads/");
+    cb(null, kejadianUploadDir);
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
@@ -12362,7 +12369,8 @@ app.put(
       if (req.files && req.files["thumbnail"] && req.files["thumbnail"][0]) {
         // Delete old thumbnail if exists
         if (existingKejadian.thumbnail_path) {
-          const oldPath = path.join(__dirname, existingKejadian.thumbnail_path);
+          const oldFilename = path.basename(existingKejadian.thumbnail_path);
+          const oldPath = path.join(kejadianUploadDir, oldFilename);
           if (fs.existsSync(oldPath)) {
             fs.unlinkSync(oldPath);
           }
@@ -12378,7 +12386,8 @@ app.put(
           existingKejadian.images_paths.length > 0
         ) {
           existingKejadian.images_paths.forEach((imgPath) => {
-            const oldPath = path.join(__dirname, imgPath);
+            const oldFilename = path.basename(imgPath);
+            const oldPath = path.join(kejadianUploadDir, oldFilename);
             if (fs.existsSync(oldPath)) {
               fs.unlinkSync(oldPath);
             }
