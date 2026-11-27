@@ -10022,7 +10022,7 @@ const createKejadianTable = async () => {
     CREATE TABLE IF NOT EXISTS kejadian (
       id SERIAL PRIMARY KEY,
       title VARCHAR(255) NOT NULL,
-      category VARCHAR(50) NOT NULL CHECK (category IN ('Banjir', 'Kebakaran Hutan dan Kekeringan', 'Tanah Longsor dan Erosi', 'Gempa Bumi')),
+      category VARCHAR(50) NOT NULL CHECK (category IN ('Banjir', 'Kebakaran Hutan dan Kekeringan', 'Kebakaran Hutan', 'Kekeringan', 'Tanah Longsor dan Erosi', 'Abrasi', 'Gempa Bumi')),
       date DATE NOT NULL,
       location TEXT NOT NULL,
       das VARCHAR(100),
@@ -10601,6 +10601,18 @@ app.post("/api/admin/logout", verifyToken, (req, res) => {
   });
 });
 
+// Kategori yang didukung tabel kejadian. Pertahankan kategori legacy
+// agar data lama tetap valid, sekaligus dukung pilihan pada form terbaru.
+const KEJADIAN_ALLOWED_CATEGORIES = new Set([
+  "Banjir",
+  "Tanah Longsor dan Erosi",
+  "Kebakaran Hutan",
+  "Kekeringan",
+  "Abrasi",
+  "Kebakaran Hutan dan Kekeringan", // legacy
+  "Gempa Bumi", // legacy
+]);
+
 // 4. Protected Route Example - Tambah Kejadian
 app.post(
   "/api/kejadian/add",
@@ -10636,6 +10648,14 @@ app.post(
           success: false,
           message:
             "Field wajib: title, category, incidentDate, location, longitude, latitude",
+        });
+      }
+
+      if (!KEJADIAN_ALLOWED_CATEGORIES.has(String(category).trim())) {
+        return res.status(400).json({
+          success: false,
+          message: `Kategori kejadian tidak valid: ${category}`,
+          allowedCategories: [...KEJADIAN_ALLOWED_CATEGORIES],
         });
       }
 
@@ -12310,6 +12330,14 @@ app.put(
 
       console.log("Updating kejadian:", id);
       console.log("Request body:", req.body);
+
+      if (!KEJADIAN_ALLOWED_CATEGORIES.has(String(category || "").trim())) {
+        return res.status(400).json({
+          success: false,
+          message: `Kategori kejadian tidak valid: ${category || "(kosong)"}`,
+          allowedCategories: [...KEJADIAN_ALLOWED_CATEGORIES],
+        });
+      }
 
       // Check if kejadian exists
       const checkResult = await client.query(

@@ -6,6 +6,8 @@ import React, {
   useState,
 } from "react";
 
+import { useNavigate } from "react-router-dom";
+
 import Header from "./header";
 import { API_URL } from "./api";
 
@@ -128,8 +130,10 @@ const CATEGORY_TO_TYPE: Record<string, string> = {
   Banjir: "banjir",
   "Tanah Longsor dan Erosi": "longsor",
   "Kebakaran Hutan": "kebakaran",
+  "Kebakaran Hutan dan Kekeringan": "kebakaran", // kompatibilitas data lama
   Kekeringan: "kekeringan",
   Abrasi: "abrasi",
+  "Gempa Bumi": "lainnya",
 };
 
 const TYPE_TO_CATEGORY: Record<string, string> = {
@@ -458,6 +462,8 @@ const loadLeaflet = async (): Promise<void> => {
 ========================================================= */
 
 const Kebencanaan: React.FC = () => {
+  const navigate = useNavigate();
+
   /* =======================================================
      MAP REFS
   ======================================================= */
@@ -485,6 +491,12 @@ const Kebencanaan: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   const [refreshing, setRefreshing] = useState(false);
+
+  // Pagination khusus tabel Dokumentasi & Informasi Kejadian.
+  const [incidentPage, setIncidentPage] = useState(1);
+  const [incidentPageSize, setIncidentPageSize] = useState(10);
+  const [incidentTableSearch, setIncidentTableSearch] = useState("");
+  const [incidentViewMode, setIncidentViewMode] = useState<"grid" | "list">("grid");
 
   /* =======================================================
      FILTER STATE
@@ -628,10 +640,49 @@ const Kebencanaan: React.FC = () => {
         return Number(b.featured) - Number(a.featured);
       }
 
-      return new Date(b.date).getTime() - new Date(a.date).getTime();
+      const dateA = new Date(a.date || a.created_at || a.updated_at || 0).getTime();
+      const dateB = new Date(b.date || b.created_at || b.updated_at || 0).getTime();
+      const safeA = Number.isFinite(dateA) ? dateA : 0;
+      const safeB = Number.isFinite(dateB) ? dateB : 0;
+      if (safeA !== safeB) return safeB - safeA;
+      const createdA = new Date(a.created_at || 0).getTime();
+      const createdB = new Date(b.created_at || 0).getTime();
+      return (Number.isFinite(createdB) ? createdB : 0) - (Number.isFinite(createdA) ? createdA : 0);
     });
   }, [incidents, search, selectedAreas, selectedDas, category, types, sort]);
 
+  // Pencarian khusus tabel dokumentasi, setelah filter utama diterapkan.
+  const documentationRows = useMemo(() => {
+    const q = incidentTableSearch.trim().toLowerCase();
+    if (!q) return filtered;
+    return filtered.filter((x) => [
+      x.id, x.title, x.category, x.type, x.date, x.location,
+      x.description, x.created_at, x.updated_at,
+    ].some((value) => String(value ?? "").toLowerCase().includes(q)));
+  }, [filtered, incidentTableSearch]);
+
+  // Pagination diterapkan setelah seluruh filter dan pencarian agar semua record dapat dijangkau.
+  const incidentTotalPages = Math.max(1, Math.ceil(documentationRows.length / incidentPageSize));
+  const safeIncidentPage = Math.min(incidentPage, incidentTotalPages);
+  const incidentStartIndex = documentationRows.length === 0 ? 0 : (safeIncidentPage - 1) * incidentPageSize;
+  const paginatedIncidents = documentationRows.slice(
+    incidentStartIndex,
+    incidentStartIndex + incidentPageSize,
+  );
+  const incidentPageNumbers = useMemo((): (number | "ellipsis")[] => {
+    if (incidentTotalPages <= 7) {
+      return Array.from({ length: incidentTotalPages }, (_, index) => index + 1);
+    }
+    if (safeIncidentPage <= 4) return [1, 2, 3, 4, 5, "ellipsis", incidentTotalPages];
+    if (safeIncidentPage >= incidentTotalPages - 3) {
+      return [1, "ellipsis", incidentTotalPages - 4, incidentTotalPages - 3, incidentTotalPages - 2, incidentTotalPages - 1, incidentTotalPages];
+    }
+    return [1, "ellipsis", safeIncidentPage - 1, safeIncidentPage, safeIncidentPage + 1, "ellipsis", incidentTotalPages];
+  }, [incidentTotalPages, safeIncidentPage]);
+
+  useEffect(() => {
+    setIncidentPage(1);
+  }, [search, incidentTableSearch, selectedAreas, selectedDas, category, types, sort, incidentPageSize]);
 
   // Wilayah analisis: API administrasi dan DAS sama seperti Kerawanan.tsx.
   const clearBoundary = () => {
@@ -1366,6 +1417,12 @@ const Kebencanaan: React.FC = () => {
     }
   }, []);
 
+  // Navigasi ke halaman DetailKejadianDummy; fungsi focus untuk peta tetap utuh.
+  const openDummyDetail = useCallback((x: Incident) => {
+    setSelected(null);
+    navigate(`/detail-kejadian-dummy/${encodeURIComponent(String(x.id))}`);
+  }, [navigate]);
+
   /* =======================================================
      RESET FORM
   ======================================================= */
@@ -2042,6 +2099,122 @@ const Kebencanaan: React.FC = () => {
         </div>
 
         {/* =================================================
+            KATALOG KEJADIAN — GRID / LIST
+        ================================================= */}
+        {!mapOnly && (
+          <section className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.055)]">
+            <div className="border-b border-slate-100 px-4 py-4 sm:px-5">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[.16em] text-emerald-700">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                    SIMITI • Data Kebencanaan
+                  </div>
+                  <h2 className="mt-1 text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">Data Kejadian Bencana</h2>
+                  <p className="mt-1 text-xs text-slate-500">Dokumentasi kejadian bencana berdasarkan data PostgreSQL SIMITI.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="text-[8px] font-bold uppercase tracking-wider text-slate-400">Total kejadian</div>
+                    <div className="text-base font-black tabular-nums text-slate-900">{documentationRows.length.toLocaleString("id-ID")}</div>
+                  </div>
+                  <button type="button" onClick={async () => { setRefreshing(true); await fetchIncidents(); setIncidentPage(1); setRefreshing(false); }} disabled={refreshing || loading}
+                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-[10px] font-bold text-slate-600 transition hover:border-emerald-300 hover:bg-emerald-50 disabled:opacity-50">
+                    <span className={refreshing ? "animate-spin" : ""}>↻</span>{refreshing ? "Memuat..." : "Muat ulang"}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-100">
+                <span className="text-lg leading-none text-slate-400">⌕</span>
+                <input type="search" value={incidentTableSearch} onChange={(e) => { setIncidentTableSearch(e.target.value); setIncidentPage(1); }}
+                  placeholder="Cari judul kejadian, lokasi, kategori..." aria-label="Cari data kejadian"
+                  className="w-full bg-transparent text-xs text-slate-700 outline-none placeholder:text-slate-400" />
+                {incidentTableSearch && <button type="button" onClick={() => { setIncidentTableSearch(""); setIncidentPage(1); }} className="shrink-0 rounded-md px-2 py-1 text-[10px] font-bold text-slate-400 hover:bg-slate-100">Hapus</button>}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 sm:justify-end">
+                <div className="text-[10px] text-slate-500">
+                  {documentationRows.length === 0 ? "Tidak ada data" : <>Menampilkan <strong className="text-slate-800">{(incidentStartIndex + 1).toLocaleString("id-ID")}</strong>–<strong className="text-slate-800">{Math.min(incidentStartIndex + incidentPageSize, documentationRows.length).toLocaleString("id-ID")}</strong> dari <strong className="text-slate-800">{documentationRows.length.toLocaleString("id-ID")}</strong> kejadian</>}
+                </div>
+                <label className="flex items-center gap-2 text-[10px] font-semibold text-slate-500">
+                  <span className="hidden sm:inline">Per halaman</span>
+                  <select value={incidentPageSize} onChange={(e) => { setIncidentPageSize(Number(e.target.value)); setIncidentPage(1); }} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-[10px] font-bold text-slate-700 outline-none focus:border-emerald-500">
+                    <option value={10}>10 per halaman</option><option value={20}>20 per halaman</option><option value={50}>50 per halaman</option>
+                  </select>
+                </label>
+                <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1">
+                  <button type="button" onClick={() => setIncidentViewMode("grid")} aria-pressed={incidentViewMode === "grid"}
+                    className={`flex h-8 items-center gap-1.5 rounded-lg px-3 text-[10px] font-bold transition ${incidentViewMode === "grid" ? "bg-rose-50 text-rose-600 ring-1 ring-rose-200" : "text-slate-500 hover:bg-slate-50"}`}>
+                    <span className="text-sm">▦</span> Grid
+                  </button>
+                  <button type="button" onClick={() => setIncidentViewMode("list")} aria-pressed={incidentViewMode === "list"}
+                    className={`flex h-8 items-center gap-1.5 rounded-lg px-3 text-[10px] font-bold transition ${incidentViewMode === "list" ? "bg-rose-50 text-rose-600 ring-1 ring-rose-200" : "text-slate-500 hover:bg-slate-50"}`}>
+                    <span className="text-sm">☰</span> List
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="grid grid-cols-1 gap-5 p-5 md:grid-cols-2 xl:grid-cols-3">{[1,2,3,4,5,6].map((n) => <div key={n} className="overflow-hidden rounded-xl border border-slate-100"><div className="h-48 animate-pulse bg-slate-100"/><div className="space-y-3 p-4"><div className="h-4 w-4/5 animate-pulse rounded bg-slate-100"/><div className="h-3 w-2/3 animate-pulse rounded bg-slate-100"/></div></div>)}</div>
+            ) : documentationRows.length === 0 ? (
+              <div className="px-5 py-16 text-center"><div className="text-4xl text-slate-300">⌕</div><div className="mt-3 text-sm font-bold text-slate-700">Data kejadian tidak ditemukan</div><p className="mt-1 text-xs text-slate-400">Ubah kata kunci atau filter untuk melihat data lainnya.</p></div>
+            ) : incidentViewMode === "grid" ? (
+              <div className="grid grid-cols-1 gap-5 p-4 sm:p-5 md:grid-cols-2 xl:grid-cols-3">
+                {paginatedIncidents.map((x) => {
+                  const imageUrl = resolveIncidentImage(x);
+                  const meta = TYPE_META[x.type] || TYPE_META.lainnya;
+                  return (
+                    <article key={`incident-card-${x.id}`} className="group overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-lg">
+                      <button type="button" onClick={() => openDummyDetail(x)} className="block w-full text-left">
+                        <div className="relative h-52 overflow-hidden bg-slate-100">
+                          {imageUrl ? <img src={imageUrl} alt={x.title || "Dokumentasi kejadian"} loading="lazy" className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]" onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <div className="flex h-full items-center justify-center" style={{background:`linear-gradient(135deg, ${meta.color}18, #e2e8f0)`}}><span className="text-5xl">{meta.icon}</span></div>}
+                          {x.featured && <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-amber-400 px-3 py-1.5 text-[10px] font-extrabold text-white shadow">★ Featured</span>}
+                          <span className="absolute bottom-3 left-3 max-w-[90%] truncate rounded-md bg-rose-600 px-3 py-1.5 text-[10px] font-bold text-white shadow">{x.category || "Bencana"}</span>
+                        </div>
+                        <div className="min-h-[150px] p-4">
+                          <h3 className="line-clamp-2 text-[15px] font-bold leading-6 text-slate-900 transition group-hover:text-rose-600">{x.title || "Kejadian tanpa judul"}</h3>
+                          <p className="mt-3 flex items-start gap-2 text-xs leading-5 text-slate-500"><span className="mt-0.5 shrink-0">📍</span><span className="line-clamp-2">{x.location || "Lokasi belum tersedia"}</span></p>
+                          <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-slate-400"><span>{fmtDate(x.date)}</span><span className="font-semibold text-rose-600 group-hover:underline">Lihat detail →</span></div>
+                        </div>
+                      </button>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {paginatedIncidents.map((x) => {
+                  const imageUrl = resolveIncidentImage(x);
+                  const meta = TYPE_META[x.type] || TYPE_META.lainnya;
+                  return (
+                    <button key={`incident-list-${x.id}`} type="button" onClick={() => openDummyDetail(x)} className="group flex w-full flex-col gap-3 p-4 text-left transition hover:bg-slate-50 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
+                      <div className="relative h-36 w-full shrink-0 overflow-hidden rounded-lg bg-slate-100 sm:h-24 sm:w-36">{imageUrl ? <img src={imageUrl} alt={x.title || "Dokumentasi kejadian"} loading="lazy" className="h-full w-full object-cover"/> : <div className="flex h-full items-center justify-center text-3xl" style={{background:`linear-gradient(135deg, ${meta.color}18, #e2e8f0)`}}>{meta.icon}</div>}</div>
+                      <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="rounded-md bg-rose-50 px-2 py-1 text-[9px] font-bold text-rose-600">{x.category || "Bencana"}</span>{x.featured && <span className="rounded-full bg-amber-100 px-2 py-1 text-[9px] font-bold text-amber-700">★ Featured</span>}<span className="text-[9px] text-slate-400">ID #{x.id}</span></div><h3 className="mt-2 text-sm font-bold leading-5 text-slate-900 group-hover:text-rose-600">{x.title || "Kejadian tanpa judul"}</h3><p className="mt-1 text-xs text-slate-500">📍 {x.location || "Lokasi belum tersedia"}</p><p className="mt-1 text-[10px] text-slate-400">{fmtDate(x.date)}</p></div>
+                      <span className="shrink-0 text-xs font-bold text-rose-600">Lihat detail →</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {!loading && documentationRows.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 py-3 sm:px-5">
+                <div className="text-[10px] text-slate-500">Halaman <strong className="text-slate-800">{safeIncidentPage}</strong> dari <strong className="text-slate-800">{incidentTotalPages}</strong></div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button type="button" onClick={() => setIncidentPage((p) => Math.max(1, p - 1))} disabled={safeIncidentPage <= 1} aria-label="Halaman sebelumnya" className="h-9 min-w-9 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-35">‹</button>
+                  {incidentPageNumbers.map((page, index) => page === "ellipsis" ? <span key={`ellipsis-${index}`} className="px-1.5 text-xs font-bold text-slate-400">...</span> : <button key={`page-${page}`} type="button" onClick={() => setIncidentPage(page)} aria-current={safeIncidentPage === page ? "page" : undefined} className={`h-9 min-w-9 rounded-lg border px-3 text-[10px] font-bold transition ${safeIncidentPage === page ? "border-rose-600 bg-rose-600 text-white shadow-sm" : "border-slate-200 bg-white text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"}`}>{page}</button>)}
+                  <button type="button" onClick={() => setIncidentPage((p) => Math.min(incidentTotalPages, p + 1))} disabled={safeIncidentPage >= incidentTotalPages} aria-label="Halaman berikutnya" className="h-9 min-w-9 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-35">›</button>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+
+        {/* =================================================
             MAP + EVENT STREAM — mengikuti layout Kejadian.tsx
         ================================================= */}
         <section className={`mt-3 min-w-0 ${
@@ -2198,110 +2371,6 @@ const Kebencanaan: React.FC = () => {
         )}
         </section>
 
-        {/* =================================================
-            INCIDENT VISUAL STORY / ENTERPRISE CARDS
-        ================================================= */}
-
-        {!mapOnly && (
-          <section className="mt-4 rounded-[26px] border border-slate-200/90 bg-slate-50/60 p-3 shadow-[0_6px_24px_rgba(15,23,42,0.035)] sm:p-5">
-            <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <div className="text-[10px] font-black uppercase tracking-[.18em] text-emerald-600">
-                  Incident Intelligence
-                </div>
-                <h2 className="mt-1 text-xl font-extrabold tracking-tight text-slate-900 md:text-2xl">
-                  Dokumentasi & Informasi Kejadian
-                </h2>
-                <p className="mt-1 max-w-2xl text-xs text-slate-500">
-                  Ringkasan kejadian, dokumentasi visual, lokasi, dan waktu kejadian dalam satu tampilan.
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-bold text-slate-500 shadow-sm">
-                Menampilkan {Math.min(filtered.length, 12)} dari {filtered.length} kejadian
-              </div>
-            </div>
-
-            {loading ? (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {[1, 2, 3].map((n) => (
-                  <div key={n} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                    <div className="h-48 animate-pulse bg-slate-100" />
-                    <div className="space-y-2 p-4">
-                      <div className="h-3 w-2/3 animate-pulse rounded bg-slate-100" />
-                      <div className="h-3 w-full animate-pulse rounded bg-slate-100" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : filtered.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-white py-14 text-center">
-                <div className="text-3xl">📷</div>
-                <div className="mt-2 text-sm font-black text-slate-700">Belum ada dokumentasi kejadian</div>
-                <p className="mt-1 text-xs text-slate-400">Coba ubah filter pencarian atau kategori.</p>
-              </div>
-            ) : (
-              <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
-                {filtered.slice(0, 12).map((x) => {
-                  const meta = TYPE_META[x.type] || TYPE_META.lainnya;
-                  const photo = resolveIncidentImage(x);
-                  return (
-                    <article
-                      key={`visual-${x.id}`}
-                      className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-xl"
-                    >
-                      <button onClick={() => focus(x)} className="relative block h-52 w-full overflow-hidden bg-slate-100 text-left">
-                        {photo ? (
-                          <img
-                            src={photo}
-                            alt={x.title}
-                            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                            onError={(e) => {
-                              e.currentTarget.style.display = "none";
-                            }}
-                          />
-                        ) : (
-                          <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-slate-100 via-slate-200 to-slate-300">
-                            <span className="text-5xl">{meta.icon}</span>
-                            <span className="mt-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Dokumentasi belum tersedia</span>
-                          </div>
-                        )}
-                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/10 to-transparent" />
-                        <div className="absolute left-3 top-3 flex gap-2">
-                          <span className="rounded-full px-2.5 py-1 text-[9px] font-black text-white shadow" style={{ backgroundColor: meta.color }}>
-                            {meta.icon} {meta.label}
-                          </span>
-                          {x.featured && <span className="rounded-full bg-amber-400 px-2.5 py-1 text-[9px] font-black text-amber-950">★ PRIORITAS</span>}
-                        </div>
-                        <div className="absolute bottom-3 left-4 right-4 text-white">
-                          <div className="text-[9px] font-bold text-white/75">{fmtDate(x.date)}</div>
-                          <h3 className="mt-1 line-clamp-2 text-base font-black leading-snug">{x.title}</h3>
-                        </div>
-                      </button>
-                      <div className="p-4">
-                        <div className="flex items-start gap-2 text-xs text-slate-600">
-                          <span className="mt-0.5 shrink-0">📍</span>
-                          <span className="line-clamp-2 font-semibold">{x.location}</span>
-                        </div>
-                        <p className="mt-3 line-clamp-3 min-h-[54px] text-xs leading-relaxed text-slate-500">
-                          {x.description?.trim() || "Informasi deskripsi kejadian belum tersedia. Buka detail untuk melihat informasi lokasi dan data pendukung."}
-                        </p>
-                        <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
-                          <span className="truncate text-[10px] font-bold text-slate-400">DAS: {x.das || "Tidak tercatat"}</span>
-                          <button
-                            onClick={() => focus(x)}
-                            className="rounded-lg bg-slate-900 px-3 py-2 text-[10px] font-black text-white transition hover:bg-emerald-600"
-                          >
-                            Lihat Detail <span aria-hidden="true">↗</span>
-                          </button>
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        )}
 
       </main>
 
