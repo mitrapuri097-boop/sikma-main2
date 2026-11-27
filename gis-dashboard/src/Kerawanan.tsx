@@ -683,6 +683,10 @@ const Kerawanan = () => {
       color?: string;
     }>
   >([]);
+  const [lahanGambutStats, setLahanGambutStats] = useState<{
+    jumlahPolygon: number;
+    luasPerKode: Record<string, number>;
+  }>({ jumlahPolygon: 0, luasPerKode: {} });
 
   const [risikoData, setRisikoData] = useState<{
     risiko_banjir: Array<{ kelas: string; luas: number; color?: string }>;
@@ -922,18 +926,19 @@ const Kerawanan = () => {
     { codes: ["100201", "100211", "100221"], fungsikws: "100201", deskripsi_domain: "Cagar Alam (Perairan)", color: "#EC7063" },
   ] as const;
 
-  // Legenda Lahan Gambut berdasarkan klasifikasi ktn_1.
-  // Jumlah kategori berasal dari rekap database public.lahan_gambut (4.603 fitur).
+  // Satu sumber warna untuk polygon peta dan legenda lahan gambut.
+  // Palet mengikuti acuan warna yang diberikan: D1 oranye, D2 hijau,
+  // D3 biru, D4 ungu, D5 merah-oranye, dan D6 merah muda.
   const LAHAN_GAMBUT_LEGEND = [
-    { ktn_1: "Organosol Fibrik", color: "#8B5CF6", jumlah: 89 },
-    { ktn_1: "Organosol Hemik", color: "#16A34A", jumlah: 2855 },
-    { ktn_1: "Organosol Saprik", color: "#A16207", jumlah: 1362 },
-    { ktn_1: "Organosol Sulfidik", color: "#DC2626", jumlah: 291 },
-    { ktn_1: "Organosol Sulfik", color: "#F97316", jumlah: 5 },
-    { ktn_1: "Organosol Sulfurik", color: "#0EA5E9", jumlah: 1 },
+    { kode: "D1", kedalaman: "50–100 cm", color: "#FFAD45" },
+    { kode: "D2", kedalaman: "100–200 cm", color: "#42C98C" },
+    { kode: "D3", kedalaman: "200–300 cm", color: "#3983D8" },
+    { kode: "D4", kedalaman: "300–500 cm", color: "#9561E5" },
+    { kode: "D5", kedalaman: "500–700 cm", color: "#FF573D" },
+    { kode: "D6", kedalaman: ">700 cm", color: "#D93668" },
   ] as const;
-  const LAHAN_GAMBUT_COLOR_MAP = new Map(
-    LAHAN_GAMBUT_LEGEND.map((item) => [item.ktn_1.toLowerCase(), item.color]),
+  const LAHAN_GAMBUT_COLOR_MAP = new Map<string, string>(
+    LAHAN_GAMBUT_LEGEND.map((item) => [item.kode, item.color]),
   );
 
   const [kawasanHutanData, setKawasanHutanData] = useState<
@@ -3342,10 +3347,9 @@ if (
                     (!activeSpatialFocus?.feature?.geometry && zoom <= 5)
               )
         ) &&
-        // Risiko Banjir harus memakai endpoint GeoJSON saat filter
-        // administrasi aktif agar adminCodes/adminLevel diproses backend
-        // dan geometry benar-benar di-clip dengan ST_Intersection.
-        !(tableName === "risiko_banjir" && selectedAreas.length > 0) &&
+        // Risiko Banjir administrasi memakai GeoServer WMS dengan
+        // CQL_FILTER INTERSECTS terhadap polygon administrasi terpilih.
+        // GeoJSON tetap dipakai untuk DAS dan fokus KHDTK melalui guard di atas.
         !(tableName === "risiko_karhutla" && selectedAreas.length > 0) &&
         // Rawan Karhutla administrasi wajib memakai GeoJSON backend agar
         // polygon dipotong ST_Intersection dengan boundary yang sama,
@@ -3405,6 +3409,7 @@ if (
 
         const wmsLayer = window.L.tileLayer.wms(geoserverWmsUrl, {
           layers: ({
+            risiko_banjir: "simiti:risiko_banjir",
             risiko_banjir_bandang: "simiti:vw_risiko_banjir_bandang_wms",
             risiko_abrasi: "simiti:vw_risiko_abrasi_wms",
             risiko_longsor: "simiti:vw_risiko_longsor_wms",
@@ -4003,6 +4008,9 @@ if (
       }
 
       if (!geojsonData.features || geojsonData.features.length === 0) {
+        if (tableName === "lahan_gambut" || tableName === "lahan_gambut_2") {
+          setLahanGambutStats({ jumlahPolygon: 0, luasPerKode: {} });
+        }
         console.warn(" No features found for:", tableName);
         setLayerError(` Tidak ada data "${tableName}" di area yang dipilih.`);
         setTimeout(() => setLayerError(""), 5000);
@@ -4020,7 +4028,22 @@ if (
       // Build color map
       let colorMap = new Map();
 
-      if (tableName === "tutupan_lahan") {
+      if (tableName === "lahan_gambut" || tableName === "lahan_gambut_2") {
+        const luasPerKode: Record<string, number> = {};
+        let jumlahPolygon = 0;
+
+        geojsonData.features.forEach((feature: any) => {
+          const kode = String(feature?.properties?.kode_gbt ?? "").trim().toUpperCase();
+          if (!LAHAN_GAMBUT_COLOR_MAP.has(kode)) return;
+
+          const luas = Number(feature?.properties?.luas_ha ?? 0);
+          luasPerKode[kode] = (luasPerKode[kode] || 0) +
+            (Number.isFinite(luas) && luas > 0 ? luas : 0);
+          jumlahPolygon += 1;
+        });
+
+        setLahanGambutStats({ jumlahPolygon, luasPerKode });
+      } else if (tableName === "tutupan_lahan") {
         const fetchedData = await fetchTutupanLahanData();
 
         // Create mapping from deskripsi_domain to color
@@ -5029,12 +5052,11 @@ if (
             fillOpacity: 0.5,
           };
         };
-      } else if (tableName === "lahan_gambut") {
-        // Warna polygon mengikuti kategori tanah ktn_1 dan legenda di panel bawah.
-        // Pencocokan dibuat case-insensitive agar variasi kapitalisasi tidak menjadi abu-abu.
+      } else if (tableName === "lahan_gambut" || tableName === "lahan_gambut_2") {
+        // Warna polygon mengikuti kelas kedalaman gambut D1-D6 dari kode_gbt.
         styleFunction = function (feature: any) {
-          const kategori = String(feature?.properties?.ktn_1 ?? "").trim().toLowerCase();
-          const fillColor = LAHAN_GAMBUT_COLOR_MAP.get(kategori) || "#64748B";
+          const kode = String(feature?.properties?.kode_gbt ?? "").trim().toUpperCase();
+          const fillColor = LAHAN_GAMBUT_COLOR_MAP.get(kode) || "#64748B";
           return {
             color: fillColor,
             fillColor,
@@ -8363,6 +8385,9 @@ if (
         if (tableName === "rawan_karhutla") {
           setRawanKarhutlaData([]);
         }
+        if (tableName === "lahan_gambut" || tableName === "lahan_gambut_2") {
+          setLahanGambutStats({ jumlahPolygon: 0, luasPerKode: {} });
+        }
       } else {
         console.log("Layer not found in layerGroupsRef or map not ready");
       }
@@ -11158,26 +11183,64 @@ if (
     // Render konten berdasarkan tab yang aktif
     switch (activeBottomTab) {
       case "lahan_gambut":
+      case "lahan_gambut_2": {
+        const formatLuasGambut = (value: number) =>
+          value.toLocaleString("id-ID", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          });
+        // Tampilkan hanya kelas yang benar-benar ada pada GeoJSON layer aktif.
+        // Urutan, warna, dan kedalaman selalu bersumber dari mapping yang sama
+        // dengan style polygon Leaflet.
+        const lahanGambutLegendAktif = LAHAN_GAMBUT_LEGEND.filter(
+          (item) => Object.prototype.hasOwnProperty.call(lahanGambutStats.luasPerKode, item.kode),
+        );
+
         return (
-          <div className="h-full min-h-0 overflow-auto p-3">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">Legenda Lahan Gambut</h3>
-                <p className="text-[10px] text-slate-500">Klasifikasi berdasarkan atribut ktn_1</p>
-              </div>
-              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">4.603 Polygon</span>
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-              {LAHAN_GAMBUT_LEGEND.map((item) => (
-                <div key={item.ktn_1} className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-                  <span className="h-4 w-4 flex-shrink-0 rounded border border-black/10" style={{ backgroundColor: item.color }} />
-                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700" title={item.ktn_1}>{item.ktn_1}</span>
-                  <span className="flex-shrink-0 text-[10px] font-semibold tabular-nums text-slate-500">{item.jumlah.toLocaleString("id-ID")}</span>
-                </div>
-              ))}
+          <div className="flex h-full min-h-0 flex-col overflow-hidden bg-white">
+            <div className="min-h-0 flex-1 overflow-auto">
+              <table className="w-full min-w-[620px] border-collapse text-left text-sm">
+                <thead className="sticky top-0 z-10 bg-white">
+                  <tr className="border-b border-slate-200 text-slate-600">
+                    <th className="w-[16%] px-3 py-3 font-semibold">Warna</th>
+                    <th className="w-[12%] px-3 py-3 font-semibold">Kode</th>
+                    <th className="px-3 py-3 font-semibold text-center">Kedalaman</th>
+                    <th className="w-[24%] px-4 py-3 text-right font-semibold">Luas (ha)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lahanGambutLegendAktif.map((item) => (
+                    <tr
+                      key={item.kode}
+                      className="border-b border-slate-100 text-slate-700 transition-colors hover:bg-slate-50"
+                    >
+                      <td className="px-3 py-2.5">
+                        <span
+                          aria-label={`Warna kelas ${item.kode}`}
+                          className="block h-5 w-5 rounded-sm border border-black/10"
+                          style={{ backgroundColor: item.color }}
+                        />
+                      </td>
+                      <td className="px-3 py-2.5 font-medium">{item.kode}</td>
+                      <td className="px-3 py-2.5 text-center">{item.kedalaman}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">
+                        {formatLuasGambut(lahanGambutStats.luasPerKode[item.kode] || 0)}
+                      </td>
+                    </tr>
+                  ))}
+                  {lahanGambutLegendAktif.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-3 py-6 text-center text-slate-500">
+                        Tidak ada kelas lahan gambut pada area yang dipilih
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         );
+      }
 
       case "listings":
         if (kejadianListings.length > 0) {
@@ -14416,6 +14479,9 @@ if (
     return () => window.clearInterval(interval);
   }, []);
 
+  // GPS Current Location dinonaktifkan sementara khusus halaman Kerawanan.
+  const GPS_CURRENT_LOCATION_ENABLED = false;
+
   const [gpsLocation, setGpsLocation] = useState<GpsLocationState>({
     loading: false,
     error: "",
@@ -14430,7 +14496,7 @@ if (
     displayName: "",
     updatedAt: null,
   });
-  const [gpsPopupOpen, setGpsPopupOpen] = useState(true);
+  const [gpsPopupOpen, setGpsPopupOpen] = useState(false);
   const [gpsThreats, setGpsThreats] = useState<GpsThreatState>({
     loading: false,
     error: "",
@@ -14532,6 +14598,8 @@ if (
   };
 
   const detectCurrentGpsLocation = () => {
+    if (!GPS_CURRENT_LOCATION_ENABLED) return;
+
     if (!navigator.geolocation) {
       setGpsLocation((prev) => ({
         ...prev,
@@ -14729,7 +14797,7 @@ if (
   };
 
   useEffect(() => {
-    detectCurrentGpsLocation();
+    if (GPS_CURRENT_LOCATION_ENABLED) detectCurrentGpsLocation();
   }, []);
 
   const selectedRegionName =
@@ -19292,7 +19360,7 @@ if (
       )}
 
       {/* GPS Current Location — info card di tengah area peta */}
-      {gpsPopupOpen && (
+      {GPS_CURRENT_LOCATION_ENABLED && gpsPopupOpen && (
         <div className="absolute left-1/2 top-1/2 z-[1900] w-[calc(100vw-2rem)] max-w-[360px] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-2xl">
           <div className="flex items-start justify-between gap-3 bg-gradient-to-r from-emerald-700 to-teal-600 px-4 py-3 text-white">
             <div className="min-w-0">
