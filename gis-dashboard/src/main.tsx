@@ -76,6 +76,7 @@ import LokasiSaya from "./views/gis/LokasiSaya";
 import Kerawanan from "./Kerawanan";
 import Kebencanaan from "./Kejadian";
 import DetailKejadian from "./detailKejadian";
+import DetailKejadianDummy from "./DetailKejadianDummy";
 
 // ======================================================
 // SPATIAL DATA
@@ -156,6 +157,7 @@ createRoot(rootElement).render(
 
             <Route path="/kebencanaan" element={<Kebencanaan />} />
             <Route path="/kejadian" element={<Datakejadian />} />
+            <Route path="/detail-kejadian-dummy/:id" element={<DetailKejadianDummy />} />
 
             {/* ==================================================
                 WEBGIS COMMAND CENTER
