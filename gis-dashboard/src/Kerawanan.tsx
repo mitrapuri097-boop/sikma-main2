@@ -12683,20 +12683,32 @@ if (
       case "sumur_bor":
         if (activeLayers.has("sumur_bor")) {
           return (
-            <div className="p-3 flex items-center gap-3 h-full">
-              <span
-                className="inline-flex items-center justify-center text-xl"
-                style={{ color: "#1976D2", width: "32px" }}
-              >
-                ●
-              </span>
-              <div>
-                <p className="text-sm font-semibold text-gray-700">
-                  Sumur Bor
-                </p>
-                <p className="text-xs text-gray-500">
-                  Titik lokasi sumur bor dari GeoServer WMS
-                </p>
+            <div className="p-3 h-full flex flex-col">
+              <div className="overflow-auto flex-1">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-white z-10">
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: "50px" }}>
+                        No
+                      </th>
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white" style={{ width: "100px" }}>
+                        Warna Layer
+                      </th>
+                      <th className="text-left py-2 px-2 font-medium text-gray-600 bg-white">
+                        Kelas
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-gray-100">
+                      <td className="py-2 px-2 text-gray-700">1</td>
+                      <td className="py-2 px-2">
+                        <span className="inline-block w-8 h-4 rounded border border-blue-300" style={{ backgroundColor: "#1976D2" }} />
+                      </td>
+                      <td className="py-2 px-2 text-gray-700">Lokasi Sumur Bor</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           );
@@ -13518,8 +13530,21 @@ if (
       case "risiko_abrasi":
       case "risiko_longsor":
       case "risiko_karhutla": {
-        const risikoLayerData =
+        const risikoLayerDataRaw =
           risikoData[activeBottomTab as keyof typeof risikoData] || [];
+        // Urutan legenda risiko selalu dari tingkat tertinggi ke terendah.
+        // Kelas tambahan yang memang ada di sumber data tetap ditampilkan setelah kelas baku.
+        const riskClassOrder = ["Sangat Tinggi", "Tinggi", "Sedang", "Rendah"];
+        const risikoLayerData = [...risikoLayerDataRaw].sort((a: any, b: any) => {
+          const aIndex = riskClassOrder.indexOf(String(a.kelas || ""));
+          const bIndex = riskClassOrder.indexOf(String(b.kelas || ""));
+          if (aIndex !== -1 || bIndex !== -1) {
+            if (aIndex === -1) return 1;
+            if (bIndex === -1) return -1;
+            return aIndex - bIndex;
+          }
+          return String(a.kelas || "").localeCompare(String(b.kelas || ""), "id");
+        });
         const labelMap: Record<string, string> = {
           risiko_banjir: "Risiko Banjir",
           risiko_banjir_bandang: "Risiko Banjir Bandang",
@@ -13549,12 +13574,6 @@ if (
                       </th>
                       <th className="text-left py-1 px-2 font-medium text-gray-600 bg-white">
                         Kelas
-                      </th>
-                      <th
-                        className="text-left py-1 px-2 font-medium text-gray-600 bg-white"
-                        style={{ width: "140px" }}
-                      >
-                        Luas (Ha)
                       </th>
                     </tr>
                   </thead>
@@ -13626,9 +13645,6 @@ if (
                         </td>
                         <td className="py-1 px-2 text-gray-700 break-words">
                           {item.kelas || "-"}
-                        </td>
-                        <td className="py-1 px-2 text-gray-700">
-                          {item.luas ? item.luas.toFixed(2) : "0"}
                         </td>
                       </tr>
                       );
