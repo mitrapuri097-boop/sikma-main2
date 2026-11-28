@@ -20369,70 +20369,115 @@ app.get("/api/location-proximity", async (req, res) => {
     const riskLevel = riskStatus;
 
     // ========================================================
-    // 4. LOKASI KEGIATAN / MITIGASI
-    //
-    // TETAP independent dari threat.
-    // Sumber tetap:
-    //   lokasi_kegiatan
+    // 4. OBJEK MITIGASI & ADAPTASI TERDEKAT
+    // Sumber katalog: layer_metadata.section = mitigasiAdaptasi
+    // Hanya layer published dengan kolom geometry yang valid.
     // ========================================================
-
     let mitigations = [];
 
     try {
-      await ensureLokasiKegiatanTable();
+      const layerResult = await pool.query(`
+        SELECT id, table_name, section
+        FROM public.layer_metadata
+        WHERE section = 'mitigasiAdaptasi'
+          AND status = 'published'
+        ORDER BY created_at DESC, id DESC
+      `);
 
-      const mitigationResult = await pool.query(
-        `
-          SELECT
-            id,
-            kode,
-            nama_kegiatan,
-            jenis_kegiatan,
-            status,
-            instansi_pelaksana,
-            provinsi,
-            kabupaten_kota,
-            kecamatan,
-            desa_kelurahan,
-            latitude,
-            longitude,
+      const layerNames = (layerResult.rows || [])
+        .map((row) => String(row.table_name || '').trim())
+        .filter((name) => /^[A-Za-z0-9_]+$/.test(name));
 
-            ROUND(
-              ST_Distance(
-                geom::geography,
-                ${point}::geography
-              )
-            )::bigint AS distance_meters
+      if (layerNames.length) {
+        const geometryResult = await pool.query(`
+          SELECT table_name, column_name
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = ANY($1::text[])
+            AND udt_name = 'geometry'
+          ORDER BY table_name,
+            CASE WHEN column_name = 'geom_valid' THEN 1
+                 WHEN column_name = 'geom' THEN 2 ELSE 3 END,
+            ordinal_position
+        `, [layerNames]);
 
-          FROM public.lokasi_kegiatan
+        const geometryByTable = new Map();
+        for (const meta of geometryResult.rows || []) {
+          if (!geometryByTable.has(meta.table_name)) {
+            geometryByTable.set(meta.table_name, meta.column_name);
+          }
+        }
 
-          WHERE geom IS NOT NULL
-
-          ORDER BY
-            geom <-> ${point}
-
-          LIMIT $3
-        `,
-        [latitude, longitude, mitigationLimit],
-      );
-
-      mitigations = mitigationResult.rows.map((row) => ({
-        ...row,
-
-        latitude: row.latitude !== null ? Number(row.latitude) : null,
-        longitude: row.longitude !== null ? Number(row.longitude) : null,
-
-        distanceMeters:
-          row.distance_meters !== null ? Number(row.distance_meters) : null,
-      }));
-
-      console.log(`ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ [LOCATION PROXIMITY] Mitigations: ${mitigations.length}`);
+        const searchRadiusDeg = Math.max(0.01, radiusMeters / 80000);
+        const layerResults = await runRiskLayersWithLimit(
+          layerResult.rows.filter((layer) => geometryByTable.has(layer.table_name)),
+          2,
+          async (layer) => {
+            try {
+              const tableName = String(layer.table_name || '').trim();
+              const geometryColumn = geometryByTable.get(tableName);
+              if (!/^[A-Za-z0-9_]+$/.test(tableName) || !/^[A-Za-z0-9_]+$/.test(String(geometryColumn || ''))) return [];
+              const quotedTable = `"${tableName}"`;
+              const quotedGeometry = `"${geometryColumn}"`;
+              const normalizedGeometry = `(CASE
+                WHEN ST_SRID(t.${quotedGeometry}) = 0 THEN ST_SetSRID(t.${quotedGeometry}, 4326)
+                WHEN ST_SRID(t.${quotedGeometry}) = 4326 THEN t.${quotedGeometry}
+                ELSE ST_Transform(t.${quotedGeometry}, 4326)
+              END)`;
+              const query = `
+                SELECT
+                  t.ctid::text AS feature_id,
+                  COALESCE(
+                    NULLIF(to_jsonb(t)->>'nama', ''),
+                    NULLIF(to_jsonb(t)->>'name', ''),
+                    NULLIF(to_jsonb(t)->>'nama_objek', ''),
+                    NULLIF(to_jsonb(t)->>'nama_infrastruktur', ''),
+                    NULLIF(to_jsonb(t)->>'nama_bangunan', ''),
+                    NULLIF(to_jsonb(t)->>'waduk', ''),
+                    NULLIF(to_jsonb(t)->>'situ', ''),
+                    NULLIF(to_jsonb(t)->>'embung', ''),
+                    NULLIF(to_jsonb(t)->>'keterangan', ''),
+                    $4::text
+                  ) AS feature_name,
+                  ROUND(ST_Distance(${normalizedGeometry}::geography, ${point}::geography))::bigint AS distance_meters,
+                  ST_Y(ST_PointOnSurface(${normalizedGeometry})) AS latitude,
+                  ST_X(ST_PointOnSurface(${normalizedGeometry})) AS longitude,
+                  COALESCE(to_jsonb(t)->>'jenis', to_jsonb(t)->>'jenis_objek', to_jsonb(t)->>'kategori', '') AS feature_type
+                FROM public.${quotedTable} t
+                WHERE t.${quotedGeometry} IS NOT NULL
+                  AND (
+                    ST_SRID(t.${quotedGeometry}) NOT IN (0, 4326)
+                    OR t.${quotedGeometry} && ST_Expand(${point}, ${searchRadiusDeg})
+                  )
+                  AND ST_DWithin(${normalizedGeometry}::geography, ${point}::geography, $3)
+                ORDER BY ${normalizedGeometry} <-> ${point}
+                LIMIT $5
+              `;
+              const result = await pool.query(query, [latitude, longitude, radiusMeters, tableName, mitigationLimit]);
+              return (result.rows || []).map((row) => ({
+                id: `${layer.id}:${row.feature_id}`,
+                layerId: String(layer.id),
+                layerName: tableName,
+                title: row.feature_name || tableName,
+                type: row.feature_type || null,
+                latitude: row.latitude == null ? null : Number(row.latitude),
+                longitude: row.longitude == null ? null : Number(row.longitude),
+                distanceMeters: row.distance_meters == null ? null : Number(row.distance_meters),
+                source: `layer_metadata:${tableName}`,
+              }));
+            } catch (layerError) {
+              console.warn(`[LOCATION PROXIMITY] Mitigation layer ${layer.table_name} dilewati:`, layerError.message);
+              return [];
+            }
+          },
+        );
+        mitigations = layerResults.flat()
+          .sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity))
+          .slice(0, mitigationLimit);
+      }
+      console.log(`[LOCATION PROXIMITY] Published mitigation features: ${mitigations.length}`);
     } catch (error) {
-      console.warn(
-        "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¯ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â [LOCATION PROXIMITY] Mitigation query skipped:",
-        error.message,
-      );
-
+      console.warn('[LOCATION PROXIMITY] Mitigation catalog query skipped:', error.message);
       mitigations = [];
     }
 
@@ -20689,7 +20734,7 @@ function readJsonEnv(name, fallback = []) {
   }
 }
 
-function getBnpbConfig() {
+function getBnpbConfig({ includeSafeSearch = true } = {}) {
   const serviceUrl = String(process.env.BNPB_RISK_SERVICE_URL || "")
     .trim()
     .replace(/\/$/, "");
@@ -20717,15 +20762,17 @@ function getBnpbConfig() {
   };
 
   if (
-    config.safeMaxScore == null ||
-    config.radiusMeters == null ||
-    config.stepMeters == null ||
-    config.bearingCount == null ||
-    config.maxPoints == null ||
-    config.radiusMeters <= 0 ||
-    config.stepMeters <= 0 ||
-    config.bearingCount < 4 ||
-    config.maxPoints < 1
+    includeSafeSearch && (
+      config.safeMaxScore == null ||
+      config.radiusMeters == null ||
+      config.stepMeters == null ||
+      config.bearingCount == null ||
+      config.maxPoints == null ||
+      config.radiusMeters <= 0 ||
+      config.stepMeters <= 0 ||
+      config.bearingCount < 4 ||
+      config.maxPoints < 1
+    )
   ) {
     throw new Error(
       "Konfigurasi pencarian titik aman BNPB tidak valid. Isi BNPB_SAFE_MAX_SCORE, BNPB_SAFE_SEARCH_RADIUS_METERS, BNPB_SAFE_SEARCH_STEP_METERS, BNPB_SAFE_SEARCH_BEARINGS, BNPB_SAFE_SEARCH_MAX_POINTS.",
@@ -20971,6 +21018,148 @@ const buildSafeSearchCandidates = (latitude, longitude, config) => {
   return points;
 };
 
+// ============================================================
+// SIMITI - BMKG OFFICIAL ACTIVE WEATHER WARNINGS (CAP/RSS)
+// Feed resmi BMKG: diperbarui setiap saat. Cache lokal 2 menit
+// untuk menghindari request berulang; bukan data simulasi.
+// ============================================================
+const bmkgAlertCache = new Map();
+const decodeBmkgXml = (value = "") => String(value)
+  .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+  .replace(/&amp;/g, "&").replace(/&lt;/g, "<")
+  .replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+  .replace(/&#39;/g, "'").trim();
+const bmkgXmlTag = (xml, tag) => {
+  const match = String(xml || "").match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  return match ? decodeBmkgXml(match[1]) : "";
+};
+
+app.get("/api/government/bmkg-alerts", async (req, res) => {
+  const province = String(req.query.province || "").trim();
+  const district = String(req.query.district || "").trim();
+  const regency = String(req.query.regency || "").trim();
+
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+
+  if (!province) {
+    return res.status(400).json({
+      success: false,
+      message: "Parameter province wajib diisi dari hasil identifikasi wilayah koordinat.",
+    });
+  }
+
+  const normalizeArea = (value) => String(value || "")
+    .toLocaleLowerCase("id-ID")
+    .replace(/\b(kabupaten|kab\.?|kota administrasi|kota)\b/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+
+  const provinceNorm = normalizeArea(province);
+  const districtNorm = normalizeArea(district);
+  const regencyNorm = normalizeArea(regency);
+  const cacheKey = `${provinceNorm}|${regencyNorm}|${districtNorm}`;
+  const cached = bmkgAlertCache.get(cacheKey);
+
+  if (cached && Date.now() - cached.savedAt < 2 * 60 * 1000) {
+    return res.json({
+      success: true,
+      source: "BMKG CAP/RSS",
+      cached: true,
+      matchedBy: cached.matchedBy,
+      fetchedAt: cached.fetchedAt,
+      feedUpdatedAt: cached.feedUpdatedAt,
+      data: cached.data,
+    });
+  }
+
+  try {
+    const feedResponse = await fetch("https://www.bmkg.go.id/alerts/nowcast/id", {
+      headers: { Accept: "application/rss+xml, application/xml, text/xml" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!feedResponse.ok) throw new Error(`BMKG RSS HTTP ${feedResponse.status}`);
+
+    const feedXml = await feedResponse.text();
+    const feedUpdatedAt = bmkgXmlTag(feedXml, "lastBuildDate") || null;
+    const itemBlocks = [...feedXml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)].map((m) => m[1]);
+    const selected = [];
+
+    for (const itemXml of itemBlocks) {
+      const title = bmkgXmlTag(itemXml, "title");
+      const link = bmkgXmlTag(itemXml, "link");
+      const description = bmkgXmlTag(itemXml, "description");
+      const rssText = normalizeArea(`${title} ${description}`);
+
+      if (!rssText.includes(provinceNorm) || !link) continue;
+
+      const capResponse = await fetch(link, {
+        headers: { Accept: "application/xml, text/xml" },
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!capResponse.ok) continue;
+
+      const capXml = await capResponse.text();
+      const areaBlocks = [...capXml.matchAll(/<area\b[^>]*>([\s\S]*?)<\/area>/gi)].map((m) => m[1]);
+      const areas = areaBlocks.map((area) => bmkgXmlTag(area, "areaDesc")).filter(Boolean);
+      const fullAreaText = areas.join(", ");
+      const capDescription = bmkgXmlTag(capXml, "description");
+      const locationText = normalizeArea(`${fullAreaText} ${capDescription}`);
+
+      // BMKG sering menerbitkan area pada tingkat kabupaten/kota, bukan kecamatan.
+      // Karena itu cocokkan kecamatan ATAU kabupaten/kota agar peringatan tingkat
+      // kabupaten tetap tampil untuk kecamatan di dalam wilayah tersebut.
+      const districtMatched = districtNorm && locationText.includes(districtNorm);
+      const regencyMatched = regencyNorm && locationText.includes(regencyNorm);
+      if ((districtNorm || regencyNorm) && !districtMatched && !regencyMatched) continue;
+
+      const expires = bmkgXmlTag(capXml, "expires") || null;
+      if (expires && Date.parse(expires) < Date.now()) continue;
+
+      selected.push({
+        id: bmkgXmlTag(capXml, "identifier") || link,
+        event: bmkgXmlTag(capXml, "event") || title,
+        headline: bmkgXmlTag(capXml, "headline") || title,
+        area: fullAreaText || capDescription || province,
+        description: capDescription || description,
+        effective: bmkgXmlTag(capXml, "effective") || null,
+        expires,
+        source: "BMKG",
+        url: link,
+      });
+    }
+
+    const fetchedAt = new Date().toISOString();
+    const matchedBy = selected.length
+      ? (selected.some((item) => normalizeArea(item.area).includes(regencyNorm)) ? "kabupaten/kota" : "kecamatan/provinsi")
+      : "no-match";
+    bmkgAlertCache.set(cacheKey, {
+      savedAt: Date.now(),
+      fetchedAt,
+      feedUpdatedAt,
+      matchedBy,
+      data: selected,
+    });
+
+    return res.json({
+      success: true,
+      source: "BMKG CAP/RSS",
+      cached: false,
+      matchedBy,
+      matchedLocation: { province, regency, district },
+      fetchedAt,
+      feedUpdatedAt,
+      data: selected,
+    });
+  } catch (error) {
+    console.error("[BMKG ALERTS]", error);
+    return res.status(502).json({
+      success: false,
+      source: "BMKG CAP/RSS",
+      message: error instanceof Error ? error.message : "Gagal mengambil feed BMKG.",
+    });
+  }
+});
+
 app.get("/api/location-bnpb", async (req, res) => {
   const latitude = Number(req.query.latitude);
   const longitude = Number(req.query.longitude);
@@ -20989,8 +21178,9 @@ app.get("/api/location-bnpb", async (req, res) => {
   }
 
   const startedAt = Date.now();
+  const includeSafeSearch = String(req.query.includeSafeSearch ?? "true").toLowerCase() !== "false";
   try {
-    const config = getBnpbConfig();
+    const config = getBnpbConfig({ includeSafeSearch });
     const disasterLayers = await identifyBnpbAtPoint(
       latitude,
       longitude,
@@ -21045,35 +21235,40 @@ app.get("/api/location-bnpb", async (req, res) => {
         source: item.source,
       }));
 
-    const candidates = buildSafeSearchCandidates(latitude, longitude, config);
+    // Cek Lokasi Saya hanya memerlukan identifikasi titik GPS.
+    // Pencarian titik aman radial tetap aktif secara default untuk caller lama,
+    // tetapi dapat dilewati agar permintaan dashboard tidak melakukan banyak identify.
     let safeLocation = null;
     let checked = 0;
 
-    for (const candidate of candidates) {
-      const layers = await identifyBnpbAtPoint(
-        candidate.latitude,
-        candidate.longitude,
-        config,
-      );
-      checked += 1;
-      const safe = isBnpbSafePoint(layers, config);
-      if (safe) {
-        safeLocation = {
-          latitude: candidate.latitude,
-          longitude: candidate.longitude,
-          distanceMeters: candidate.distanceMeters,
-          bearingDegrees: candidate.bearingDegrees,
-          safe: true,
-          verified: true,
-          layers: layers.map((item) => ({
-            key: item.key,
-            label: item.label,
-            class: item.class,
-            score: item.score,
-            source: item.source,
-          })),
-        };
-        break;
+    if (includeSafeSearch) {
+      const candidates = buildSafeSearchCandidates(latitude, longitude, config);
+      for (const candidate of candidates) {
+        const layers = await identifyBnpbAtPoint(
+          candidate.latitude,
+          candidate.longitude,
+          config,
+        );
+        checked += 1;
+        const safe = isBnpbSafePoint(layers, config);
+        if (safe) {
+          safeLocation = {
+            latitude: candidate.latitude,
+            longitude: candidate.longitude,
+            distanceMeters: candidate.distanceMeters,
+            bearingDegrees: candidate.bearingDegrees,
+            safe: true,
+            verified: true,
+            layers: layers.map((item) => ({
+              key: item.key,
+              label: item.label,
+              class: item.class,
+              score: item.score,
+              source: item.source,
+            })),
+          };
+          break;
+        }
       }
     }
 
@@ -21116,6 +21311,7 @@ app.get("/api/location-bnpb", async (req, res) => {
         candidateCheckedCount: checked,
         maxPoints: config.maxPoints,
         safeMaxScore: config.safeMaxScore,
+        enabled: includeSafeSearch,
       },
       summary: {
         disasterCount: identifiedDisasters.length,

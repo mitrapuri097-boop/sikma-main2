@@ -50,6 +50,12 @@ export default function EnterpriseLayout() {
     location.pathname === "/gis" ||
     location.pathname.startsWith("/gis/");
 
+  const isLocationPage =
+    location.pathname === "/gis/lokasi-saya" ||
+    location.pathname === "/lokasi-saya";
+
+  const isWebGISCanvas = isWebGIS && !isLocationPage;
+
   const isRecommendation = location.pathname === "/rekomendasi";
 
   /* ==========================================================
@@ -235,13 +241,13 @@ export default function EnterpriseLayout() {
               min-w-0
               flex-1
               ${
-                isWebGIS
+                isWebGISCanvas
                   ? "overflow-hidden bg-[#07101D]"
                   : "overflow-y-auto overflow-x-hidden bg-[#F4F7FB]"
               }
             `}
           >
-            {isWebGIS ? (
+            {isWebGISCanvas ? (
               <div className="relative h-full min-h-0 w-full overflow-hidden">
                 <Outlet />
               </div>
